@@ -577,12 +577,75 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     /// Move window in a direction
+    /// Swaps the focused window with its sibling in the given direction
     pub fn move_in_direction(&mut self, direction: Direction) -> bool {
         if self.root.is_none() {
             return false;
         }
 
-        // TODO: Implement proper window movement
+        let focus_path = self.focus_path.clone();
+
+        // Strategy: similar to focus navigation, but swap windows instead
+        // Navigate up the focus path to find appropriate container
+        for depth in (0..focus_path.len()).rev() {
+            let parent_path = &focus_path[..depth];
+            let current_idx = if depth < focus_path.len() {
+                focus_path[depth]
+            } else {
+                continue;
+            };
+
+            if let Some(container) = self.get_container_at_path_mut(parent_path) {
+                // Check if this container's layout matches the direction
+                let layout_matches = match (container.layout, direction) {
+                    (Layout::SplitH, Direction::Left | Direction::Right) => true,
+                    (Layout::SplitV, Direction::Up | Direction::Down) => true,
+                    (Layout::Tabbed | Layout::Stacked, _) => true,
+                    _ => false,
+                };
+
+                if !layout_matches {
+                    continue;
+                }
+
+                // Calculate target index
+                let child_count = container.children.len();
+                let target_idx = match direction {
+                    Direction::Left | Direction::Up => {
+                        if current_idx > 0 {
+                            Some(current_idx - 1)
+                        } else {
+                            None
+                        }
+                    }
+                    Direction::Right | Direction::Down => {
+                        if current_idx + 1 < child_count {
+                            Some(current_idx + 1)
+                        } else {
+                            None
+                        }
+                    }
+                };
+
+                if let Some(target_idx) = target_idx {
+                    // Swap children
+                    container.children.swap(current_idx, target_idx);
+
+                    // Update focus_path to follow the moved window
+                    self.focus_path.truncate(depth);
+                    self.focus_path.push(target_idx);
+                    self.focus_to_first_leaf_from_path();
+
+                    // Update container's focused_idx
+                    if let Some(container) = self.get_container_at_path_mut(parent_path) {
+                        container.set_focused_idx(target_idx);
+                    }
+
+                    return true;
+                }
+            }
+        }
+
         false
     }
 
