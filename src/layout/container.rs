@@ -69,6 +69,8 @@ pub struct Container<W: LayoutElement> {
 pub struct ContainerTree<W: LayoutElement> {
     /// Root node of the tree
     root: Option<Node<W>>,
+    /// Path to currently focused node (indices from root to leaf)
+    focus_path: Vec<usize>,
     /// View size (output size)
     view_size: Size<f64, Logical>,
     /// Working area (view_size minus gaps/bars)
@@ -293,6 +295,7 @@ impl<W: LayoutElement> ContainerTree<W> {
     ) -> Self {
         Self {
             root: None,
+            focus_path: Vec::new(),
             view_size,
             working_area,
             scale,
@@ -333,6 +336,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         if self.root.is_none() {
             // First window - create root leaf
             self.root = Some(Node::leaf(tile));
+            self.focus_path = vec![];
         } else {
             // TODO: Implement proper insertion based on focus and split direction
             // For now, create a horizontal split at root
@@ -340,7 +344,9 @@ impl<W: LayoutElement> ContainerTree<W> {
             let mut container = Container::new(Layout::SplitH);
             container.add_child(old_root);
             container.add_child(Node::leaf(tile));
+            container.set_focused_idx(1); // Focus new window
             self.root = Some(Node::Container(container));
+            self.focus_path = vec![1]; // Focus new window
         }
     }
 
@@ -380,39 +386,30 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Get the currently focused window
     pub fn focused_window(&self) -> Option<&W> {
-        self.root.as_ref().and_then(|root| {
-            Self::focused_window_in_node(root)
-        })
-    }
-
-    /// Helper: get focused window from a node
-    fn focused_window_in_node(node: &Node<W>) -> Option<&W> {
-        match node {
-            Node::Leaf(tile) => Some(tile.window()),
-            Node::Container(container) => {
-                container.focused_child()
-                    .and_then(|child| Self::focused_window_in_node(child))
-            }
-        }
+        let node = self.get_node_at_path(&self.focus_path)?;
+        node.window()
     }
 
     /// Get the currently focused window (mutable)
     pub fn focused_window_mut(&mut self) -> Option<&mut W> {
-        self.root.as_mut().and_then(|root| {
-            Self::focused_window_in_node_mut(root)
-        })
+        let path = self.focus_path.clone();
+        self.get_node_at_path_mut(&path)?.window_mut()
     }
 
-    /// Helper: get focused window from a node (mutable)
-    fn focused_window_in_node_mut(node: &mut Node<W>) -> Option<&mut W> {
-        match node {
-            Node::Leaf(tile) => Some(tile.window_mut()),
-            Node::Container(container) => {
-                let idx = container.focused_idx;
-                container.children.get_mut(idx)
-                    .and_then(|child| Self::focused_window_in_node_mut(child))
+    /// Helper: get node at path (mutable)
+    fn get_node_at_path_mut(&mut self, path: &[usize]) -> Option<&mut Node<W>> {
+        let mut current = self.root.as_mut()?;
+
+        for &idx in path {
+            match current {
+                Node::Container(container) => {
+                    current = container.children.get_mut(idx)?;
+                }
+                Node::Leaf(_) => return None,
             }
         }
+
+        Some(current)
     }
 
     /// Update view size and working area
@@ -445,9 +442,138 @@ impl<W: LayoutElement> ContainerTree<W> {
             return false;
         }
 
-        // TODO: Implement proper directional focus
-        // For now, simple implementation within containers
+        // Clone focus_path to avoid borrow checker issues
+        let focus_path_clone = self.focus_path.clone();
+
+        // Strategy: navigate within the parent container that matches the direction
+        // For horizontal directions (Left/Right), look for SplitH parent
+        // For vertical directions (Up/Down), look for SplitV parent
+
+        // Navigate up the focus path to find appropriate container
+        for depth in (0..focus_path_clone.len()).rev() {
+            let parent_path = &focus_path_clone[..depth];
+            let current_idx = if depth < focus_path_clone.len() {
+                focus_path_clone[depth]
+            } else {
+                continue;
+            };
+
+            if let Some(container) = self.get_container_at_path_mut(parent_path) {
+                // Check if this container's layout matches the direction
+                let layout_matches = match (container.layout, direction) {
+                    (Layout::SplitH, Direction::Left | Direction::Right) => true,
+                    (Layout::SplitV, Direction::Up | Direction::Down) => true,
+                    (Layout::Tabbed | Layout::Stacked, _) => true, // Can navigate in tabbed/stacked
+                    _ => false,
+                };
+
+                if !layout_matches {
+                    continue;
+                }
+
+                // Try to move in the direction
+                let child_count = container.children.len();
+                let new_idx = match direction {
+                    Direction::Left | Direction::Up => {
+                        if current_idx > 0 {
+                            Some(current_idx - 1)
+                        } else {
+                            None
+                        }
+                    }
+                    Direction::Right | Direction::Down => {
+                        if current_idx + 1 < child_count {
+                            Some(current_idx + 1)
+                        } else {
+                            None
+                        }
+                    }
+                };
+
+                if let Some(new_idx) = new_idx {
+                    // Update focus to new sibling
+                    container.set_focused_idx(new_idx);
+
+                    // Update focus_path: truncate at depth and add new path to first leaf
+                    self.focus_path.truncate(depth);
+                    self.focus_path.push(new_idx);
+                    self.focus_to_first_leaf_from_path();
+                    return true;
+                }
+            }
+        }
+
         false
+    }
+
+    /// Helper: navigate to first leaf from current focus_path
+    fn focus_to_first_leaf_from_path(&mut self) {
+        let mut current_path = self.focus_path.clone();
+
+        loop {
+            if let Some(node) = self.get_node_at_path(&current_path) {
+                match node {
+                    Node::Leaf(_) => {
+                        // Reached a leaf, update focus_path
+                        self.focus_path = current_path;
+                        return;
+                    }
+                    Node::Container(container) => {
+                        if container.children.is_empty() {
+                            return;
+                        }
+                        // Navigate to focused child
+                        current_path.push(container.focused_idx);
+                    }
+                }
+            } else {
+                return;
+            }
+        }
+    }
+
+    /// Helper: get node at path
+    fn get_node_at_path(&self, path: &[usize]) -> Option<&Node<W>> {
+        let mut current = self.root.as_ref()?;
+
+        for &idx in path {
+            match current {
+                Node::Container(container) => {
+                    current = container.children.get(idx)?;
+                }
+                Node::Leaf(_) => return None,
+            }
+        }
+
+        Some(current)
+    }
+
+    /// Helper: get container at path (mutable)
+    fn get_container_at_path_mut(&mut self, path: &[usize]) -> Option<&mut Container<W>> {
+        if path.is_empty() {
+            // Root
+            return self.root.as_mut()?.as_container_mut();
+        }
+
+        let mut current = self.root.as_mut()?;
+
+        for &idx in &path[..path.len()-1] {
+            match current {
+                Node::Container(container) => {
+                    current = container.children.get_mut(idx)?;
+                }
+                Node::Leaf(_) => return None,
+            }
+        }
+
+        // Get final container
+        match current {
+            Node::Container(container) => {
+                let last_idx = *path.last()?;
+                container.children.get_mut(last_idx)?.as_container_mut()
+            }
+            Node::Leaf(_) => None,
+        }
     }
 
     /// Move window in a direction
