@@ -43,14 +43,15 @@ pub enum Trigger {
     MouseMiddle,
     MouseBack,
     MouseForward,
-    WheelScrollDown,
-    WheelScrollUp,
-    WheelScrollLeft,
-    WheelScrollRight,
-    TouchpadScrollDown,
-    TouchpadScrollUp,
-    TouchpadScrollLeft,
-    TouchpadScrollRight,
+    // TODO i3-conversion: Re-enable if needed for i3-style scrolling
+    // WheelScrollDown,
+    // WheelScrollUp,
+    // WheelScrollLeft,
+    // WheelScrollRight,
+    // TouchpadScrollDown,
+    // TouchpadScrollUp,
+    // TouchpadScrollLeft,
+    // TouchpadScrollRight,
 }
 
 bitflags! {
@@ -988,22 +989,23 @@ impl FromStr for Key {
             Trigger::MouseBack
         } else if key.eq_ignore_ascii_case("MouseForward") {
             Trigger::MouseForward
-        } else if key.eq_ignore_ascii_case("WheelScrollDown") {
-            Trigger::WheelScrollDown
-        } else if key.eq_ignore_ascii_case("WheelScrollUp") {
-            Trigger::WheelScrollUp
-        } else if key.eq_ignore_ascii_case("WheelScrollLeft") {
-            Trigger::WheelScrollLeft
-        } else if key.eq_ignore_ascii_case("WheelScrollRight") {
-            Trigger::WheelScrollRight
-        } else if key.eq_ignore_ascii_case("TouchpadScrollDown") {
-            Trigger::TouchpadScrollDown
-        } else if key.eq_ignore_ascii_case("TouchpadScrollUp") {
-            Trigger::TouchpadScrollUp
-        } else if key.eq_ignore_ascii_case("TouchpadScrollLeft") {
-            Trigger::TouchpadScrollLeft
-        } else if key.eq_ignore_ascii_case("TouchpadScrollRight") {
-            Trigger::TouchpadScrollRight
+        // TODO i3-conversion: Re-enable scroll triggers if needed
+        // } else if key.eq_ignore_ascii_case("WheelScrollDown") {
+        //     Trigger::WheelScrollDown
+        // } else if key.eq_ignore_ascii_case("WheelScrollUp") {
+        //     Trigger::WheelScrollUp
+        // } else if key.eq_ignore_ascii_case("WheelScrollLeft") {
+        //     Trigger::WheelScrollLeft
+        // } else if key.eq_ignore_ascii_case("WheelScrollRight") {
+        //     Trigger::WheelScrollRight
+        // } else if key.eq_ignore_ascii_case("TouchpadScrollDown") {
+        //     Trigger::TouchpadScrollDown
+        // } else if key.eq_ignore_ascii_case("TouchpadScrollUp") {
+        //     Trigger::TouchpadScrollUp
+        // } else if key.eq_ignore_ascii_case("TouchpadScrollLeft") {
+        //     Trigger::TouchpadScrollLeft
+        // } else if key.eq_ignore_ascii_case("TouchpadScrollRight") {
+        //     Trigger::TouchpadScrollRight
         } else {
             let mut keysym = keysym_from_name(key, KEYSYM_CASE_INSENSITIVE);
             // The keyboard event handling code can receive either

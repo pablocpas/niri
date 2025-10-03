@@ -1,3 +1,7 @@
+// TODO i3-conversion: This file implements view offset gestures for scrolling layout
+// Disabled for i3-conversion - will be replaced with i3-style workspace switching
+
+/*
 use std::time::Duration;
 
 use smithay::input::pointer::{
@@ -8,26 +12,22 @@ use smithay::input::pointer::{
 };
 use smithay::input::SeatHandler;
 use smithay::output::Output;
-use smithay::utils::{Logical, Point, SERIAL_COUNTER};
+use smithay::utils::{Logical, Point};
 
 use crate::layout::workspace::WorkspaceId;
 use crate::niri::State;
-use crate::utils::get_monotonic_time;
+*/
 
+/*
 pub struct SpatialMovementGrab {
     start_data: PointerGrabStartData<State>,
     last_location: Point<f64, Logical>,
     output: Output,
     workspace_id: WorkspaceId,
     gesture: GestureState,
-
-    // Accumulated and applied in frame().
-    new_location: Point<f64, Logical>,
-    event_timestamp: Option<Duration>,
-    relative_delta: Option<Point<f64, Logical>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 enum GestureState {
     Recognizing,
     ViewOffset,
@@ -41,7 +41,6 @@ impl SpatialMovementGrab {
         workspace_id: WorkspaceId,
         is_view_offset: bool,
     ) -> Self {
-        let location = start_data.location;
         let gesture = if is_view_offset {
             GestureState::ViewOffset
         } else {
@@ -49,40 +48,52 @@ impl SpatialMovementGrab {
         };
 
         Self {
-            last_location: location,
+            last_location: start_data.location,
             start_data,
             output,
             workspace_id,
             gesture,
-            new_location: location,
-            event_timestamp: None,
-            relative_delta: None,
         }
     }
 
-    pub fn view_offset_output(&self) -> Option<&Output> {
-        (self.gesture == GestureState::ViewOffset).then_some(&self.output)
-    }
-
-    pub fn workspace_switch_output(&self) -> Option<&Output> {
-        (self.gesture == GestureState::WorkspaceSwitch).then_some(&self.output)
-    }
-
-    fn on_frame(&mut self, data: &mut State) -> bool {
-        let Some(timestamp) = self.event_timestamp.take() else {
-            return true;
+    fn on_ungrab(&mut self, state: &mut State) {
+        let layout = &mut state.niri.layout;
+        let res = match self.gesture {
+            GestureState::Recognizing => None,
+            GestureState::ViewOffset => layout.view_offset_gesture_end(Some(false)),
+            GestureState::WorkspaceSwitch => layout.workspace_switch_gesture_end(Some(false)),
         };
 
-        let delta = self
-            .relative_delta
-            .take()
-            .unwrap_or(self.new_location - self.last_location);
-        self.last_location = self.new_location;
+        if let Some(output) = res {
+            state.niri.queue_redraw(&output);
+        }
+
+        state
+            .niri
+            .cursor_manager
+            .set_cursor_image(CursorImageStatus::default_named());
+    }
+}
+
+impl PointerGrab<State> for SpatialMovementGrab {
+    fn motion(
+        &mut self,
+        data: &mut State,
+        handle: &mut PointerInnerHandle<'_, State>,
+        _focus: Option<(<State as SeatHandler>::PointerFocus, Point<f64, Logical>)>,
+        event: &MotionEvent,
+    ) {
+        // While the grab is active, no client has pointer focus.
+        handle.motion(data, None, event);
+
+        let timestamp = Duration::from_millis(u64::from(event.time));
+        let delta = event.location - self.last_location;
+        self.last_location = event.location;
 
         let layout = &mut data.niri.layout;
         let res = match self.gesture {
             GestureState::Recognizing => {
-                let c = self.new_location - self.start_data.location;
+                let c = event.location - self.start_data.location;
 
                 // Check if the gesture moved far enough to decide. Threshold copied from GTK 4.
                 if c.x * c.x + c.y * c.y >= 8. * 8. {
@@ -119,47 +130,9 @@ impl SpatialMovementGrab {
             if let Some(output) = output {
                 data.niri.queue_redraw(&output);
             }
-            true
         } else {
-            false
-        }
-    }
-
-    fn on_ungrab(&mut self, state: &mut State) {
-        let layout = &mut state.niri.layout;
-        let res = match self.gesture {
-            GestureState::Recognizing => None,
-            GestureState::ViewOffset => layout.view_offset_gesture_end(Some(false)),
-            GestureState::WorkspaceSwitch => layout.workspace_switch_gesture_end(Some(false)),
-        };
-
-        if let Some(output) = res {
-            state.niri.queue_redraw(&output);
-        }
-
-        state
-            .niri
-            .cursor_manager
-            .set_cursor_image(CursorImageStatus::default_named());
-    }
-}
-
-impl PointerGrab<State> for SpatialMovementGrab {
-    fn motion(
-        &mut self,
-        data: &mut State,
-        handle: &mut PointerInnerHandle<'_, State>,
-        _focus: Option<(<State as SeatHandler>::PointerFocus, Point<f64, Logical>)>,
-        event: &MotionEvent,
-    ) {
-        // While the grab is active, no client has pointer focus.
-        handle.motion(data, None, event);
-
-        self.new_location = event.location;
-
-        // Relative motion takes precedense over normal motion.
-        if self.relative_delta.is_none() {
-            self.event_timestamp = Some(Duration::from_millis(u64::from(event.time)));
+            // The move is no longer ongoing.
+            handle.unset_grab(self, data, event.serial, event.time, true);
         }
     }
 
@@ -172,9 +145,6 @@ impl PointerGrab<State> for SpatialMovementGrab {
     ) {
         // While the grab is active, no client has pointer focus.
         handle.relative_motion(data, None, event);
-
-        *self.relative_delta.get_or_insert_default() += event.delta;
-        self.event_timestamp = Some(Duration::from_micros(event.utime));
     }
 
     fn button(
@@ -202,17 +172,6 @@ impl PointerGrab<State> for SpatialMovementGrab {
 
     fn frame(&mut self, data: &mut State, handle: &mut PointerInnerHandle<'_, State>) {
         handle.frame(data);
-
-        if !self.on_frame(data) {
-            // The gesture is no longer ongoing.
-            handle.unset_grab(
-                self,
-                data,
-                SERIAL_COUNTER.next_serial(),
-                get_monotonic_time().as_millis() as u32,
-                true,
-            );
-        }
     }
 
     fn gesture_swipe_begin(
@@ -295,3 +254,4 @@ impl PointerGrab<State> for SpatialMovementGrab {
         self.on_ungrab(data);
     }
 }
+*/
