@@ -458,6 +458,145 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.options = options;
     }
 
+    /// Number of root-level children (columns).
+    pub fn root_children_len(&self) -> usize {
+        match &self.root {
+            None => 0,
+            Some(Node::Leaf(_)) => 1,
+            Some(Node::Container(container)) => container.children.len(),
+        }
+    }
+
+    /// Index of currently focused root child, if any.
+    pub fn focused_root_index(&self) -> Option<usize> {
+        match &self.root {
+            None => None,
+            Some(Node::Leaf(_)) => Some(0),
+            Some(Node::Container(container)) => {
+                if self.focus_path.is_empty() {
+                    Some(container.focused_idx.min(container.children.len().saturating_sub(1)))
+                } else {
+                    Some(self.focus_path[0])
+                }
+            }
+        }
+    }
+
+    /// Focus root child at index, descending to the first leaf.
+    pub fn focus_root_child(&mut self, idx: usize) -> bool {
+        match &self.root {
+            None => false,
+            Some(Node::Leaf(_)) => {
+                if idx == 0 {
+                    self.focus_path.clear();
+                    true
+                } else {
+                    false
+                }
+            }
+            Some(Node::Container(container)) => {
+                if idx >= container.children.len() {
+                    return false;
+                }
+                self.focus_path = vec![idx];
+                self.focus_to_first_leaf_from_path();
+                true
+            }
+        }
+    }
+
+    /// Move a root child from one index to another, keeping focus consistent.
+    pub fn move_root_child(&mut self, from: usize, to: usize) -> bool {
+        let root_container = match self.root.as_mut() {
+            Some(Node::Container(container)) => container,
+            Some(Node::Leaf(_)) | None => return false,
+        };
+
+        if from >= root_container.children.len() || to >= root_container.children.len() {
+            return false;
+        }
+
+        let node = root_container.children.remove(from);
+        root_container.children.insert(to, node);
+        root_container.recalculate_percentages();
+
+        if let Some(first) = self.focus_path.get_mut(0) {
+            let current = *first;
+            if current == from {
+                *first = to;
+            } else if from < current && to >= current {
+                *first = current.saturating_sub(1);
+            } else if from > current && to <= current {
+                *first = current + 1;
+            }
+        } else {
+            self.focus_path = vec![root_container.focused_idx.min(
+                root_container.children.len().saturating_sub(1),
+            )];
+        }
+
+        root_container.set_focused_idx(
+            self.focus_path
+                .get(0)
+                .copied()
+                .unwrap_or(root_container.focused_idx),
+        );
+
+        self.focus_to_first_leaf_from_path();
+        true
+    }
+
+    /// Focus nth (1-based) leaf within the given root child.
+    pub fn focus_leaf_in_root_child(&mut self, child_idx: usize, leaf_idx: usize) -> bool {
+        if leaf_idx == 0 {
+            return false;
+        }
+        let mut paths = self.leaf_paths_under(&[child_idx]);
+        if paths.is_empty() {
+            return false;
+        }
+        if leaf_idx > paths.len() {
+            return false;
+        }
+        let path = paths.remove(leaf_idx - 1);
+        self.focus_path = path;
+        true
+    }
+
+    /// Focus the first leaf in the currently focused root child.
+    pub fn focus_top_in_current_column(&mut self) -> bool {
+        let idx = match self.focused_root_index() {
+            Some(idx) => idx,
+            None => return false,
+        };
+        self.focus_leaf_in_root_child(idx, 1)
+    }
+
+    /// Focus the last leaf in the currently focused root child.
+    pub fn focus_bottom_in_current_column(&mut self) -> bool {
+        let idx = match self.focused_root_index() {
+            Some(idx) => idx,
+            None => return false,
+        };
+        let paths = self.leaf_paths_under(&[idx]);
+        if let Some(path) = paths.last() {
+            self.focus_path = path.clone();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Collect leaf paths under a given prefix path.
+    pub fn leaf_paths_under(&self, prefix: &[usize]) -> Vec<Vec<usize>> {
+        let mut results = Vec::new();
+        let mut path = prefix.to_vec();
+        if let Some(node) = self.get_node_at_path(prefix) {
+            Self::collect_leaf_paths_from_node(node, &mut path, &mut results);
+        }
+        results
+    }
+
     /// Move focus in a direction
     pub fn focus_in_direction(&mut self, direction: Direction) -> bool {
         if self.root.is_none() {
@@ -526,6 +665,16 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
 
         false
+    }
+
+    /// Focus window by its ID if present.
+    pub fn focus_window_by_id(&mut self, window_id: &W::Id) -> bool {
+        if let Some(path) = self.find_window(window_id) {
+            self.focus_path = path;
+            true
+        } else {
+            false
+        }
     }
 
     /// Helper: navigate to first leaf from current focus_path
@@ -984,6 +1133,23 @@ impl<W: LayoutElement> ContainerTree<W> {
             Node::Container(container) => {
                 for child in &container.children {
                     Self::collect_tiles_from_node(child, tiles);
+                }
+            }
+        }
+    }
+
+    fn collect_leaf_paths_from_node(
+        node: &Node<W>,
+        path: &mut Vec<usize>,
+        results: &mut Vec<Vec<usize>>,
+    ) {
+        match node {
+            Node::Leaf(_) => results.push(path.clone()),
+            Node::Container(container) => {
+                for (idx, child) in container.children.iter().enumerate() {
+                    path.push(idx);
+                    Self::collect_leaf_paths_from_node(child, path, results);
+                    path.pop();
                 }
             }
         }
