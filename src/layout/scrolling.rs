@@ -148,6 +148,8 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         );
         // Insert into container tree
         self.tree.insert_window(tile);
+        // Recalculate layout
+        self.tree.layout();
     }
 
     pub fn remove_window(&mut self, window: &W) -> Option<RemovedTile<W>> {
@@ -203,6 +205,8 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         self.view_size = view_size;
         self.working_area = working_area;
         self.tree.set_view_size(view_size, working_area);
+        // Recalculate layout on resize
+        self.tree.layout();
     }
 
     pub fn advance_animations(&mut self) {}
