@@ -45,6 +45,8 @@ pub struct ScrollingSpace<W: LayoutElement> {
     clock: Clock,
     /// Layout options
     options: Rc<Options>,
+    /// Currently fullscreen window (if any)
+    fullscreen_window: Option<W::Id>,
 }
 
 niri_render_elements! {
@@ -261,6 +263,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
             scale,
             clock,
             options,
+            fullscreen_window: None,
         }
     }
 
@@ -330,6 +333,14 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         let window_id = window.id();
         let tile = self.tree.remove_window(&window_id)?;
 
+        if self
+            .fullscreen_window
+            .as_ref()
+            .is_some_and(|id| id == window_id)
+        {
+            self.fullscreen_window = None;
+        }
+
         // Create RemovedTile
         Some(RemovedTile {
             tile,
@@ -360,18 +371,31 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         let mut active_elements = Vec::new();
         let scale = Scale::from(self.scale);
         let focus_path = self.tree.focus_path();
+        let fullscreen_id = self.fullscreen_window.as_ref();
 
         for info in self.tree.leaf_layouts() {
-            if !info.visible {
-                continue;
-            }
-
             if let Some(tile) = self.tree.tile_at_path(&info.path) {
+                let is_fullscreen_tile = fullscreen_id
+                    .is_some_and(|id| id == tile.window().id());
+                let show_tile = fullscreen_id.map_or(info.visible, |_| is_fullscreen_tile);
+
+                if !show_tile {
+                    continue;
+                }
+
                 let mut pos = info.rect.loc + tile.render_offset();
                 pos = pos.to_physical_precise_round(scale).to_logical(scale);
+                if is_fullscreen_tile {
+                    pos = Point::from((0.0, 0.0));
+                }
+                if is_fullscreen_tile {
+                    pos = Point::from((0.0, 0.0));
+                }
+
                 let draw_focus = scrolling_focus_ring && info.path == focus_path;
 
-                let iter = tile.render(renderer, pos, draw_focus, target)
+                let iter = tile
+                    .render(renderer, pos, draw_focus, target)
                     .map(ScrollingSpaceRenderElement::from);
 
                 if info.path == focus_path {
@@ -425,14 +449,22 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         let workspace_view = Rectangle::from_size(self.view_size);
         let focus_path = self.tree.focus_path().to_vec();
         let scale = Scale::from(self.scale);
+        let fullscreen_id = self.fullscreen_window.as_ref();
 
         for info in layouts {
             if let Some(tile) = self.tree.tile_at_path_mut(&info.path) {
+                let is_fullscreen_tile = fullscreen_id
+                    .is_some_and(|id| id == tile.window().id());
+
                 let mut pos = info.rect.loc + tile.render_offset();
                 pos = pos.to_physical_precise_round(scale).to_logical(scale);
 
                 let mut tile_view_rect = workspace_view;
                 tile_view_rect.loc -= pos;
+
+                if is_fullscreen_tile {
+                    tile_view_rect = workspace_view;
+                }
 
                 Self::update_window_state(
                     tile,
@@ -442,9 +474,15 @@ impl<W: LayoutElement> ScrollingSpace<W> {
                     self.options.deactivate_unfocused_windows,
                     self.working_area.size,
                     &self.options,
+                    fullscreen_id,
+                    self.view_size,
                 );
 
-                tile.update_render_elements(is_active && info.visible, tile_view_rect);
+                let show_tile = fullscreen_id.map_or(info.visible, |_| is_fullscreen_tile);
+                if show_tile {
+                    let render_active = is_active && (info.visible || is_fullscreen_tile);
+                    tile.update_render_elements(render_active, tile_view_rect);
+                }
             }
         }
     }
@@ -739,6 +777,15 @@ pub fn toggle_column_tabbed_display(&mut self) {}
             .tree
             .remove_window(window)
             .expect("attempted to remove missing window");
+
+        if self
+            .fullscreen_window
+            .as_ref()
+            .is_some_and(|id| id == window)
+        {
+            self.fullscreen_window = None;
+        }
+
         RemovedTile {
             tile,
             width: ColumnWidth::default(),
@@ -748,7 +795,15 @@ pub fn toggle_column_tabbed_display(&mut self) {}
     }
     pub fn remove_active_tile(&mut self, transaction: Transaction) -> Option<RemovedTile<W>> {
         let id = self.tree.focused_tile()?.window().id().clone();
-        Some(self.remove_tile(&id, transaction))
+        let removed = self.remove_tile(&id, transaction);
+        if self
+            .fullscreen_window
+            .as_ref()
+            .is_some_and(|win_id| win_id == &id)
+        {
+            self.fullscreen_window = None;
+        }
+        Some(removed)
     }
     pub fn remove_active_column(&mut self) -> Option<Column<W>> { None }
 
@@ -889,13 +944,53 @@ pub fn toggle_column_tabbed_display(&mut self) {}
         }
     }
 
-    pub fn toggle_full_width(&mut self) {}
+    pub fn toggle_full_width(&mut self) {
+        let Some(tile) = self.tree.focused_tile() else {
+            return;
+        };
+        let id = tile.window().id().clone();
+        let currently_fullscreen = self
+            .fullscreen_window
+            .as_ref()
+            .is_some_and(|win_id| win_id == tile.window().id());
+        let _ = self.set_fullscreen(&id, !currently_fullscreen);
+    }
     pub fn toggle_window_height(&mut self, _window: Option<&W::Id>, _forwards: bool) {}
     pub fn toggle_window_width(&mut self, _window: Option<&W::Id>, _forwards: bool) {}
     pub fn set_window_width(&mut self, _window: Option<&W::Id>, _change: SizeChange) {}
     pub fn set_window_height(&mut self, _window: Option<&W::Id>, _change: SizeChange) {}
 
-    pub fn set_fullscreen(&mut self, _window: &W::Id, _is_fullscreen: bool) -> bool { false }
+    pub fn set_fullscreen(&mut self, window: &W::Id, is_fullscreen: bool) -> bool {
+        if is_fullscreen {
+            if self
+                .fullscreen_window
+                .as_ref()
+                .is_some_and(|id| id == window)
+            {
+                return false;
+            }
+
+            if !self.tree.focus_window_by_id(window) {
+                return false;
+            }
+
+            self.fullscreen_window = Some(window.clone());
+            self.tree.layout();
+            true
+        } else {
+            if self
+                .fullscreen_window
+                .as_ref()
+                .is_some_and(|id| id == window)
+            {
+                self.fullscreen_window = None;
+                self.tree.layout();
+                true
+            } else {
+                false
+            }
+        }
+    }
 
     pub fn center_column(&mut self) {}
     pub fn center_window(&mut self, _window: Option<&W::Id>) {}
@@ -916,6 +1011,7 @@ pub fn toggle_column_tabbed_display(&mut self) {}
     pub fn refresh(&mut self, is_active: bool, is_focused: bool) {
         let layouts = self.tree.leaf_layouts_cloned();
         let focus_path = self.tree.focus_path().to_vec();
+        let fullscreen_id = self.fullscreen_window.as_ref();
 
         for info in layouts {
             if let Some(tile) = self.tree.tile_at_path_mut(&info.path) {
@@ -929,6 +1025,8 @@ pub fn toggle_column_tabbed_display(&mut self) {}
                     deactivate_unfocused,
                     self.working_area.size,
                     &self.options,
+                    fullscreen_id,
+                    self.view_size,
                 );
             }
         }
@@ -961,32 +1059,56 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         deactivate_unfocused: bool,
         working_area_size: Size<f64, Logical>,
         options: &Options,
+        fullscreen_id: Option<&W::Id>,
+        view_size: Size<f64, Logical>,
     ) {
+        let window_id = tile.window().id().clone();
+        let is_focused_tile = info.path == focus_path;
+        let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == &window_id);
+
+        let target_size: Size<f64, Logical> = if is_fullscreen_tile {
+            view_size
+        } else {
+            Size::from((info.rect.size.w, info.rect.size.h))
+        };
+        tile.request_tile_size(target_size, false, None);
+
         let window = tile.window_mut();
 
-        let is_focused_tile = info.path == focus_path;
         let mut active = workspace_active && is_focused_tile;
-        if deactivate_unfocused {
+
+        if fullscreen_id.is_some() && !is_fullscreen_tile {
+            active = false;
+        } else if deactivate_unfocused {
             active &= info.visible;
         }
 
-        window.set_active_in_column(is_focused_tile);
+        let active_in_column = is_focused_tile && (fullscreen_id.is_none() || is_fullscreen_tile);
+
+        window.set_active_in_column(active_in_column);
         window.set_floating(false);
         window.set_activated(active);
         window.set_interactive_resize(None);
 
         let border_config = options.layout.border.merged_with(&window.rules().border);
-        let max_bounds = compute_toplevel_bounds(
-            border_config,
-            working_area_size,
-            Size::from((0.0, 0.0)),
-            options.layout.gaps,
-        );
-        let mut logical_bounds: Size<i32, Logical> =
-            Size::from((info.rect.size.w, info.rect.size.h)).to_i32_floor();
-        logical_bounds.w = logical_bounds.w.min(max_bounds.w);
-        logical_bounds.h = logical_bounds.h.min(max_bounds.h);
-        window.set_bounds(logical_bounds);
+
+        let bounds = if is_fullscreen_tile {
+            view_size.to_i32_floor()
+        } else {
+            let max_bounds = compute_toplevel_bounds(
+                border_config,
+                working_area_size,
+                Size::from((0.0, 0.0)),
+                options.layout.gaps,
+            );
+            let mut logical_bounds: Size<i32, Logical> =
+                Size::from((info.rect.size.w, info.rect.size.h)).to_i32_floor();
+            logical_bounds.w = logical_bounds.w.min(max_bounds.w);
+            logical_bounds.h = logical_bounds.h.min(max_bounds.h);
+            logical_bounds
+        };
+
+        window.set_bounds(bounds);
 
         match window.configure_intent() {
             ConfigureIntent::CanSend | ConfigureIntent::ShouldSend => {
