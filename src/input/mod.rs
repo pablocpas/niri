@@ -2797,6 +2797,8 @@ impl State {
         // Handle wheel scroll bindings.
         if source == AxisSource::Wheel {
             // If we have a scroll bind with current modifiers, then accumulate and don't pass to
+            // TODO i3-conversion: Wheel scroll handling disabled
+            /*
             // Wayland. If there's no bind, reset the accumulator.
             let mods = self.niri.seat.get_keyboard().unwrap().modifier_state();
             let modifiers = modifiers_from_state(mods);
@@ -2943,6 +2945,7 @@ impl State {
                 self.niri.horizontal_wheel_tracker.reset();
                 self.niri.vertical_wheel_tracker.reset();
             }
+            */
         }
 
         let horizontal_amount = event.amount(Axis::Horizontal);
@@ -3051,6 +3054,8 @@ impl State {
                 }
             }
 
+            // TODO i3-conversion: Touchpad scroll handling disabled
+            /*
             if self.niri.mods_with_finger_scroll_binds.contains(&modifiers) {
                 let ticks = self
                     .niri
@@ -3107,6 +3112,7 @@ impl State {
                 self.niri.horizontal_finger_scroll_tracker.reset();
                 self.niri.vertical_finger_scroll_tracker.reset();
             }
+            */
         }
 
         self.update_pointer_contents();
@@ -4622,6 +4628,8 @@ pub fn mods_with_mouse_binds(mod_key: ModKey, binds: &Binds) -> HashSet<Modifier
     )
 }
 
+// TODO i3-conversion: Scroll binds disabled
+/*
 pub fn mods_with_wheel_binds(mod_key: ModKey, binds: &Binds) -> HashSet<Modifiers> {
     mods_with_binds(
         mod_key,
@@ -4646,6 +4654,15 @@ pub fn mods_with_finger_scroll_binds(mod_key: ModKey, binds: &Binds) -> HashSet<
             Trigger::TouchpadScrollRight,
         ],
     )
+}
+*/
+
+pub fn mods_with_wheel_binds(_mod_key: ModKey, _binds: &Binds) -> HashSet<Modifiers> {
+    HashSet::new()
+}
+
+pub fn mods_with_finger_scroll_binds(_mod_key: ModKey, _binds: &Binds) -> HashSet<Modifiers> {
+    HashSet::new()
 }
 
 #[cfg(test)]

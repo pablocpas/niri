@@ -712,7 +712,7 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn add_column(&mut self, column: Column<W>, activate: bool) {
-        for (tile, _) in column.tiles() {
+        for tile in column.tiles() {
             self.enter_output_for_window(tile.window());
         }
 
@@ -780,7 +780,7 @@ impl<W: LayoutElement> Workspace<W> {
         let column = self.scrolling.remove_active_column()?;
 
         if let Some(output) = &self.output {
-            for (tile, _) in column.tiles() {
+            for tile in column.tiles() {
                 tile.window().output_leave(output);
             }
         }
@@ -900,7 +900,7 @@ impl<W: LayoutElement> Workspace<W> {
                     fixed += border.width * 2.;
                 }
 
-                ColumnWidth::Fixed(fixed)
+                ColumnWidth::Fixed(fixed as i32)
             }
             PresetSize::Proportion(prop) => ColumnWidth::Proportion(prop),
         }
