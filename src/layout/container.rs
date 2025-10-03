@@ -551,6 +551,71 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
         }
     }
+
+    /// Calculate and apply layout to the tree
+    /// This computes geometry for all containers and tiles
+    pub fn layout(&mut self) {
+        if let Some(root) = &mut self.root {
+            Self::layout_node(root, self.working_area, &self.options);
+        }
+    }
+
+    /// Helper: recursively layout a node
+    fn layout_node(node: &mut Node<W>, rect: Rectangle<f64, Logical>, options: &Options) {
+        match node {
+            Node::Leaf(tile) => {
+                // Set tile size to fill allocated rectangle
+                // TODO: Apply gaps from options
+                let size = Size::from((rect.size.w, rect.size.h));
+                tile.request_tile_size(size, false, None);
+                // Tiles will be updated by workspace
+            }
+            Node::Container(container) => {
+                container.set_geometry(rect);
+
+                if container.children.is_empty() {
+                    return;
+                }
+
+                match container.layout {
+                    Layout::SplitH => {
+                        // Horizontal split: divide width among children
+                        let child_count = container.children.len() as f64;
+                        let child_width = rect.size.w / child_count;
+
+                        for (idx, child) in container.children.iter_mut().enumerate() {
+                            let child_rect = Rectangle::from_loc_and_size(
+                                (rect.loc.x + (idx as f64 * child_width), rect.loc.y),
+                                (child_width, rect.size.h),
+                            );
+                            Self::layout_node(child, child_rect, options);
+                        }
+                    }
+                    Layout::SplitV => {
+                        // Vertical split: divide height among children
+                        let child_count = container.children.len() as f64;
+                        let child_height = rect.size.h / child_count;
+
+                        for (idx, child) in container.children.iter_mut().enumerate() {
+                            let child_rect = Rectangle::from_loc_and_size(
+                                (rect.loc.x, rect.loc.y + (idx as f64 * child_height)),
+                                (rect.size.w, child_height),
+                            );
+                            Self::layout_node(child, child_rect, options);
+                        }
+                    }
+                    Layout::Tabbed | Layout::Stacked => {
+                        // For tabbed/stacked, all children get full size
+                        // Only the focused child is actually visible
+                        // TODO: Reserve space for tab bar / title bars
+                        for child in container.children.iter_mut() {
+                            Self::layout_node(child, rect, options);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl Default for Layout {
