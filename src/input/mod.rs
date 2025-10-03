@@ -39,8 +39,8 @@ use touch_overview_grab::TouchOverviewGrab;
 
 use self::move_grab::MoveGrab;
 use self::resize_grab::ResizeGrab;
-use self::spatial_movement_grab::SpatialMovementGrab;
-use crate::layout::scrolling::ScrollDirection;
+// REMOVED for i3-conversion: use self::spatial_movement_grab::SpatialMovementGrab;
+// REMOVED for i3-conversion: use crate::layout::scrolling::ScrollDirection;
 use crate::layout::{ActivateWindow, LayoutElement as _};
 use crate::niri::{CastTarget, PointerVisibility, State};
 use crate::ui::screenshot_ui::ScreenshotUi;
@@ -52,8 +52,8 @@ pub mod move_grab;
 pub mod pick_color_grab;
 pub mod pick_window_grab;
 pub mod resize_grab;
-pub mod scroll_swipe_gesture;
-pub mod scroll_tracker;
+// REMOVED for i3-conversion: pub mod scroll_swipe_gesture;
+// REMOVED for i3-conversion: pub mod scroll_tracker;
 pub mod spatial_movement_grab;
 pub mod swipe_tracker;
 pub mod touch_move_grab;
@@ -1414,20 +1414,22 @@ impl State {
                 self.niri.queue_redraw_all();
             }
             Action::SwapWindowRight => {
-                self.niri
-                    .layout
-                    .swap_window_in_direction(ScrollDirection::Right);
-                self.maybe_warp_cursor_to_focus();
+                // TODO i3-conversion: Implement swap in container tree
+                // self.niri
+                //     .layout
+                //     .swap_window_in_direction(ScrollDirection::Right);
+                // self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
-                self.niri.queue_redraw_all();
+                // self.niri.queue_redraw_all();
             }
             Action::SwapWindowLeft => {
-                self.niri
-                    .layout
-                    .swap_window_in_direction(ScrollDirection::Left);
-                self.maybe_warp_cursor_to_focus();
+                // TODO i3-conversion: Implement swap in container tree
+                // self.niri
+                //     .layout
+                //     .swap_window_in_direction(ScrollDirection::Left);
+                // self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
-                self.niri.queue_redraw_all();
+                // self.niri.queue_redraw_all();
             }
             Action::ToggleColumnTabbedDisplay => {
                 self.niri.layout.toggle_column_tabbed_display();
@@ -2497,6 +2499,8 @@ impl State {
 
             let is_overview_open = self.niri.layout.is_overview_open();
 
+            // TODO i3-conversion: Re-implement for i3-style layout
+            /*
             if is_overview_open && !pointer.is_grabbed() && button == Some(MouseButton::Right) {
                 if let Some((output, ws)) = self.niri.workspace_under_cursor(true) {
                     let ws_id = ws.id();
@@ -2524,7 +2528,10 @@ impl State {
                     return;
                 }
             }
+            */
 
+            // TODO i3-conversion: Re-implement for i3-style layout
+            /*
             if button == Some(MouseButton::Middle) && !pointer.is_grabbed() {
                 let mod_down = modifiers_from_state(mods).contains(mod_key.to_modifiers());
                 if mod_down {
@@ -2565,6 +2572,7 @@ impl State {
                     }
                 }
             }
+            */
 
             if let Some(mapped) = self.niri.window_under_cursor() {
                 let window = mapped.window.clone();

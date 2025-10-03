@@ -1,3 +1,7 @@
+// TODO i3-conversion: This file implements view offset gestures for scrolling layout
+// Disabled for i3-conversion - will be replaced with i3-style workspace switching
+
+/*
 use std::time::Duration;
 
 use smithay::input::pointer::{
@@ -12,7 +16,9 @@ use smithay::utils::{Logical, Point};
 
 use crate::layout::workspace::WorkspaceId;
 use crate::niri::State;
+*/
 
+/*
 pub struct SpatialMovementGrab {
     start_data: PointerGrabStartData<State>,
     last_location: Point<f64, Logical>,
@@ -248,3 +254,4 @@ impl PointerGrab<State> for SpatialMovementGrab {
         self.on_ungrab(data);
     }
 }
+*/
