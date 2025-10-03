@@ -1304,14 +1304,15 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         if let Some(root) = &mut self.root {
             let mut path = Vec::new();
-            Self::layout_node(
-                root,
-                self.working_area,
-                &self.options,
-                &mut path,
-                true,
-                &mut self.leaf_layouts,
-            );
+            let mut area = self.working_area;
+            let gap = self.options.layout.gaps;
+            if gap > 0.0 {
+                area.loc.x += gap;
+                area.loc.y += gap;
+                area.size.w = (area.size.w - gap * 2.0).max(0.0);
+                area.size.h = (area.size.h - gap * 2.0).max(0.0);
+            }
+            Self::layout_node(root, area, &self.options, &mut path, true, &mut self.leaf_layouts);
         }
     }
 
@@ -1374,11 +1375,20 @@ impl<W: LayoutElement> ContainerTree<W> {
                     Layout::SplitH => {
                         // Horizontal split: divide width among children
                         let child_count = container.children.len() as f64;
-                        let child_width = rect.size.w / child_count;
+                        let gap = options.layout.gaps;
+                        let total_gap = if child_count > 1.0 {
+                            gap * (child_count - 1.0)
+                        } else {
+                            0.0
+                        };
+                        let child_width = (rect.size.w - total_gap).max(0.0) / child_count;
 
                         for (idx, child) in container.children.iter_mut().enumerate() {
                             let child_rect = Rectangle::new(
-                                Point::from((rect.loc.x + (idx as f64 * child_width), rect.loc.y)),
+                                Point::from((
+                                    rect.loc.x + (idx as f64) * (child_width + gap),
+                                    rect.loc.y,
+                                )),
                                 Size::from((child_width, rect.size.h)),
                             );
                             path.push(idx);
@@ -1389,11 +1399,20 @@ impl<W: LayoutElement> ContainerTree<W> {
                     Layout::SplitV => {
                         // Vertical split: divide height among children
                         let child_count = container.children.len() as f64;
-                        let child_height = rect.size.h / child_count;
+                        let gap = options.layout.gaps;
+                        let total_gap = if child_count > 1.0 {
+                            gap * (child_count - 1.0)
+                        } else {
+                            0.0
+                        };
+                        let child_height = (rect.size.h - total_gap).max(0.0) / child_count;
 
                         for (idx, child) in container.children.iter_mut().enumerate() {
                             let child_rect = Rectangle::new(
-                                Point::from((rect.loc.x, rect.loc.y + (idx as f64 * child_height))),
+                                Point::from((
+                                    rect.loc.x,
+                                    rect.loc.y + (idx as f64) * (child_height + gap),
+                                )),
                                 Size::from((rect.size.w, child_height)),
                             );
                             path.push(idx);
@@ -1405,6 +1424,14 @@ impl<W: LayoutElement> ContainerTree<W> {
                         // For tabbed/stacked, all children get full size
                         // Only the focused child is actually visible
                         // TODO: Reserve space for tab bar / title bars
+                        let gap = options.layout.gaps;
+                        let mut child_rect = rect;
+                        if gap > 0.0 {
+                            child_rect.loc.x += gap;
+                            child_rect.loc.y += gap;
+                            child_rect.size.w = (child_rect.size.w - gap * 2.0).max(0.0);
+                            child_rect.size.h = (child_rect.size.h - gap * 2.0).max(0.0);
+                        }
                         let focused_idx = container
                             .focused_idx
                             .min(container.children.len().saturating_sub(1));
@@ -1412,7 +1439,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                         for (idx, child) in container.children.iter_mut().enumerate() {
                             path.push(idx);
                             let child_visible = visible && idx == focused_idx;
-                            Self::layout_node(child, rect, options, path, child_visible, out);
+                            Self::layout_node(child, child_rect, options, path, child_visible, out);
                             path.pop();
                         }
                     }

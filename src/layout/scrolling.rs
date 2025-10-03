@@ -357,6 +357,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         scrolling_focus_ring: bool,
     ) -> Vec<ScrollingSpaceRenderElement<R>> {
         let mut elements = Vec::new();
+        let mut active_elements = Vec::new();
         let scale = Scale::from(self.scale);
         let focus_path = self.tree.focus_path();
 
@@ -370,13 +371,18 @@ impl<W: LayoutElement> ScrollingSpace<W> {
                 pos = pos.to_physical_precise_round(scale).to_logical(scale);
                 let draw_focus = scrolling_focus_ring && info.path == focus_path;
 
-                elements.extend(
-                    tile.render(renderer, pos, draw_focus, target)
-                        .map(ScrollingSpaceRenderElement::from),
-                );
+                let iter = tile.render(renderer, pos, draw_focus, target)
+                    .map(ScrollingSpaceRenderElement::from);
+
+                if info.path == focus_path {
+                    active_elements.extend(iter);
+                } else {
+                    elements.extend(iter);
+                }
             }
         }
 
+        elements.extend(active_elements);
         elements
     }
 
@@ -417,14 +423,16 @@ impl<W: LayoutElement> ScrollingSpace<W> {
     pub fn update_render_elements(&mut self, is_active: bool) {
         let layouts = self.tree.leaf_layouts_cloned();
         let workspace_view = Rectangle::from_size(self.view_size);
-
         let focus_path = self.tree.focus_path().to_vec();
+        let scale = Scale::from(self.scale);
 
         for info in layouts {
             if let Some(tile) = self.tree.tile_at_path_mut(&info.path) {
+                let mut pos = info.rect.loc + tile.render_offset();
+                pos = pos.to_physical_precise_round(scale).to_logical(scale);
+
                 let mut tile_view_rect = workspace_view;
-                let tile_pos = info.rect.loc + tile.render_offset();
-                tile_view_rect.loc -= tile_pos;
+                tile_view_rect.loc -= pos;
 
                 Self::update_window_state(
                     tile,
@@ -968,13 +976,17 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         window.set_interactive_resize(None);
 
         let border_config = options.layout.border.merged_with(&window.rules().border);
-        let bounds = compute_toplevel_bounds(
+        let max_bounds = compute_toplevel_bounds(
             border_config,
             working_area_size,
             Size::from((0.0, 0.0)),
             options.layout.gaps,
         );
-        window.set_bounds(bounds);
+        let mut logical_bounds: Size<i32, Logical> =
+            Size::from((info.rect.size.w, info.rect.size.h)).to_i32_floor();
+        logical_bounds.w = logical_bounds.w.min(max_bounds.w);
+        logical_bounds.h = logical_bounds.h.min(max_bounds.h);
+        window.set_bounds(logical_bounds);
 
         match window.configure_intent() {
             ConfigureIntent::CanSend | ConfigureIntent::ShouldSend => {
