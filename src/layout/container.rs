@@ -587,26 +587,98 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     /// Split the focused container in a direction
+    /// This creates a new container around the focused leaf with the specified layout
     pub fn split_focused(&mut self, layout: Layout) -> bool {
         if self.root.is_none() {
             return false;
         }
 
-        // TODO: Implement container splitting
-        // This should wrap the focused leaf in a new container with the given layout
+        let focus_path = self.focus_path.clone();
+
+        // Special case: if root is a leaf, wrap it in a container
+        if focus_path.is_empty() {
+            if let Some(Node::Leaf(_)) = &self.root {
+                let old_root = self.root.take().unwrap();
+                let mut container = Container::new(layout);
+                container.add_child(old_root);
+                self.root = Some(Node::Container(container));
+                self.focus_path = vec![0];
+                return true;
+            }
+        }
+
+        // Find parent and focused child
+        if focus_path.is_empty() {
+            return false;
+        }
+
+        let parent_path = &focus_path[..focus_path.len() - 1];
+        let child_idx = *focus_path.last().unwrap();
+
+        // Get parent container
+        let parent = if parent_path.is_empty() {
+            // Parent is root
+            match &mut self.root {
+                Some(Node::Container(c)) => c,
+                _ => return false,
+            }
+        } else {
+            match self.get_node_at_path_mut(parent_path) {
+                Some(Node::Container(c)) => c,
+                _ => return false,
+            }
+        };
+
+        // Remove the focused child
+        if let Some(focused_child) = parent.remove_child(child_idx) {
+            // Only split if it's a leaf
+            if matches!(focused_child, Node::Leaf(_)) {
+                // Create new container with the leaf
+                let mut new_container = Container::new(layout);
+                new_container.add_child(focused_child);
+
+                // Insert new container back at same position
+                parent.children.insert(child_idx, Node::Container(new_container));
+
+                // Update focus path to point inside new container
+                self.focus_path.push(0);
+                return true;
+            } else {
+                // It's already a container, just insert it back
+                parent.children.insert(child_idx, focused_child);
+            }
+        }
+
         false
     }
 
     /// Change layout of focused container
+    /// If focused node is a leaf, changes its parent container's layout
     pub fn set_focused_layout(&mut self, layout: Layout) -> bool {
-        if let Some(root) = &mut self.root {
-            // Find focused container and change its layout
-            // TODO: Implement proper focus tracking to parent containers
-            if let Some(container) = root.as_container_mut() {
-                container.set_layout(layout);
-                return true;
+        let focus_path = self.focus_path.clone();
+
+        // If focus is on a leaf, use parent container
+        if let Some(node) = self.get_node_at_path(&focus_path) {
+            if node.is_leaf() {
+                // Get parent container
+                if focus_path.is_empty() {
+                    return false;
+                }
+
+                let parent_path = &focus_path[..focus_path.len() - 1];
+                if let Some(container) = self.get_container_at_path_mut(parent_path) {
+                    container.set_layout(layout);
+                    return true;
+                }
+            } else {
+                // It's already a container, change its layout
+                if let Some(container) = self.get_container_at_path_mut(&focus_path) {
+                    container.set_layout(layout);
+                    return true;
+                }
             }
         }
+
         false
     }
 
