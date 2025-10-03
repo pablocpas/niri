@@ -277,9 +277,36 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         self.tree.move_in_direction(Direction::Up)
     }
 
-    // STUB: Column operations - no-ops
-    pub fn consume_into_column(&mut self) {}
-    pub fn expel_from_column(&mut self) {}
+    // Container operations (replacing column operations)
+    pub fn consume_into_column(&mut self) {
+        // In i3 model: create vertical split
+        self.tree.split_focused(Layout::SplitV);
+        self.tree.layout();
+    }
+
+    pub fn expel_from_column(&mut self) {
+        // In i3 model: create horizontal split
+        self.tree.split_focused(Layout::SplitH);
+        self.tree.layout();
+    }
+
+    /// Split focused window horizontally (i3-style)
+    pub fn split_horizontal(&mut self) {
+        self.tree.split_focused(Layout::SplitH);
+        self.tree.layout();
+    }
+
+    /// Split focused window vertically (i3-style)
+    pub fn split_vertical(&mut self) {
+        self.tree.split_focused(Layout::SplitV);
+        self.tree.layout();
+    }
+
+    /// Set layout mode for focused container
+    pub fn set_layout_mode(&mut self, layout: Layout) {
+        self.tree.set_focused_layout(layout);
+        self.tree.layout();
+    }
 
     // STUB: Size operations
     pub fn set_column_width(&mut self, _change: SizeChange) {}
