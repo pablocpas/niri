@@ -262,19 +262,35 @@ impl<W: LayoutElement> ScrollingSpace<W> {
 
     // Move operations using ContainerTree
     pub fn move_left(&mut self) -> bool {
-        self.tree.move_in_direction(Direction::Left)
+        let result = self.tree.move_in_direction(Direction::Left);
+        if result {
+            self.tree.layout();
+        }
+        result
     }
 
     pub fn move_right(&mut self) -> bool {
-        self.tree.move_in_direction(Direction::Right)
+        let result = self.tree.move_in_direction(Direction::Right);
+        if result {
+            self.tree.layout();
+        }
+        result
     }
 
     pub fn move_down(&mut self) -> bool {
-        self.tree.move_in_direction(Direction::Down)
+        let result = self.tree.move_in_direction(Direction::Down);
+        if result {
+            self.tree.layout();
+        }
+        result
     }
 
     pub fn move_up(&mut self) -> bool {
-        self.tree.move_in_direction(Direction::Up)
+        let result = self.tree.move_in_direction(Direction::Up);
+        if result {
+            self.tree.layout();
+        }
+        result
     }
 
     // Container operations (replacing column operations)
