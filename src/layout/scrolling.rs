@@ -1,8 +1,9 @@
-//! STUB for i3-conversion: This file originally implemented scrollable-tiling layout.
-//! It has been replaced with a minimal stub to allow compilation while we implement
-//! the i3-style container tree layout.
+//! i3-style container tree layout (replacing scrollable-tiling)
 //!
-//! Original file backed up as: scrolling.rs.BACKUP
+//! This file now implements an i3-style hierarchical container tree instead of
+//! the original scrollable tiling layout.
+//!
+//! Original scrollable-tiling backed up as: scrolling.rs.BACKUP
 
 use std::rc::Rc;
 use std::time::Duration;
@@ -12,6 +13,7 @@ use niri_ipc::{ColumnDisplay, SizeChange};
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size};
 
+use super::container::{ContainerTree, Direction, Layout};
 use super::monitor::InsertPosition;
 use super::tile::{Tile, TileRenderElement};
 use super::workspace::InteractiveResize;
@@ -25,19 +27,24 @@ use crate::utils::ResizeEdge;
 use crate::window::ResolvedWindowRules;
 
 // ============================================================================
-// STUB STRUCTURES - Minimal implementations for compilation
+// MAIN STRUCTURES - i3-style container tree implementation
 // ============================================================================
 
-/// STUB: Simplified tiling space (will be replaced with i3 container tree)
+/// i3-style tiling space using hierarchical containers
 #[derive(Debug)]
 pub struct ScrollingSpace<W: LayoutElement> {
-    tiles: Vec<Tile<W>>,
+    /// Container tree managing window layout
+    tree: ContainerTree<W>,
+    /// View size (output size)
     view_size: Size<f64, Logical>,
+    /// Working area (view_size minus gaps/bars)
     working_area: Rectangle<f64, Logical>,
+    /// Display scale
     scale: f64,
+    /// Animation clock
     clock: Clock,
+    /// Layout options
     options: Rc<Options>,
-    _phantom: std::marker::PhantomData<W>,
 }
 
 niri_render_elements! {
@@ -88,55 +95,83 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         clock: Clock,
         options: Rc<Options>,
     ) -> Self {
+        let tree = ContainerTree::new(
+            view_size,
+            working_area,
+            scale,
+            clock.clone(),
+            options.clone(),
+        );
+
         Self {
-            tiles: Vec::new(),
+            tree,
             view_size,
             working_area,
             scale,
             clock,
             options,
-            _phantom: std::marker::PhantomData,
         }
     }
 
-    // STUB: Basic getters
+    // Basic getters using ContainerTree
     pub fn windows(&self) -> impl Iterator<Item = &W> + '_ {
-        self.tiles.iter().map(|t| t.window())
+        self.tree.all_windows().into_iter()
     }
 
     pub fn tiles(&self) -> impl Iterator<Item = &Tile<W>> + '_ {
-        self.tiles.iter()
+        self.tree.all_tiles().into_iter()
     }
 
     pub fn active_tile(&self) -> Option<&Tile<W>> {
-        self.tiles.first()
+        // TODO: Implement proper focus tracking to get active tile
+        self.tree.all_tiles().into_iter().next()
     }
 
     pub fn active_window_mut(&mut self) -> Option<&mut W> {
-        self.tiles.first_mut().map(|t| t.window_mut())
+        self.tree.focused_window_mut()
     }
 
     pub fn is_active_pending_fullscreen(&self) -> bool {
+        // TODO: Track fullscreen state
         false
     }
 
-    // STUB: Window management - minimal implementations
-    pub fn add_window(&mut self, _window: W, _rules: ResolvedWindowRules, _width: ColumnWidth, _height: WindowHeight) {
-        // TODO i3-conversion: Implement in container tree
+    // Window management using ContainerTree
+    pub fn add_window(&mut self, window: W, _rules: ResolvedWindowRules, _width: ColumnWidth, _height: WindowHeight) {
+        // Create a tile for the window
+        let tile = Tile::new(
+            window,
+            self.view_size,
+            self.scale,
+            self.clock.clone(),
+            self.options.clone(),
+        );
+        // Insert into container tree
+        self.tree.insert_window(tile);
     }
 
-    pub fn remove_window(&mut self, _window: &W) -> Option<RemovedTile<W>> {
-        // TODO i3-conversion: Implement in container tree
-        None
+    pub fn remove_window(&mut self, window: &W) -> Option<RemovedTile<W>> {
+        let window_id = window.id();
+        let tile = self.tree.remove_window(&window_id)?;
+
+        // Create RemovedTile
+        Some(RemovedTile {
+            tile,
+            width: ColumnWidth::default(),
+            is_full_width: false,
+            is_floating: false,
+        })
     }
 
     pub fn update_window(&mut self, _window: &W::Id, _serial: Option<smithay::utils::Serial>) {
-        // TODO i3-conversion: Implement in container tree
+        // TODO: Implement window updates
     }
 
-    pub fn find_window(&self, _window: &W) -> Option<(usize, usize)> {
-        // TODO i3-conversion: Implement in container tree
-        None
+    pub fn find_window(&self, window: &W) -> Option<(usize, usize)> {
+        // Return dummy indices for compatibility
+        // In i3 model, we don't use column/tile indices
+        let window_id = window.id();
+        self.tree.find_window(&window_id).map(|_| (0, 0))
     }
 
     // STUB: Rendering - return empty
@@ -149,17 +184,25 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         Vec::new()
     }
 
-    // STUB: Layout operations - no-ops
+    // Layout operations using ContainerTree
     pub fn update_config(
         &mut self,
-        _view_size: Size<f64, Logical>,
-        _working_area: Rectangle<f64, Logical>,
-        _scale: f64,
-        _options: Rc<Options>,
-    ) {}
-
-    pub fn set_view_size(&mut self, view_size: Size<f64, Logical>, _working_area: Rectangle<f64, Logical>) {
+        view_size: Size<f64, Logical>,
+        working_area: Rectangle<f64, Logical>,
+        scale: f64,
+        options: Rc<Options>,
+    ) {
         self.view_size = view_size;
+        self.working_area = working_area;
+        self.scale = scale;
+        self.options = options.clone();
+        self.tree.update_config(view_size, working_area, scale, options);
+    }
+
+    pub fn set_view_size(&mut self, view_size: Size<f64, Logical>, working_area: Rectangle<f64, Logical>) {
+        self.view_size = view_size;
+        self.working_area = working_area;
+        self.tree.set_view_size(view_size, working_area);
     }
 
     pub fn advance_animations(&mut self) {}
@@ -191,19 +234,44 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         None
     }
 
-    // STUB: Focus operations - no-ops
-    pub fn activate_window(&mut self, _window: &W::Id) -> bool { false }
+    // Focus operations using ContainerTree
+    pub fn activate_window(&mut self, _window: &W::Id) -> bool {
+        // TODO: Implement window activation
+        false
+    }
 
-    pub fn focus_left(&mut self) -> bool { false }
-    pub fn focus_right(&mut self) -> bool { false }
-    pub fn focus_down(&mut self) -> bool { false }
-    pub fn focus_up(&mut self) -> bool { false }
+    pub fn focus_left(&mut self) -> bool {
+        self.tree.focus_in_direction(Direction::Left)
+    }
 
-    // STUB: Move operations - no-ops
-    pub fn move_left(&mut self) -> bool { false }
-    pub fn move_right(&mut self) -> bool { false }
-    pub fn move_down(&mut self) -> bool { false }
-    pub fn move_up(&mut self) -> bool { false }
+    pub fn focus_right(&mut self) -> bool {
+        self.tree.focus_in_direction(Direction::Right)
+    }
+
+    pub fn focus_down(&mut self) -> bool {
+        self.tree.focus_in_direction(Direction::Down)
+    }
+
+    pub fn focus_up(&mut self) -> bool {
+        self.tree.focus_in_direction(Direction::Up)
+    }
+
+    // Move operations using ContainerTree
+    pub fn move_left(&mut self) -> bool {
+        self.tree.move_in_direction(Direction::Left)
+    }
+
+    pub fn move_right(&mut self) -> bool {
+        self.tree.move_in_direction(Direction::Right)
+    }
+
+    pub fn move_down(&mut self) -> bool {
+        self.tree.move_in_direction(Direction::Down)
+    }
+
+    pub fn move_up(&mut self) -> bool {
+        self.tree.move_in_direction(Direction::Up)
+    }
 
     // STUB: Column operations - no-ops
     pub fn consume_into_column(&mut self) {}
@@ -255,22 +323,25 @@ impl<W: LayoutElement> ScrollingSpace<W> {
     pub fn set_column_display(&mut self, _display: ColumnDisplay) {}
     pub fn toggle_column_tabbed_display(&mut self) {}
 
-    // STUB: Additional methods needed by workspace.rs
+    // Additional methods needed by workspace.rs
     pub fn tiles_mut(&mut self) -> impl Iterator<Item = &mut Tile<W>> + '_ {
-        self.tiles.iter_mut()
+        // TODO: Implement mutable tiles iteration
+        vec![].into_iter()
     }
 
     pub fn tiles_with_render_positions(&self) -> impl Iterator<Item = (&Tile<W>, Point<f64, Logical>, bool)> + '_ {
-        self.tiles.iter().map(|t| (t, Point::from((0.0, 0.0)), true))
+        // TODO: Calculate proper render positions based on tree layout
+        self.tree.all_tiles().into_iter().map(|t| (t, Point::from((0.0, 0.0)), true))
     }
 
     pub fn tiles_with_render_positions_mut(&mut self, _round: bool) -> impl Iterator<Item = (&mut Tile<W>, Point<f64, Logical>)> + '_ {
-        self.tiles.iter_mut().map(|t| (t, Point::from((0.0, 0.0))))
+        // TODO: Implement mutable positions iteration
+        vec![].into_iter()
     }
 
     pub fn tiles_with_ipc_layouts(&self) -> impl Iterator<Item = (&Tile<W>, niri_ipc::WindowLayout)> + '_ {
         use niri_ipc::WindowLayout;
-        self.tiles.iter().map(|t| {
+        self.tree.all_tiles().into_iter().map(|t| {
             (t, WindowLayout {
                 pos_in_scrolling_layout: None,
                 tile_size: (0.0, 0.0),
@@ -288,11 +359,11 @@ impl<W: LayoutElement> ScrollingSpace<W> {
     pub fn update_shaders(&mut self) {}
 
     pub fn active_window(&self) -> Option<&W> {
-        self.tiles.first().map(|t| t.window())
+        self.tree.focused_window()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tiles.is_empty()
+        self.tree.is_empty()
     }
 
     pub fn add_tile(
@@ -334,7 +405,8 @@ impl<W: LayoutElement> ScrollingSpace<W> {
 
     // STUB: Additional missing methods
     pub fn active_tile_mut(&mut self) -> Option<&mut Tile<W>> {
-        self.tiles.first_mut()
+        // TODO: Implement proper focused tile lookup
+        None
     }
 
     pub fn add_column(
