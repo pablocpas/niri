@@ -752,23 +752,134 @@ pub fn toggle_column_tabbed_display(&mut self) {}
         Size::from((800, 600))
     }
 
-    pub fn focus_column_first(&mut self) {}
-    pub fn focus_column_last(&mut self) {}
-    pub fn focus_column(&mut self, _idx: usize) {}
-    pub fn focus_window_in_column(&mut self, _index: u8) {}
-    pub fn focus_down_or_left(&mut self) {}
-    pub fn focus_down_or_right(&mut self) {}
-    pub fn focus_up_or_left(&mut self) {}
-    pub fn focus_up_or_right(&mut self) {}
-    pub fn focus_top(&mut self) {}
-    pub fn focus_bottom(&mut self) {}
+    pub fn focus_column_first(&mut self) {
+        self.tree.focus_root_child(0);
+    }
 
-    pub fn move_column_to_first(&mut self) {}
-    pub fn move_column_to_last(&mut self) {}
-    pub fn move_column_to_index(&mut self, _idx: usize) {}
+    pub fn focus_column_last(&mut self) {
+        let len = self.tree.root_children_len();
+        if len > 0 {
+            self.tree.focus_root_child(len - 1);
+        }
+    }
 
-    pub fn consume_or_expel_window_left(&mut self, _window: Option<&W::Id>) {}
-    pub fn consume_or_expel_window_right(&mut self, _window: Option<&W::Id>) {}
+    /// Columns are 1-based to match user-facing commands.
+    pub fn focus_column(&mut self, idx: usize) {
+        if idx == 0 {
+            return;
+        }
+        self.tree.focus_root_child(idx - 1);
+    }
+
+    /// Windows inside the current column are 1-based.
+    pub fn focus_window_in_column(&mut self, index: u8) {
+        if index == 0 {
+            return;
+        }
+        let column_idx = match self.tree.focused_root_index() {
+            Some(idx) => idx,
+            None => return,
+        };
+        self.tree
+            .focus_leaf_in_root_child(column_idx, index as usize);
+    }
+
+    pub fn focus_down_or_left(&mut self) {
+        if !self.tree.focus_in_direction(Direction::Down) {
+            self.tree.focus_in_direction(Direction::Left);
+        }
+    }
+
+    pub fn focus_down_or_right(&mut self) {
+        if !self.tree.focus_in_direction(Direction::Down) {
+            self.tree.focus_in_direction(Direction::Right);
+        }
+    }
+
+    pub fn focus_up_or_left(&mut self) {
+        if !self.tree.focus_in_direction(Direction::Up) {
+            self.tree.focus_in_direction(Direction::Left);
+        }
+    }
+
+    pub fn focus_up_or_right(&mut self) {
+        if !self.tree.focus_in_direction(Direction::Up) {
+            self.tree.focus_in_direction(Direction::Right);
+        }
+    }
+
+    pub fn focus_top(&mut self) {
+        self.tree.focus_top_in_current_column();
+    }
+
+    pub fn focus_bottom(&mut self) {
+        self.tree.focus_bottom_in_current_column();
+    }
+
+    pub fn move_column_to_first(&mut self) {
+        if let Some(idx) = self.tree.focused_root_index() {
+            if self.tree.move_root_child(idx, 0) {
+                self.tree.layout();
+            }
+        }
+    }
+
+    pub fn move_column_to_last(&mut self) {
+        let len = self.tree.root_children_len();
+        if len == 0 {
+            return;
+        }
+        if let Some(idx) = self.tree.focused_root_index() {
+            if self.tree.move_root_child(idx, len - 1) {
+                self.tree.layout();
+            }
+        }
+    }
+
+    pub fn move_column_to_index(&mut self, idx: usize) {
+        if idx == 0 {
+            return;
+        }
+        let target = idx - 1;
+        if let Some(current) = self.tree.focused_root_index() {
+            if current == target {
+                return;
+            }
+            let len = self.tree.root_children_len();
+            if target >= len {
+                return;
+            }
+            if self.tree.move_root_child(current, target) {
+                self.tree.layout();
+            }
+        }
+    }
+
+    pub fn consume_or_expel_window_left(&mut self, window: Option<&W::Id>) {
+        if let Some(id) = window {
+            self.tree.focus_window_by_id(id);
+        }
+
+        if self.tree.move_in_direction(Direction::Left) {
+            self.tree.layout();
+        } else {
+            self.tree.split_focused(Layout::SplitV);
+            self.tree.layout();
+        }
+    }
+
+    pub fn consume_or_expel_window_right(&mut self, window: Option<&W::Id>) {
+        if let Some(id) = window {
+            self.tree.focus_window_by_id(id);
+        }
+
+        if self.tree.move_in_direction(Direction::Right) {
+            self.tree.layout();
+        } else {
+            self.tree.split_focused(Layout::SplitV);
+            self.tree.layout();
+        }
+    }
 
     pub fn toggle_full_width(&mut self) {}
     pub fn toggle_window_height(&mut self, _window: Option<&W::Id>, _forwards: bool) {}
