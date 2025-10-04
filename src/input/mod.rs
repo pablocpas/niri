@@ -41,7 +41,8 @@ use self::move_grab::MoveGrab;
 use self::resize_grab::ResizeGrab;
 // REMOVED for i3-conversion: use self::spatial_movement_grab::SpatialMovementGrab;
 // REMOVED for i3-conversion: use crate::layout::scrolling::ScrollDirection;
-use crate::layout::{ActivateWindow, LayoutElement as _};
+use crate::layout::{ActivateWindow, ContainerLayout, LayoutElement as _};
+use niri_ipc::SizeChange;
 use crate::niri::{CastTarget, PointerVisibility, State};
 use crate::ui::screenshot_ui::ScreenshotUi;
 use crate::utils::spawning::{spawn, spawn_sh};
@@ -63,6 +64,7 @@ pub mod touch_resize_grab;
 use backend_ext::{NiriInputBackend as InputBackend, NiriInputDevice as _};
 
 pub const DOUBLE_CLICK_TIME: Duration = Duration::from_millis(400);
+const RESIZE_STEP: i32 = 40;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TabletData {
@@ -763,7 +765,7 @@ impl State {
                 if self.niri.screenshot_ui.is_open() {
                     self.niri.screenshot_ui.move_left();
                 } else {
-                    self.niri.layout.move_left();
+                    self.niri.layout.move_column_left();
                     self.maybe_warp_cursor_to_focus();
                 }
 
@@ -774,7 +776,7 @@ impl State {
                 if self.niri.screenshot_ui.is_open() {
                     self.niri.screenshot_ui.move_right();
                 } else {
-                    self.niri.layout.move_right();
+                    self.niri.layout.move_column_right();
                     self.maybe_warp_cursor_to_focus();
                 }
 
@@ -805,7 +807,7 @@ impl State {
                         self.maybe_warp_cursor_to_focus();
                     }
                 } else {
-                    self.niri.layout.move_left();
+                    self.niri.layout.move_column_left();
                     self.maybe_warp_cursor_to_focus();
                 }
 
@@ -824,7 +826,7 @@ impl State {
                         self.maybe_warp_cursor_to_focus();
                     }
                 } else {
-                    self.niri.layout.move_right();
+                    self.niri.layout.move_column_right();
                     self.maybe_warp_cursor_to_focus();
                 }
 
@@ -1817,6 +1819,86 @@ impl State {
                         }
                     }
                 }
+            }
+            Action::ResizeGrowWidth => {
+                if self.niri.screenshot_ui.is_open() {
+                    self.niri
+                        .screenshot_ui
+                        .set_width(SizeChange::AdjustFixed(RESIZE_STEP));
+                    self.niri.queue_redraw_all();
+                } else {
+                    self.niri
+                        .layout
+                        .set_window_width(None, SizeChange::AdjustFixed(RESIZE_STEP));
+                }
+            }
+            Action::ResizeShrinkWidth => {
+                if self.niri.screenshot_ui.is_open() {
+                    self.niri
+                        .screenshot_ui
+                        .set_width(SizeChange::AdjustFixed(-RESIZE_STEP));
+                    self.niri.queue_redraw_all();
+                } else {
+                    self.niri
+                        .layout
+                        .set_window_width(None, SizeChange::AdjustFixed(-RESIZE_STEP));
+                }
+            }
+            Action::ResizeGrowHeight => {
+                if self.niri.screenshot_ui.is_open() {
+                    self.niri
+                        .screenshot_ui
+                        .set_height(SizeChange::AdjustFixed(RESIZE_STEP));
+                    self.niri.queue_redraw_all();
+                } else {
+                    self.niri
+                        .layout
+                        .set_window_height(None, SizeChange::AdjustFixed(RESIZE_STEP));
+                }
+            }
+            Action::ResizeShrinkHeight => {
+                if self.niri.screenshot_ui.is_open() {
+                    self.niri
+                        .screenshot_ui
+                        .set_height(SizeChange::AdjustFixed(-RESIZE_STEP));
+                    self.niri.queue_redraw_all();
+                } else {
+                    self.niri
+                        .layout
+                        .set_window_height(None, SizeChange::AdjustFixed(-RESIZE_STEP));
+                }
+            }
+            Action::FocusParent => {
+                self.niri.layout.focus_parent();
+            }
+            Action::FocusChild => {
+                self.niri.layout.focus_child();
+            }
+            Action::SplitHorizontal => {
+                self.niri.layout.split_horizontal();
+            }
+            Action::SplitVertical => {
+                self.niri.layout.split_vertical();
+            }
+            Action::SetLayoutSplitH => {
+                self.niri
+                    .layout
+                    .set_layout_mode(ContainerLayout::SplitH);
+            }
+            Action::SetLayoutSplitV => {
+                self.niri
+                    .layout
+                    .set_layout_mode(ContainerLayout::SplitV);
+            }
+            Action::SetLayoutStacked => {
+                self.niri
+                    .layout
+                    .set_layout_mode(ContainerLayout::Stacked);
+            }
+            Action::SetLayoutTabbed => {
+                self.niri
+                    .layout
+                    .set_layout_mode(ContainerLayout::Tabbed);
             }
             Action::SetColumnWidth(change) => {
                 if self.niri.screenshot_ui.is_open() {

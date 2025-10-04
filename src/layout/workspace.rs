@@ -17,6 +17,7 @@ use smithay::utils::{Logical, Point, Rectangle, Serial, Size, Transform};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
+use super::container::Layout;
 use super::floating::{FloatingSpace, FloatingSpaceRenderElement};
 use super::scrolling::{
     Column, ColumnWidth, ScrollDirection, ScrollingSpace, ScrollingSpaceRenderElement,
@@ -1058,6 +1059,20 @@ impl<W: LayoutElement> Workspace<W> {
         }
     }
 
+    pub fn move_column_left(&mut self) -> bool {
+        if self.floating_is_active.get() {
+            return false;
+        }
+        self.scrolling.move_column_left()
+    }
+
+    pub fn move_column_right(&mut self) -> bool {
+        if self.floating_is_active.get() {
+            return false;
+        }
+        self.scrolling.move_column_right()
+    }
+
     pub fn move_column_to_first(&mut self) {
         if self.floating_is_active.get() {
             return;
@@ -1196,7 +1211,7 @@ impl<W: LayoutElement> Workspace<W> {
         if self.floating_is_active.get() {
             self.floating.set_window_width(None, change, true);
         } else {
-            self.scrolling.set_window_width(None, change);
+            self.scrolling.set_column_width(change);
         }
     }
 
@@ -1254,6 +1269,41 @@ impl<W: LayoutElement> Workspace<W> {
             return;
         }
         self.scrolling.expand_column_to_available_width();
+    }
+
+    pub fn focus_parent(&mut self) {
+        if self.floating_is_active.get() {
+            return;
+        }
+        self.scrolling.focus_parent();
+    }
+
+    pub fn focus_child(&mut self) {
+        if self.floating_is_active.get() {
+            return;
+        }
+        self.scrolling.focus_child();
+    }
+
+    pub fn split_horizontal(&mut self) {
+        if self.floating_is_active.get() {
+            return;
+        }
+        self.scrolling.split_horizontal();
+    }
+
+    pub fn split_vertical(&mut self) {
+        if self.floating_is_active.get() {
+            return;
+        }
+        self.scrolling.split_vertical();
+    }
+
+    pub fn set_layout_mode(&mut self, layout: Layout) {
+        if self.floating_is_active.get() {
+            return;
+        }
+        self.scrolling.set_layout_mode(layout);
     }
 
     pub fn set_fullscreen(&mut self, window: &W::Id, is_fullscreen: bool) {

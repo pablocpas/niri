@@ -14,7 +14,7 @@ use niri_config::{Border, PresetSize};
 use niri_ipc::{ColumnDisplay, SizeChange};
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 
-use super::container::{ContainerTree, Direction, Layout, LeafLayoutInfo};
+use super::container::{ContainerTree, Direction, Layout, LeafLayoutInfo, Node};
 use super::monitor::InsertPosition;
 use super::tile::{Tile, TileRenderElement};
 use super::{ConfigureIntent, LayoutElement, Options, RemovedTile};
@@ -55,11 +55,10 @@ niri_render_elements! {
     }
 }
 
-/// STUB: Simplified column structure
+/// Container wrapper representing a top-level column in the i3-style tree.
 #[derive(Debug)]
 pub struct Column<W: LayoutElement> {
-    tiles: Vec<Tile<W>>,
-    _phantom: std::marker::PhantomData<W>,
+    node: Node<W>,
 }
 
 /// STUB: Column width enum
@@ -242,6 +241,128 @@ impl<'a, W: LayoutElement> Iterator for TileRenderPositionsMut<'a, W> {
 // ============================================================================
 
 impl<W: LayoutElement> ScrollingSpace<W> {
+    fn available_span(&self, total: f64, child_count: usize) -> f64 {
+        if child_count == 0 {
+            return 0.0;
+        }
+        let gap = self.options.layout.gaps;
+        (total - gap * (child_count as f64 - 1.0)).max(0.0)
+    }
+
+    fn percent_from_size_change(current_percent: f64, available: f64, change: SizeChange) -> f64 {
+        if available <= 0.0 {
+            return current_percent;
+        }
+
+        let to_proportion = |value: f64| {
+            if value.abs() > 1.0 {
+                value / 100.0
+            } else {
+                value
+            }
+        };
+
+        let percent = match change {
+            SizeChange::SetFixed(px) => px as f64 / available,
+            SizeChange::AdjustFixed(delta) => current_percent + (delta as f64 / available),
+            SizeChange::SetProportion(prop) => to_proportion(prop),
+            SizeChange::AdjustProportion(delta) => current_percent + to_proportion(delta),
+        };
+
+        percent.clamp(0.0, 1.0)
+    }
+
+    fn resolve_preset_dimension(available: f64, preset: PresetSize) -> f64 {
+        match preset {
+            PresetSize::Proportion(prop) => {
+                let proportion = if prop.abs() > 1.0 {
+                    (prop / 100.0).clamp(0.0, 1.0)
+                } else {
+                    prop.clamp(0.0, 1.0)
+                };
+                available * proportion
+            }
+            PresetSize::Fixed(px) => px as f64,
+        }
+    }
+
+    fn cycle_presets(
+        &self,
+        available: f64,
+        current_percent: f64,
+        presets: &[PresetSize],
+        forwards: bool,
+    ) -> Option<f64> {
+        if presets.is_empty() || available <= 0.0 {
+            return None;
+        }
+
+        let resolved: Vec<f64> = presets
+            .iter()
+            .map(|preset| Self::resolve_preset_dimension(available, *preset))
+            .collect();
+
+        if resolved.is_empty() {
+            return None;
+        }
+
+        let epsilon = 0.5;
+        let current_width = current_percent * available;
+
+        let target_width = if forwards {
+            resolved
+                .iter()
+                .copied()
+                .find(|width| *width > current_width + epsilon)
+                .unwrap_or_else(|| resolved[0])
+        } else {
+            resolved
+                .iter()
+                .copied()
+                .rev()
+                .find(|width| *width + epsilon < current_width)
+                .unwrap_or_else(|| *resolved.last().unwrap())
+        };
+
+        Some((target_width / available).clamp(0.0, 1.0))
+    }
+
+    fn window_path(&self, window: Option<&W::Id>) -> Option<Vec<usize>> {
+        if let Some(id) = window {
+            self.tree.find_window(id)
+        } else if self.tree.focus_path().is_empty() {
+            self.tree
+                .focused_window()
+                .is_some()
+                .then(|| self.tree.focus_path().to_vec())
+        } else {
+            Some(self.tree.focus_path().to_vec())
+        }
+    }
+
+    fn window_container_metrics(
+        &self,
+        path: &[usize],
+        layout: Layout,
+    ) -> Option<(Vec<usize>, usize, f64, usize, Rectangle<f64, Logical>)> {
+        let (parent_path, child_idx) = self.tree.find_parent_with_layout(path.to_vec(), layout)?;
+        let (container_layout, rect, child_count) = self.tree.container_info(parent_path.as_slice())?;
+        if container_layout != layout || child_count == 0 {
+            return None;
+        }
+
+        let available = match layout {
+            Layout::SplitH => self.available_span(rect.size.w, child_count),
+            Layout::SplitV => self.available_span(rect.size.h, child_count),
+            Layout::Tabbed | Layout::Stacked => return None,
+        };
+
+        if available <= 0.0 {
+            return None;
+        }
+
+        Some((parent_path, child_idx, available, child_count, rect))
+    }
     pub fn new(
         view_size: Size<f64, Logical>,
         working_area: Rectangle<f64, Logical>,
@@ -373,7 +494,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         let focus_path = self.tree.focus_path();
         let fullscreen_id = self.fullscreen_window.as_ref();
 
-        for info in self.tree.leaf_layouts() {
+        for info in self.tree.leaf_layouts().iter().rev() {
             if let Some(tile) = self.tree.tile_at_path(&info.path) {
                 let is_fullscreen_tile = fullscreen_id
                     .is_some_and(|id| id == tile.window().id());
@@ -509,9 +630,13 @@ impl<W: LayoutElement> ScrollingSpace<W> {
     }
 
     // Focus operations using ContainerTree
-    pub fn activate_window(&mut self, _window: &W::Id) -> bool {
-        // TODO: Implement window activation
-        false
+    pub fn activate_window(&mut self, window: &W::Id) -> bool {
+        if self.tree.focus_window_by_id(window) {
+            self.tree.layout();
+            true
+        } else {
+            false
+        }
     }
 
     pub fn focus_left(&mut self) -> bool {
@@ -528,6 +653,14 @@ impl<W: LayoutElement> ScrollingSpace<W> {
 
     pub fn focus_up(&mut self) -> bool {
         self.tree.focus_in_direction(Direction::Up)
+    }
+
+    pub fn focus_parent(&mut self) -> bool {
+        self.tree.focus_parent()
+    }
+
+    pub fn focus_child(&mut self) -> bool {
+        self.tree.focus_child()
     }
 
     // Move operations using ContainerTree
@@ -595,12 +728,87 @@ impl<W: LayoutElement> ScrollingSpace<W> {
     }
 
     // STUB: Size operations
-    pub fn set_column_width(&mut self, _change: SizeChange) {}
-    pub fn reset_window_height(&mut self, _window: Option<&W::Id>) {}
+    pub fn set_column_width(&mut self, change: SizeChange) {
+        let Some(idx) = self.tree.focused_root_index() else {
+            return;
+        };
+
+        let Some((layout, rect, child_count)) = self.tree.container_info(&[]) else {
+            return;
+        };
+        if layout != Layout::SplitH || child_count == 0 {
+            return;
+        }
+
+        let gaps = self.options.layout.gaps;
+        let available_width = (rect.size.w - gaps * (child_count as f64 - 1.0)).max(1.0);
+        if available_width <= 0.0 {
+            return;
+        }
+
+        let current_percent = self.tree.child_percent_at(&[], idx).unwrap_or(1.0);
+        let new_percent = Self::percent_from_size_change(current_percent, available_width, change);
+
+        if self
+            .tree
+            .set_child_percent_at(&[], idx, Layout::SplitH, new_percent)
+        {
+            self.tree.layout();
+        }
+    }
+    pub fn reset_window_height(&mut self, window: Option<&W::Id>) {
+        let Some(path) = self.window_path(window) else {
+            return;
+        };
+
+        let Some((parent_path, _, _, _child_count, _rect)) =
+            self.window_container_metrics(&path, Layout::SplitV)
+        else {
+            return;
+        };
+
+        if let Some(container) = self.tree.container_at_path_mut(parent_path.as_slice()) {
+            if container.layout() == Layout::SplitV {
+                container.recalculate_percentages();
+                self.tree.layout();
+            }
+        }
+    }
 
     // STUB: Fullscreen
-    pub fn toggle_fullscreen(&mut self, _window: &W) {}
-    pub fn toggle_width(&mut self, _forwards: bool) {}
+    pub fn toggle_fullscreen(&mut self, window: &W) {
+        let currently = self.is_fullscreen(window);
+        let _ = self.set_fullscreen(window.id(), !currently);
+    }
+    pub fn toggle_width(&mut self, forwards: bool) {
+        let Some(idx) = self.tree.focused_root_index() else {
+            return;
+        };
+
+        let Some((layout, rect, child_count)) = self.tree.container_info(&[]) else {
+            return;
+        };
+        if layout != Layout::SplitH || child_count == 0 {
+            return;
+        }
+
+        let available = self.available_span(rect.size.w, child_count);
+        if available <= 0.0 {
+            return;
+        }
+
+        let current_percent = self.tree.child_percent_at(&[], idx).unwrap_or(1.0);
+        let presets = &self.options.layout.preset_column_widths;
+
+        if let Some(percent) = self.cycle_presets(available, current_percent, presets, forwards) {
+            if self
+                .tree
+                .set_child_percent_at(&[], idx, Layout::SplitH, percent)
+            {
+                self.tree.layout();
+            }
+        }
+    }
 
     // STUB: View offset operations (removed for i3-conversion)
     pub(super) fn view_offset(&self) -> f64 {
@@ -619,26 +827,89 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         None
     }
 
-    // STUB: Window queries
-    pub fn window_under(&self, _pos: Point<f64, Logical>) -> Option<(&W, super::HitType)> {
+    // Window queries
+    pub fn window_under(&self, pos: Point<f64, Logical>) -> Option<(&W, super::HitType)> {
+        let scale = Scale::from(self.scale);
+        let fullscreen_id = self.fullscreen_window.as_ref();
+
+        for info in self.tree.leaf_layouts().iter().rev() {
+            if let Some(tile) = self.tree.tile_at_path(&info.path) {
+                let is_fullscreen_tile = fullscreen_id
+                    .is_some_and(|id| id == tile.window().id());
+                if fullscreen_id.is_some() && !is_fullscreen_tile {
+                    continue;
+                }
+                if !info.visible && !is_fullscreen_tile {
+                    continue;
+                }
+
+                let mut tile_pos = info.rect.loc + tile.render_offset();
+                tile_pos = tile_pos
+                    .to_physical_precise_round(scale)
+                    .to_logical(scale);
+
+                if let Some(hit) = super::HitType::hit_tile(tile, tile_pos, pos) {
+                    return Some(hit);
+                }
+            }
+        }
+
         None
     }
 
-    pub fn window_loc(&self, _window: &W) -> Option<Point<f64, Logical>> {
-        None
+    pub fn window_loc(&self, window: &W) -> Option<Point<f64, Logical>> {
+        let path = self.tree.find_window(window.id())?;
+        let info = self
+            .tree
+            .leaf_layouts()
+            .iter()
+            .find(|layout| layout.path == path)?;
+        let tile = self.tree.tile_at_path(&path)?;
+        let scale = Scale::from(self.scale);
+
+        let mut tile_pos = info.rect.loc + tile.render_offset();
+        tile_pos = tile_pos
+            .to_physical_precise_round(scale)
+            .to_logical(scale);
+
+        Some(tile_pos + tile.window_loc())
     }
 
-    pub fn window_size(&self, _window: &W) -> Option<Size<f64, Logical>> {
-        None
+    pub fn window_size(&self, window: &W) -> Option<Size<f64, Logical>> {
+        let path = self.tree.find_window(window.id())?;
+        let tile = self.tree.tile_at_path(&path)?;
+        Some(tile.window_size())
     }
 
-    pub fn is_fullscreen(&self, _window: &W) -> bool {
-        false
+    pub fn is_fullscreen(&self, window: &W) -> bool {
+        self.fullscreen_window
+            .as_ref()
+            .is_some_and(|id| id == window.id())
     }
 
     // STUB: Column display
-    pub fn set_column_display(&mut self, _display: ColumnDisplay) {}
-pub fn toggle_column_tabbed_display(&mut self) {}
+    pub fn set_column_display(&mut self, display: ColumnDisplay) {
+        let layout = match display {
+            ColumnDisplay::Normal => Layout::SplitV,
+            ColumnDisplay::Tabbed => Layout::Tabbed,
+        };
+
+        if self.tree.set_focused_layout(layout) {
+            self.tree.layout();
+        }
+    }
+
+    pub fn toggle_column_tabbed_display(&mut self) {
+        let current = self.tree.focused_layout();
+        let target = match current {
+            Some(Layout::Tabbed) => Layout::SplitV,
+            _ => Layout::Tabbed,
+        };
+
+        if self.tree.set_focused_layout(target) {
+            self.tree.layout();
+        }
+    }
 
     // Additional methods needed by workspace.rs
     pub fn tiles_mut(&mut self) -> impl Iterator<Item = &mut Tile<W>> + '_ {
@@ -734,9 +1005,12 @@ pub fn toggle_column_tabbed_display(&mut self) {}
         tile: Tile<W>,
         activate: bool,
     ) {
-        let index = tile_idx.unwrap_or(col_idx);
-        self.tree.insert_leaf_at(index, tile, activate);
-        self.tree.layout();
+        if self
+            .tree
+            .insert_leaf_in_column(col_idx, tile_idx, tile, activate)
+        {
+            self.tree.layout();
+        }
     }
 
     pub fn active_tile_visual_rectangle(&self) -> Option<Rectangle<f64, Logical>> {
@@ -761,15 +1035,12 @@ pub fn toggle_column_tabbed_display(&mut self) {}
     pub fn add_column(
         &mut self,
         _col_idx: Option<usize>,
-        mut column: Column<W>,
+        column: Column<W>,
         activate: bool,
         _height: Option<WindowHeight>,
     ) {
-        let len = column.tiles.len();
-        for (idx, tile) in column.tiles.drain(..).enumerate() {
-            let focus = activate && idx == len.saturating_sub(1);
-            self.tree.append_leaf(tile, focus);
-        }
+        let idx = _col_idx.unwrap_or_else(|| self.tree.root_children_len());
+        self.tree.insert_node_at_root(idx, column.into_node(), activate);
         self.tree.layout();
     }
     pub fn remove_tile(&mut self, window: &W::Id, _transaction: Transaction) -> RemovedTile<W> {
@@ -805,7 +1076,20 @@ pub fn toggle_column_tabbed_display(&mut self) {}
         }
         Some(removed)
     }
-    pub fn remove_active_column(&mut self) -> Option<Column<W>> { None }
+    pub fn remove_active_column(&mut self) -> Option<Column<W>> {
+        let idx = self.tree.focused_root_index()?;
+        let node = self.tree.take_root_child(idx)?;
+        let column = Column::from_node(node);
+
+        if let Some(full_id) = self.fullscreen_window.clone() {
+            if self.tree.find_window(&full_id).is_none() {
+                self.fullscreen_window = None;
+            }
+        }
+
+        self.tree.layout();
+        Some(column)
+    }
 
     pub fn new_window_size(&self, _width: Option<PresetSize>, _height: Option<PresetSize>, _rules: &ResolvedWindowRules) -> Size<i32, Logical> {
         Size::from((800, 600))
@@ -899,6 +1183,37 @@ pub fn toggle_column_tabbed_display(&mut self) {}
         }
     }
 
+    pub fn move_column_left(&mut self) -> bool {
+        let Some(idx) = self.tree.focused_root_index() else {
+            return false;
+        };
+        if idx == 0 {
+            return false;
+        }
+
+        let moved = self.tree.move_root_child(idx, idx - 1);
+        if moved {
+            self.tree.layout();
+        }
+        moved
+    }
+
+    pub fn move_column_right(&mut self) -> bool {
+        let Some(idx) = self.tree.focused_root_index() else {
+            return false;
+        };
+        let len = self.tree.root_children_len();
+        if idx + 1 >= len {
+            return false;
+        }
+
+        let moved = self.tree.move_root_child(idx, idx + 1);
+        if moved {
+            self.tree.layout();
+        }
+        moved
+    }
+
     pub fn move_column_to_index(&mut self, idx: usize) {
         if idx == 0 {
             return;
@@ -955,10 +1270,119 @@ pub fn toggle_column_tabbed_display(&mut self) {}
             .is_some_and(|win_id| win_id == tile.window().id());
         let _ = self.set_fullscreen(&id, !currently_fullscreen);
     }
-    pub fn toggle_window_height(&mut self, _window: Option<&W::Id>, _forwards: bool) {}
-    pub fn toggle_window_width(&mut self, _window: Option<&W::Id>, _forwards: bool) {}
-    pub fn set_window_width(&mut self, _window: Option<&W::Id>, _change: SizeChange) {}
-    pub fn set_window_height(&mut self, _window: Option<&W::Id>, _change: SizeChange) {}
+    pub fn toggle_window_height(&mut self, window: Option<&W::Id>, forwards: bool) {
+        let Some(path) = self.window_path(window) else {
+            return;
+        };
+        let Some((parent_path, child_idx, available, _, _)) =
+            self.window_container_metrics(&path, Layout::SplitV)
+        else {
+            return;
+        };
+        let current_percent = self
+            .tree
+            .child_percent_at(parent_path.as_slice(), child_idx)
+            .unwrap_or(1.0);
+
+        if let Some(percent) = self.cycle_presets(
+            available,
+            current_percent,
+            &self.options.layout.preset_window_heights,
+            forwards,
+        ) {
+            if self.tree.set_child_percent_at(
+                parent_path.as_slice(),
+                child_idx,
+                Layout::SplitV,
+                percent,
+            ) {
+                self.tree.layout();
+            }
+        }
+    }
+
+    pub fn toggle_window_width(&mut self, window: Option<&W::Id>, forwards: bool) {
+        let Some(path) = self.window_path(window) else {
+            return;
+        };
+        let Some((parent_path, child_idx, available, _, _)) =
+            self.window_container_metrics(&path, Layout::SplitH)
+        else {
+            return;
+        };
+        let current_percent = self
+            .tree
+            .child_percent_at(parent_path.as_slice(), child_idx)
+            .unwrap_or(1.0);
+
+        if let Some(percent) = self.cycle_presets(
+            available,
+            current_percent,
+            &self.options.layout.preset_column_widths,
+            forwards,
+        ) {
+            if self.tree.set_child_percent_at(
+                parent_path.as_slice(),
+                child_idx,
+                Layout::SplitH,
+                percent,
+            ) {
+                self.tree.layout();
+            }
+        }
+    }
+
+    pub fn set_window_width(&mut self, window: Option<&W::Id>, change: SizeChange) {
+        let Some(path) = self.window_path(window) else {
+            return;
+        };
+        let Some((parent_path, child_idx, available, _, _)) =
+            self.window_container_metrics(&path, Layout::SplitH)
+        else {
+            return;
+        };
+
+        let current_percent = self
+            .tree
+            .child_percent_at(parent_path.as_slice(), child_idx)
+            .unwrap_or(1.0);
+        let percent = Self::percent_from_size_change(current_percent, available, change);
+
+        if self.tree.set_child_percent_at(
+            parent_path.as_slice(),
+            child_idx,
+            Layout::SplitH,
+            percent,
+        ) {
+            self.tree.layout();
+        }
+    }
+
+    pub fn set_window_height(&mut self, window: Option<&W::Id>, change: SizeChange) {
+        let Some(path) = self.window_path(window) else {
+            return;
+        };
+        let Some((parent_path, child_idx, available, _, _)) =
+            self.window_container_metrics(&path, Layout::SplitV)
+        else {
+            return;
+        };
+
+        let current_percent = self
+            .tree
+            .child_percent_at(parent_path.as_slice(), child_idx)
+            .unwrap_or(1.0);
+        let percent = Self::percent_from_size_change(current_percent, available, change);
+
+        if self.tree.set_child_percent_at(
+            parent_path.as_slice(),
+            child_idx,
+            Layout::SplitV,
+            percent,
+        ) {
+            self.tree.layout();
+        }
+    }
 
     pub fn set_fullscreen(&mut self, window: &W::Id, is_fullscreen: bool) -> bool {
         if is_fullscreen {
@@ -996,7 +1420,17 @@ pub fn toggle_column_tabbed_display(&mut self) {}
     pub fn center_window(&mut self, _window: Option<&W::Id>) {}
     pub fn center_visible_columns(&mut self) {}
 
-    pub fn expand_column_to_available_width(&mut self) {}
+    pub fn expand_column_to_available_width(&mut self) {
+        let Some(idx) = self.tree.focused_root_index() else {
+            return;
+        };
+        if self
+            .tree
+            .set_child_percent_at(&[], idx, Layout::SplitH, 1.0)
+        {
+            self.tree.layout();
+        }
+    }
 
     pub fn swap_window_in_direction(&mut self, _direction: ScrollDirection) {}
 
@@ -1124,21 +1558,48 @@ impl<W: LayoutElement> ScrollingSpace<W> {
 impl<W: LayoutElement> Column<W> {
     pub fn new(tile: Tile<W>) -> Self {
         Self {
-            tiles: vec![tile],
-            _phantom: std::marker::PhantomData,
+            node: Node::Leaf(tile),
         }
     }
 
-    pub fn tiles(&self) -> &[Tile<W>] {
-        &self.tiles
+    pub fn from_node(node: Node<W>) -> Self {
+        Self { node }
     }
 
-    pub fn tiles_mut(&mut self) -> &mut [Tile<W>] {
-        &mut self.tiles
+    pub fn tiles(&self) -> Vec<&Tile<W>> {
+        let mut out = Vec::new();
+        Self::collect_tiles(&self.node, &mut out);
+        out
     }
 
-    pub fn contains(&self, _window: &W) -> bool {
-        false // TODO i3-conversion: Implement
+    fn collect_tiles<'a>(node: &'a Node<W>, out: &mut Vec<&'a Tile<W>>) {
+        match node {
+            Node::Leaf(tile) => out.push(tile),
+            Node::Container(container) => {
+                for child in container.children() {
+                    Self::collect_tiles(child, out);
+                }
+            }
+        }
+    }
+
+    pub fn contains(&self, window: &W) -> bool {
+        let target_id = window.id();
+        Self::node_contains(&self.node, target_id)
+    }
+
+    fn node_contains(node: &Node<W>, target: &W::Id) -> bool {
+        match node {
+            Node::Leaf(tile) => tile.window().id() == target,
+            Node::Container(container) => container
+                .children()
+                .iter()
+                .any(|child| Self::node_contains(child, target)),
+        }
+    }
+
+    pub fn into_node(self) -> Node<W> {
+        self.node
     }
 }
 

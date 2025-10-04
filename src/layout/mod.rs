@@ -1734,6 +1734,20 @@ impl<W: LayoutElement> Layout<W> {
         workspace.move_right();
     }
 
+    pub fn move_column_left(&mut self) {
+        let Some(workspace) = self.active_workspace_mut() else {
+            return;
+        };
+        workspace.move_column_left();
+    }
+
+    pub fn move_column_right(&mut self) {
+        let Some(workspace) = self.active_workspace_mut() else {
+            return;
+        };
+        workspace.move_column_right();
+    }
+
     pub fn move_column_to_first(&mut self) {
         let Some(workspace) = self.active_workspace_mut() else {
             return;
@@ -1750,7 +1764,7 @@ impl<W: LayoutElement> Layout<W> {
 
     pub fn move_column_left_or_to_output(&mut self, output: &Output) -> bool {
         if let Some(workspace) = self.active_workspace_mut() {
-            if workspace.move_left() {
+            if workspace.move_column_left() {
                 return false;
             }
         }
@@ -1761,7 +1775,7 @@ impl<W: LayoutElement> Layout<W> {
 
     pub fn move_column_right_or_to_output(&mut self, output: &Output) -> bool {
         if let Some(workspace) = self.active_workspace_mut() {
-            if workspace.move_right() {
+            if workspace.move_column_right() {
                 return false;
             }
         }
@@ -2963,6 +2977,36 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.toggle_full_width();
+    }
+
+    pub fn focus_parent(&mut self) {
+        if let Some(workspace) = self.active_workspace_mut() {
+            workspace.focus_parent();
+        }
+    }
+
+    pub fn focus_child(&mut self) {
+        if let Some(workspace) = self.active_workspace_mut() {
+            workspace.focus_child();
+        }
+    }
+
+    pub fn split_horizontal(&mut self) {
+        if let Some(workspace) = self.active_workspace_mut() {
+            workspace.split_horizontal();
+        }
+    }
+
+    pub fn split_vertical(&mut self) {
+        if let Some(workspace) = self.active_workspace_mut() {
+            workspace.split_vertical();
+        }
+    }
+
+    pub fn set_layout_mode(&mut self, layout: ContainerLayout) {
+        if let Some(workspace) = self.active_workspace_mut() {
+            workspace.set_layout_mode(layout);
+        }
     }
 
     pub fn set_column_width(&mut self, change: SizeChange) {

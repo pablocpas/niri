@@ -39,6 +39,8 @@ pub enum Direction {
     Down,
 }
 
+const MIN_CHILD_PERCENT: f64 = 0.05;
+
 /// Node type in the container tree
 #[derive(Debug)]
 pub enum Node<W: LayoutElement> {
@@ -63,6 +65,8 @@ pub struct Container<W: LayoutElement> {
     layout: Layout,
     /// Child nodes (containers or leaves)
     children: Vec<Node<W>>,
+    /// Relative sizes of children (sum normalized to 1.0 for split layouts)
+    child_percents: Vec<f64>,
     /// Index of focused child
     focused_idx: usize,
     /// Percentage of parent space this container occupies (0.0-1.0)
@@ -78,6 +82,8 @@ pub struct ContainerTree<W: LayoutElement> {
     root: Option<Node<W>>,
     /// Path to currently focused node (indices from root to leaf)
     focus_path: Vec<usize>,
+    /// Stack of focus paths for parent/child navigation
+    focus_parent_stack: Vec<Vec<usize>>,
     /// Cached layout info for leaves
     leaf_layouts: Vec<LeafLayoutInfo>,
     /// View size (output size)
@@ -100,6 +106,7 @@ impl<W: LayoutElement> Container<W> {
         Self {
             layout,
             children: Vec::new(),
+            child_percents: Vec::new(),
             focused_idx: 0,
             percent: 1.0,
             geometry: Rectangle::from_size(Size::from((0.0, 0.0))),
@@ -121,9 +128,9 @@ impl<W: LayoutElement> Container<W> {
         &self.children
     }
 
-    /// Get mutable children
-    pub fn children_mut(&mut self) -> &mut Vec<Node<W>> {
-        &mut self.children
+    /// Number of children.
+    pub fn child_count(&self) -> usize {
+        self.children.len()
     }
 
     /// Get focused child index
@@ -151,11 +158,8 @@ impl<W: LayoutElement> Container<W> {
     /// Add a child node
     pub fn add_child(&mut self, node: Node<W>) {
         self.children.push(node);
-        // Recalculate percentages equally
-        let count = self.children.len() as f64;
-        for child in &mut self.children {
-            child.set_percent(1.0 / count);
-        }
+        self.child_percents.push(0.0);
+        self.recalculate_percentages();
     }
 
     /// Remove a child at index, returns the removed node
@@ -165,6 +169,7 @@ impl<W: LayoutElement> Container<W> {
         }
 
         let node = self.children.remove(idx);
+        let _ = self.child_percents.remove(idx);
 
         // Adjust focused index if needed
         if self.focused_idx >= self.children.len() && self.focused_idx > 0 {
@@ -173,10 +178,7 @@ impl<W: LayoutElement> Container<W> {
 
         // Recalculate percentages
         if !self.children.is_empty() {
-            let count = self.children.len() as f64;
-            for child in &mut self.children {
-                child.set_percent(1.0 / count);
-            }
+            self.recalculate_percentages();
         }
 
         Some(node)
@@ -185,17 +187,89 @@ impl<W: LayoutElement> Container<W> {
     pub fn insert_child(&mut self, idx: usize, node: Node<W>) {
         let idx = idx.min(self.children.len());
         self.children.insert(idx, node);
+        self.child_percents.insert(idx, 0.0);
         self.recalculate_percentages();
     }
 
     pub fn recalculate_percentages(&mut self) {
         if self.children.is_empty() {
+            self.child_percents.clear();
             return;
         }
         let count = self.children.len() as f64;
-        for child in &mut self.children {
-            child.set_percent(1.0 / count);
+        let value = 1.0 / count;
+        if self.child_percents.len() != self.children.len() {
+            self.child_percents.resize(self.children.len(), value);
         }
+        for percent in &mut self.child_percents {
+            *percent = value;
+        }
+    }
+
+    pub fn normalize_child_percents(&mut self) {
+        if self.child_percents.is_empty() {
+            return;
+        }
+        let sum: f64 = self.child_percents.iter().copied().sum();
+        if sum <= f64::EPSILON {
+            self.recalculate_percentages();
+        } else {
+            for percent in &mut self.child_percents {
+                *percent /= sum;
+            }
+        }
+    }
+
+    pub fn child_percent(&self, idx: usize) -> f64 {
+        self.child_percents.get(idx).copied().unwrap_or(0.0)
+    }
+
+    pub fn set_child_percent(&mut self, idx: usize, percent: f64) {
+        if self.child_percents.is_empty() || idx >= self.child_percents.len() {
+            return;
+        }
+
+        let len = self.child_percents.len();
+        if len == 1 {
+            self.child_percents[0] = 1.0;
+            return;
+        }
+
+        let min = MIN_CHILD_PERCENT;
+        let max = 1.0 - min * (len as f64 - 1.0);
+        let new_percent = percent.clamp(min, max.max(min));
+
+        self.child_percents[idx] = new_percent;
+
+        let mut remaining = 1.0 - new_percent;
+        if remaining <= f64::EPSILON {
+            remaining = min * (len as f64 - 1.0);
+        }
+
+        let mut others_sum = 0.0;
+        for (i, value) in self.child_percents.iter().enumerate() {
+            if i != idx {
+                others_sum += *value;
+            }
+        }
+
+        if others_sum <= f64::EPSILON {
+            let share = remaining / (len as f64 - 1.0);
+            for (i, value) in self.child_percents.iter_mut().enumerate() {
+                if i != idx {
+                    *value = share;
+                }
+            }
+        } else {
+            let scale = remaining / others_sum;
+            for (i, value) in self.child_percents.iter_mut().enumerate() {
+                if i != idx {
+                    *value *= scale;
+                }
+            }
+        }
+
+        self.normalize_child_percents();
     }
 
     /// Check if container is empty
@@ -318,6 +392,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         Self {
             root: None,
             focus_path: Vec::new(),
+            focus_parent_stack: Vec::new(),
             leaf_layouts: Vec::new(),
             view_size,
             working_area,
@@ -343,11 +418,13 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Set root node
     pub fn set_root(&mut self, node: Node<W>) {
+        self.clear_focus_history();
         self.root = Some(node);
     }
 
     /// Take the root node, leaving None
     pub fn take_root(&mut self) -> Option<Node<W>> {
+        self.clear_focus_history();
         self.root.take()
     }
 
@@ -355,20 +432,66 @@ impl<W: LayoutElement> ContainerTree<W> {
     /// For now, simple implementation: if empty, create root leaf
     /// Otherwise, we'll implement proper insertion logic later
     pub fn insert_window(&mut self, tile: Tile<W>) {
+        self.clear_focus_history();
         if self.root.is_none() {
-            // First window - create root leaf
+            // First window becomes the root leaf.
             self.root = Some(Node::leaf(tile));
-            self.focus_path = vec![];
-        } else {
-            // TODO: Implement proper insertion based on focus and split direction
-            // For now, create a horizontal split at root
+            self.focus_path.clear();
+            return;
+        }
+
+        // Ensure the root is a container so we can insert siblings easily.
+        let focus_path = if self.root.as_ref().is_some_and(Node::is_leaf) {
+            // Convert the root leaf into a container that keeps the existing tile as the
+            // focused child. Future insertions can now target the same parent container.
             let old_root = self.root.take().unwrap();
             let mut container = Container::new(Layout::SplitH);
             container.add_child(old_root);
-            container.add_child(Node::leaf(tile));
-            container.set_focused_idx(1); // Focus new window
+            container.set_focused_idx(0);
+            self.focus_path = vec![0];
             self.root = Some(Node::Container(container));
-            self.focus_path = vec![1]; // Focus new window
+            self.focus_path.clone()
+        } else {
+            self.focus_path.clone()
+        };
+
+        // If we somehow lost focus, fall back to appending at root.
+        if focus_path.is_empty() {
+            if let Some(Node::Container(container)) = self.root.as_mut() {
+                let insert_idx = container.children.len();
+                container.insert_child(insert_idx, Node::leaf(tile));
+                container.set_focused_idx(insert_idx);
+                self.focus_path = vec![insert_idx];
+            } else {
+                // Root is guaranteed to be a container due to the conversion above.
+                self.root = Some(Node::leaf(tile));
+                self.focus_path.clear();
+            }
+            return;
+        }
+
+        let parent_path = &focus_path[..focus_path.len() - 1];
+        let current_idx = *focus_path.last().unwrap();
+
+        // Insert as a sibling in the parent container whenever possible.
+        if let Some(parent_container) = self.get_container_at_path_mut(parent_path) {
+            let insert_idx = current_idx + 1;
+            parent_container.insert_child(insert_idx, Node::leaf(tile));
+            parent_container.set_focused_idx(insert_idx);
+
+            self.focus_path.truncate(parent_path.len());
+            self.focus_path.push(insert_idx);
+            self.focus_to_first_leaf_from_path();
+            return;
+        }
+
+        // If the focused node wasn't inside a container (shouldn't normally happen), append to
+        // the root container as a sensible fallback.
+        if let Some(Node::Container(container)) = self.root.as_mut() {
+            let insert_idx = container.children.len();
+            container.insert_child(insert_idx, Node::leaf(tile));
+            container.set_focused_idx(insert_idx);
+            self.focus_path = vec![insert_idx];
         }
     }
 
@@ -467,6 +590,139 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
     }
 
+    pub fn root_container(&self) -> Option<&Container<W>> {
+        match &self.root {
+            Some(Node::Container(container)) => Some(container),
+            _ => None,
+        }
+    }
+
+    pub fn root_container_mut(&mut self) -> Option<&mut Container<W>> {
+        match self.root.as_mut() {
+            Some(Node::Container(container)) => Some(container),
+            _ => None,
+        }
+    }
+
+    /// Current percent of a root child relative to the root container, if any.
+    pub fn root_child_percent(&self, idx: usize) -> Option<f64> {
+        match &self.root {
+            Some(Node::Container(container)) => {
+                if idx >= container.children.len() {
+                    None
+                } else {
+                    Some(container.child_percent(idx))
+                }
+            }
+            Some(Node::Leaf(_)) => {
+                if idx == 0 {
+                    Some(1.0)
+                } else {
+                    None
+                }
+            }
+            None => None,
+        }
+    }
+
+    /// Set the percent of a root child. Returns false if the root isn't a container or index invalid.
+    pub fn set_root_child_percent(&mut self, idx: usize, percent: f64) -> bool {
+        match self.root.as_mut() {
+            Some(Node::Container(container)) => {
+                if idx >= container.children.len() {
+                    return false;
+                }
+                container.set_child_percent(idx, percent);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub fn child_percent_at(&self, parent_path: &[usize], child_idx: usize) -> Option<f64> {
+        let container = if parent_path.is_empty() {
+            self.root.as_ref()?.as_container()
+        } else {
+            self.get_container_at_path(parent_path)
+        }?;
+
+        if child_idx >= container.child_count() {
+            return None;
+        }
+        Some(container.child_percent(child_idx))
+    }
+
+    pub fn set_child_percent_at(
+        &mut self,
+        parent_path: &[usize],
+        child_idx: usize,
+        layout: Layout,
+        percent: f64,
+    ) -> bool {
+        let Some(container) = self.container_at_path_mut(parent_path) else {
+            return false;
+        };
+
+        if container.layout() != layout || child_idx >= container.child_count() {
+            return false;
+        }
+
+        container.set_child_percent(child_idx, percent);
+        true
+    }
+
+    pub fn container_info(
+        &self,
+        path: &[usize],
+    ) -> Option<(Layout, Rectangle<f64, Logical>, usize)> {
+        let container = if path.is_empty() {
+            self.root.as_ref()?.as_container()
+        } else {
+            self.get_container_at_path(path)
+        }?;
+
+        Some((container.layout(), container.geometry(), container.child_count()))
+    }
+
+    pub fn container_at_path_mut(&mut self, path: &[usize]) -> Option<&mut Container<W>> {
+        if path.is_empty() {
+            match self.root.as_mut()? {
+                Node::Container(container) => Some(container),
+                _ => None,
+            }
+        } else {
+            self.get_container_at_path_mut(path)
+        }
+    }
+
+    pub fn find_parent_with_layout(
+        &self,
+        mut path: Vec<usize>,
+        layout: Layout,
+    ) -> Option<(Vec<usize>, usize)> {
+        while !path.is_empty() {
+            let child_idx = *path.last().unwrap();
+            let parent_path_vec = path[..path.len() - 1].to_vec();
+
+            let container = if parent_path_vec.is_empty() {
+                match &self.root {
+                    Some(Node::Container(container)) => Some(container),
+                    _ => None,
+                }
+            } else {
+                self.get_container_at_path(&parent_path_vec)
+            }?;
+
+            if container.layout() == layout {
+                return Some((parent_path_vec, child_idx));
+            }
+
+            path.pop();
+        }
+
+        None
+    }
+
     /// Index of currently focused root child, if any.
     pub fn focused_root_index(&self) -> Option<usize> {
         match &self.root {
@@ -484,6 +740,7 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Focus root child at index, descending to the first leaf.
     pub fn focus_root_child(&mut self, idx: usize) -> bool {
+        self.clear_focus_history();
         match &self.root {
             None => false,
             Some(Node::Leaf(_)) => {
@@ -507,6 +764,7 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Move a root child from one index to another, keeping focus consistent.
     pub fn move_root_child(&mut self, from: usize, to: usize) -> bool {
+        self.clear_focus_history();
         let root_container = match self.root.as_mut() {
             Some(Node::Container(container)) => container,
             Some(Node::Leaf(_)) | None => return false,
@@ -517,8 +775,10 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
 
         let node = root_container.children.remove(from);
+        let percent = root_container.child_percents.remove(from);
         root_container.children.insert(to, node);
-        root_container.recalculate_percentages();
+        root_container.child_percents.insert(to, percent);
+        root_container.normalize_child_percents();
 
         if let Some(first) = self.focus_path.get_mut(0) {
             let current = *first;
@@ -546,8 +806,57 @@ impl<W: LayoutElement> ContainerTree<W> {
         true
     }
 
+    /// Remove and return the root-level child at the given index.
+    pub fn take_root_child(&mut self, idx: usize) -> Option<Node<W>> {
+        match self.root.as_mut()? {
+            Node::Leaf(_) => {
+                if idx == 0 {
+                    self.focus_path.clear();
+                    self.root.take()
+                } else {
+                    None
+                }
+            }
+            Node::Container(container) => {
+                if idx >= container.children.len() {
+                    return None;
+                }
+                let node = container.remove_child(idx)?;
+
+                // Drop the borrow before we mutate the tree further.
+                let remaining = container.children.len();
+                let _ = container;
+
+                // Collapse any redundant root wrappers and keep focus sensible.
+                self.cleanup_containers(Vec::new());
+
+                match self.root.as_mut() {
+                    None => {
+                        self.focus_path.clear();
+                    }
+                    Some(Node::Leaf(_)) => {
+                        self.focus_path.clear();
+                    }
+                    Some(Node::Container(root_container)) => {
+                        if remaining > 0 {
+                            let new_idx = idx.min(root_container.children.len().saturating_sub(1));
+                            root_container.set_focused_idx(new_idx);
+                            self.focus_path = vec![new_idx];
+                            self.focus_to_first_leaf_from_path();
+                        } else {
+                            self.focus_first_leaf();
+                        }
+                    }
+                }
+
+                Some(node)
+            }
+        }
+    }
+
     /// Focus nth (1-based) leaf within the given root child.
     pub fn focus_leaf_in_root_child(&mut self, child_idx: usize, leaf_idx: usize) -> bool {
+        self.clear_focus_history();
         if leaf_idx == 0 {
             return false;
         }
@@ -599,6 +908,7 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Move focus in a direction
     pub fn focus_in_direction(&mut self, direction: Direction) -> bool {
+        self.clear_focus_history();
         if self.root.is_none() {
             return false;
         }
@@ -669,12 +979,39 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Focus window by its ID if present.
     pub fn focus_window_by_id(&mut self, window_id: &W::Id) -> bool {
+        self.clear_focus_history();
         if let Some(path) = self.find_window(window_id) {
             self.focus_path = path;
+            self.focus_to_first_leaf_from_path();
             true
         } else {
             false
         }
+    }
+
+    pub fn focus_parent(&mut self) -> bool {
+        if self.focus_path.is_empty() {
+            return false;
+        }
+        self.focus_parent_stack.push(self.focus_path.clone());
+        self.focus_path.pop();
+        self.focus_to_first_leaf_from_path();
+        true
+    }
+
+    pub fn focus_child(&mut self) -> bool {
+        let Some(path) = self.focus_parent_stack.pop() else {
+            return false;
+        };
+
+        if self.get_node_at_path(&path).is_none() {
+            self.focus_parent_stack.clear();
+            return false;
+        }
+
+        self.focus_path = path;
+        self.focus_to_first_leaf_from_path();
+        true
     }
 
     /// Helper: navigate to first leaf from current focus_path
@@ -736,7 +1073,7 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         let mut current = self.root.as_mut()?;
 
-        for &idx in &path[..path.len()-1] {
+        for &idx in &path[..path.len() - 1] {
             match current {
                 Node::Container(container) => {
                     current = container.children.get_mut(idx)?;
@@ -750,6 +1087,32 @@ impl<W: LayoutElement> ContainerTree<W> {
             Node::Container(container) => {
                 let last_idx = *path.last()?;
                 container.children.get_mut(last_idx)?.as_container_mut()
+            }
+            Node::Leaf(_) => None,
+        }
+    }
+
+    /// Helper: get container at path (immutable)
+    fn get_container_at_path(&self, path: &[usize]) -> Option<&Container<W>> {
+        if path.is_empty() {
+            return self.root.as_ref()?.as_container();
+        }
+
+        let mut current = self.root.as_ref()?;
+
+        for &idx in &path[..path.len() - 1] {
+            match current {
+                Node::Container(container) => {
+                    current = container.children.get(idx)?;
+                }
+                Node::Leaf(_) => return None,
+            }
+        }
+
+        match current {
+            Node::Container(container) => {
+                let last_idx = *path.last()?;
+                container.children.get(last_idx)?.as_container()
             }
             Node::Leaf(_) => None,
         }
@@ -806,6 +1169,7 @@ impl<W: LayoutElement> ContainerTree<W> {
     /// Move window in a direction
     /// Swaps the focused window with its sibling in the given direction
     pub fn move_in_direction(&mut self, direction: Direction) -> bool {
+        self.clear_focus_history();
         if self.root.is_none() {
             return false;
         }
@@ -857,6 +1221,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 if let Some(target_idx) = target_idx {
                     // Swap children
                     container.children.swap(current_idx, target_idx);
+                    container.child_percents.swap(current_idx, target_idx);
 
                     // Update focus_path to follow the moved window
                     self.focus_path.truncate(depth);
@@ -879,6 +1244,7 @@ impl<W: LayoutElement> ContainerTree<W> {
     /// Split the focused container in a direction
     /// This creates a new container around the focused leaf with the specified layout
     pub fn split_focused(&mut self, layout: Layout) -> bool {
+        self.clear_focus_history();
         if self.root.is_none() {
             return false;
         }
@@ -928,14 +1294,14 @@ impl<W: LayoutElement> ContainerTree<W> {
                 new_container.add_child(focused_child);
 
                 // Insert new container back at same position
-                parent.children.insert(child_idx, Node::Container(new_container));
+                parent.insert_child(child_idx, Node::Container(new_container));
 
                 // Update focus path to point inside new container
                 self.focus_path.push(0);
                 return true;
             } else {
                 // It's already a container, just insert it back
-                parent.children.insert(child_idx, focused_child);
+                parent.insert_child(child_idx, focused_child);
             }
         }
 
@@ -1005,69 +1371,53 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     pub fn append_leaf(&mut self, tile: Tile<W>, focus: bool) {
-        let (inserted_idx, set_focus, adjust_focus_path, new_focus_idx) = {
-            let container = self.ensure_root_container();
-            let prev_focus_idx = container.focused_idx;
-            container.add_child(Node::Leaf(tile));
-            let idx = container.children.len().saturating_sub(1);
-            let mut set_focus = None;
-            let mut adjust = false;
-
-            if focus {
-                container.set_focused_idx(idx);
-                set_focus = Some(idx);
-            } else if idx <= prev_focus_idx && container.children.len() > 1 {
-                container.set_focused_idx(prev_focus_idx + 1);
-                adjust = true;
-            }
-
-            (idx, set_focus, adjust, container.focused_idx)
-        };
-
-        if let Some(idx) = set_focus {
-            self.focus_path = vec![idx];
-        } else if adjust_focus_path {
-            if let Some(first) = self.focus_path.get_mut(0) {
-                if inserted_idx <= *first {
-                    *first += 1;
-                }
-            }
-        } else if self.focus_path.is_empty() {
-            self.focus_path = vec![new_focus_idx];
-        }
+        self.insert_node_at_root(self.root_children_len(), Node::Leaf(tile), focus);
     }
 
     pub fn insert_leaf_at(&mut self, index: usize, tile: Tile<W>, focus: bool) {
-        let (inserted_idx, set_focus, adjust_focus_path, new_focus_idx) = {
-            let container = self.ensure_root_container();
-            let prev_focus_idx = container.focused_idx;
-            let idx = index.min(container.children.len());
-            container.insert_child(idx, Node::Leaf(tile));
-            let mut set_focus = None;
-            let mut adjust = false;
+        self.insert_node_at_root(index, Node::Leaf(tile), focus);
+    }
 
-            if focus {
+    pub fn insert_node_at_root(&mut self, index: usize, node: Node<W>, focus: bool) {
+        let (insert_idx, adjust_threshold) = {
+            let container = self.ensure_root_container();
+            let prev_focus_idx = container.focused_idx();
+            let idx = index.min(container.children.len());
+            container.insert_child(idx, node);
+
+            let adjust = if focus {
                 container.set_focused_idx(idx);
-                set_focus = Some(idx);
+                None
             } else if idx <= prev_focus_idx && container.children.len() > 1 {
                 container.set_focused_idx(prev_focus_idx + 1);
-                adjust = true;
-            }
+                Some(idx)
+            } else {
+                None
+            };
 
-            (idx, set_focus, adjust, container.focused_idx)
+            (idx, adjust)
         };
 
-        if let Some(idx) = set_focus {
-            self.focus_path = vec![idx];
-        } else if adjust_focus_path {
+        if focus {
+            self.focus_path = vec![insert_idx];
+            self.focus_to_first_leaf_from_path();
+        } else if let Some(threshold) = adjust_threshold {
             if let Some(first) = self.focus_path.get_mut(0) {
-                if inserted_idx <= *first {
+                if threshold <= *first {
                     *first += 1;
                 }
             }
         } else if self.focus_path.is_empty() {
-            self.focus_path = vec![new_focus_idx];
+            if let Some(idx) = self.focused_root_index() {
+                self.focus_path = vec![idx];
+                self.focus_to_first_leaf_from_path();
+            }
         }
+    }
+
+    pub fn append_node_at_root(&mut self, node: Node<W>, focus: bool) {
+        let len = self.root_children_len();
+        self.insert_node_at_root(len, node, focus);
     }
 
     pub fn insert_leaf_after(&mut self, window_id: &W::Id, tile: Tile<W>, focus: bool) -> bool {
@@ -1080,19 +1430,109 @@ impl<W: LayoutElement> ContainerTree<W> {
         };
 
         if path.is_empty() {
-            // Root leaf
-            self.insert_leaf_at(1, tile, focus);
+            self.append_leaf(tile, focus);
             return true;
         }
 
-        if path.len() == 1 {
-            let idx = path[0] + 1;
-            self.insert_leaf_at(idx, tile, focus);
+        let parent_path = &path[..path.len() - 1];
+        let current_idx = *path.last().unwrap();
+
+        if let Some(parent) = self.get_container_at_path_mut(parent_path) {
+            let insert_idx = current_idx + 1;
+            let prev_focus_idx = parent.focused_idx();
+            parent.insert_child(insert_idx, Node::leaf(tile));
+
+            if focus {
+                parent.set_focused_idx(insert_idx);
+                self.focus_path = parent_path.to_vec();
+                self.focus_path.push(insert_idx);
+            } else if prev_focus_idx >= insert_idx {
+                parent.set_focused_idx(prev_focus_idx + 1);
+                if let Some(first) = self.focus_path.get_mut(parent_path.len()) {
+                    if insert_idx <= *first {
+                        *first += 1;
+                    }
+                }
+            }
+
+            if focus {
+                self.focus_to_first_leaf_from_path();
+            }
+
             return true;
         }
 
-        // For deeper paths (nested containers) fallback to append for now.
+        // Fallback: append to root.
         self.append_leaf(tile, focus);
+        true
+    }
+
+    /// Insert a new leaf into the specified root column.
+    pub fn insert_leaf_in_column(
+        &mut self,
+        column_idx: usize,
+        tile_idx: Option<usize>,
+        tile: Tile<W>,
+        focus: bool,
+    ) -> bool {
+        let result = {
+            let root = self.ensure_root_container();
+            if column_idx >= root.children.len() {
+                return false;
+            }
+
+            if root.children[column_idx].is_leaf() {
+                let existing = root.children.remove(column_idx);
+                let existing_percent = root.child_percents.remove(column_idx);
+                let mut column_container = Container::new(Layout::SplitV);
+                column_container.add_child(existing);
+                column_container.set_focused_idx(0);
+                root.children
+                    .insert(column_idx, Node::Container(column_container));
+                root.child_percents.insert(column_idx, existing_percent);
+                root.normalize_child_percents();
+            }
+
+            let column_node = root.children.get_mut(column_idx).expect("column exists");
+            let column_container = column_node
+                .as_container_mut()
+                .expect("column converted to container");
+
+            let insert_at = tile_idx.unwrap_or(column_container.children.len());
+            let insert_at = insert_at.min(column_container.children.len());
+            column_container.insert_child(insert_at, Node::Leaf(tile));
+
+            let focus_path = if focus {
+                column_container.set_focused_idx(insert_at);
+                Some(vec![column_idx, insert_at])
+            } else {
+                None
+            };
+
+            root.set_focused_idx(column_idx);
+
+            (insert_at, focus_path)
+        };
+
+        let inserted_idx = result.0;
+        let new_focus_path = result.1;
+
+        if let Some(path) = new_focus_path {
+            self.focus_path = path;
+            self.focus_to_first_leaf_from_path();
+        } else if self.focus_path.get(0) == Some(&column_idx) {
+            if self.focus_path.len() > 1 {
+                if let Some(second) = self.focus_path.get_mut(1) {
+                    if inserted_idx <= *second {
+                        *second += 1;
+                    }
+                }
+            }
+        } else if self.focus_path.is_empty() {
+            self.focus_path = vec![column_idx];
+            self.focus_to_first_leaf_from_path();
+        }
+
         true
     }
 
@@ -1175,6 +1615,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                             self.root = None;
                         } else if container.children.len() == 1 {
                             let child = container.children.remove(0);
+                            let _ = container.child_percents.remove(0);
                             self.root = Some(child);
                         }
                     }
@@ -1192,7 +1633,9 @@ impl<W: LayoutElement> ContainerTree<W> {
                     if container.children.is_empty() {
                         remove_container = true;
                     } else if container.children.len() == 1 {
-                        replace_with_child = Some(container.children.remove(0));
+                        let child = container.children.remove(0);
+                        let _ = container.child_percents.remove(0);
+                        replace_with_child = Some(child);
                     }
                 }
 
@@ -1332,6 +1775,10 @@ impl<W: LayoutElement> ContainerTree<W> {
         &self.focus_path
     }
 
+    fn clear_focus_history(&mut self) {
+        self.focus_parent_stack.clear();
+    }
+
     /// Focused tile (if any).
     pub fn focused_tile(&self) -> Option<&Tile<W>> {
         self.tile_at_path(self.focus_path())
@@ -1341,6 +1788,20 @@ impl<W: LayoutElement> ContainerTree<W> {
     pub fn focused_tile_mut(&mut self) -> Option<&mut Tile<W>> {
         let path = self.focus_path.clone();
         self.tile_at_path_mut(&path)
+    }
+
+    /// Layout of the container that currently owns the focused leaf (if any).
+    pub fn focused_layout(&self) -> Option<Layout> {
+        if self.focus_path.is_empty() {
+            match &self.root {
+                Some(Node::Container(container)) => Some(container.layout()),
+                _ => None,
+            }
+        } else {
+            let parent_path = &self.focus_path[..self.focus_path.len() - 1];
+            self.get_container_at_path(parent_path)
+                .map(|container| container.layout())
+        }
     }
 
     /// Helper: recursively layout a node
@@ -1373,51 +1834,95 @@ impl<W: LayoutElement> ContainerTree<W> {
 
                 match container.layout {
                     Layout::SplitH => {
-                        // Horizontal split: divide width among children
-                        let child_count = container.children.len() as f64;
+                        // Horizontal split: divide width among children according to percents
+                        let child_count = container.children.len();
+                        if child_count == 0 {
+                            return;
+                        }
                         let gap = options.layout.gaps;
-                        let total_gap = if child_count > 1.0 {
-                            gap * (child_count - 1.0)
+                        let total_gap = if child_count > 1 {
+                            gap * (child_count as f64 - 1.0)
                         } else {
                             0.0
                         };
-                        let child_width = (rect.size.w - total_gap).max(0.0) / child_count;
+                        let available_width = (rect.size.w - total_gap).max(0.0);
+                        let total_percent: f64 = container.child_percents.iter().copied().sum();
+                        let percents: Vec<f64> = if total_percent > f64::EPSILON {
+                            container
+                                .child_percents
+                                .iter()
+                                .map(|p| p / total_percent)
+                                .collect()
+                        } else {
+                            vec![1.0 / child_count as f64; child_count]
+                        };
+                        let mut cursor_x = rect.loc.x;
+                        let mut used_width = 0.0;
 
                         for (idx, child) in container.children.iter_mut().enumerate() {
+                            let percent = percents[idx];
+                            let width = if idx == child_count - 1 {
+                                (available_width - used_width).max(0.0)
+                            } else {
+                                (available_width * percent).max(0.0)
+                            };
                             let child_rect = Rectangle::new(
-                                Point::from((
-                                    rect.loc.x + (idx as f64) * (child_width + gap),
-                                    rect.loc.y,
-                                )),
-                                Size::from((child_width, rect.size.h)),
+                                Point::from((cursor_x, rect.loc.y)),
+                                Size::from((width, rect.size.h)),
                             );
                             path.push(idx);
                             Self::layout_node(child, child_rect, options, path, visible, out);
                             path.pop();
+                            used_width += width;
+                            if idx + 1 < child_count {
+                                cursor_x += width + gap;
+                            }
                         }
                     }
                     Layout::SplitV => {
-                        // Vertical split: divide height among children
-                        let child_count = container.children.len() as f64;
+                        // Vertical split: divide height among children according to percents
+                        let child_count = container.children.len();
+                        if child_count == 0 {
+                            return;
+                        }
                         let gap = options.layout.gaps;
-                        let total_gap = if child_count > 1.0 {
-                            gap * (child_count - 1.0)
+                        let total_gap = if child_count > 1 {
+                            gap * (child_count as f64 - 1.0)
                         } else {
                             0.0
                         };
-                        let child_height = (rect.size.h - total_gap).max(0.0) / child_count;
+                        let available_height = (rect.size.h - total_gap).max(0.0);
+                        let total_percent: f64 = container.child_percents.iter().copied().sum();
+                        let percents: Vec<f64> = if total_percent > f64::EPSILON {
+                            container
+                                .child_percents
+                                .iter()
+                                .map(|p| p / total_percent)
+                                .collect()
+                        } else {
+                            vec![1.0 / child_count as f64; child_count]
+                        };
+                        let mut cursor_y = rect.loc.y;
+                        let mut used_height = 0.0;
 
                         for (idx, child) in container.children.iter_mut().enumerate() {
+                            let percent = percents[idx];
+                            let height = if idx == child_count - 1 {
+                                (available_height - used_height).max(0.0)
+                            } else {
+                                (available_height * percent).max(0.0)
+                            };
                             let child_rect = Rectangle::new(
-                                Point::from((
-                                    rect.loc.x,
-                                    rect.loc.y + (idx as f64) * (child_height + gap),
-                                )),
-                                Size::from((rect.size.w, child_height)),
+                                Point::from((rect.loc.x, cursor_y)),
+                                Size::from((rect.size.w, height)),
                             );
                             path.push(idx);
                             Self::layout_node(child, child_rect, options, path, visible, out);
                             path.pop();
+                            used_height += height;
+                            if idx + 1 < child_count {
+                                cursor_y += height + gap;
+                            }
                         }
                     }
                     Layout::Tabbed | Layout::Stacked => {
