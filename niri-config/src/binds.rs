@@ -286,6 +286,18 @@ pub enum Action {
     MoveColumnToMonitorPrevious,
     MoveColumnToMonitorNext,
     MoveColumnToMonitor(#[knuffel(argument)] String),
+    ResizeGrowWidth,
+    ResizeShrinkWidth,
+    ResizeGrowHeight,
+    ResizeShrinkHeight,
+    FocusParent,
+    FocusChild,
+    SplitHorizontal,
+    SplitVertical,
+    SetLayoutSplitH,
+    SetLayoutSplitV,
+    SetLayoutStacked,
+    SetLayoutTabbed,
     SetWindowWidth(#[knuffel(argument, str)] SizeChange),
     #[knuffel(skip)]
     SetWindowWidthById {
