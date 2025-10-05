@@ -19,8 +19,8 @@ use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use super::container::Layout;
 use super::floating::{FloatingSpace, FloatingSpaceRenderElement};
-use super::scrolling::{
-    Column, ColumnWidth, ScrollDirection, ScrollingSpace, ScrollingSpaceRenderElement,
+use super::tiling::{
+    Column, ColumnWidth, ScrollDirection, TilingSpace, TilingSpaceRenderElement,
 };
 use super::shadow::Shadow;
 use super::tile::{Tile, TileRenderSnapshot};
@@ -45,7 +45,7 @@ use crate::window::ResolvedWindowRules;
 #[derive(Debug)]
 pub struct Workspace<W: LayoutElement> {
     /// The scrollable-tiling layout.
-    scrolling: ScrollingSpace<W>,
+    scrolling: TilingSpace<W>,
 
     /// The floating layout.
     floating: FloatingSpace<W>,
@@ -144,7 +144,7 @@ impl WorkspaceId {
 
 niri_render_elements! {
     WorkspaceRenderElement<R> => {
-        Scrolling = ScrollingSpaceRenderElement<R>,
+        Scrolling = TilingSpaceRenderElement<R>,
         Floating = FloatingSpaceRenderElement<R>,
     }
 }
@@ -234,7 +234,7 @@ impl<W: LayoutElement> Workspace<W> {
         let view_size = output_size(&output);
         let working_area = compute_working_area(&output);
 
-        let scrolling = ScrollingSpace::new(
+        let scrolling = TilingSpace::new(
             view_size,
             working_area,
             scale.fractional_scale(),
@@ -298,7 +298,7 @@ impl<W: LayoutElement> Workspace<W> {
         let view_size = Size::from((1280., 720.));
         let working_area = Rectangle::from_size(Size::from((1280., 720.)));
 
-        let scrolling = ScrollingSpace::new(
+        let scrolling = TilingSpace::new(
             view_size,
             working_area,
             scale.fractional_scale(),
@@ -2017,7 +2017,7 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     #[cfg(test)]
-    pub fn scrolling(&self) -> &ScrollingSpace<W> {
+    pub fn scrolling(&self) -> &TilingSpace<W> {
         &self.scrolling
     }
 

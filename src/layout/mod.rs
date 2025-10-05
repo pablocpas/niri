@@ -1,6 +1,6 @@
 //! Window layout logic.
 //!
-//! Niri implements scrollable tiling with dynamic workspaces. The scrollable tiling is mostly
+//! Niri implements i3-style hierarchical tiling with dynamic workspaces. The tiling system is mostly
 //! orthogonal to any particular workspace system, though outputs living in separate coordinate
 //! spaces suggest per-output workspaces.
 //!
@@ -42,7 +42,7 @@ use niri_config::{
     Config, CornerRadius, LayoutPart, PresetSize, Workspace as WorkspaceConfig, WorkspaceReference,
 };
 use niri_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
-use scrolling::{Column, ColumnWidth};
+use tiling::{Column, ColumnWidth};
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::utils::RescaleRenderElement;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
@@ -58,7 +58,7 @@ use self::monitor::{Monitor, WorkspaceSwitch};
 use self::workspace::{OutputId, Workspace};
 use crate::animation::{Animation, Clock};
 use crate::input::swipe_tracker::SwipeTracker;
-use crate::layout::scrolling::ScrollDirection;
+use crate::layout::tiling::ScrollDirection;
 use crate::niri_render_elements;
 use crate::render_helpers::offscreen::OffscreenData;
 use crate::render_helpers::renderer::NiriRenderer;
@@ -81,10 +81,10 @@ pub mod focus_ring;
 pub mod insert_hint_element;
 pub mod monitor;
 pub mod opening_window;
-pub mod scrolling;
 pub mod shadow;
 pub mod tab_indicator;
 pub mod tile;
+pub mod tiling;
 pub mod workspace;
 
 #[cfg(test)]
