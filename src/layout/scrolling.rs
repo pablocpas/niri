@@ -14,7 +14,7 @@ use niri_config::{Border, PresetSize};
 use niri_ipc::{ColumnDisplay, SizeChange};
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 
-use super::container::{ContainerTree, Direction, Layout, LeafLayoutInfo, Node};
+use super::container::{ContainerTree, Direction, Layout, LeafLayoutInfo};
 use super::monitor::InsertPosition;
 use super::tile::{Tile, TileRenderElement};
 use super::{ConfigureIntent, LayoutElement, Options, RemovedTile};
@@ -56,9 +56,15 @@ niri_render_elements! {
 }
 
 /// Container wrapper representing a top-level column in the i3-style tree.
+///
+/// This holds a NodeKey that references a subtree in the ContainerTree.
+/// The subtree is removed from the main tree and stored separately.
 #[derive(Debug)]
 pub struct Column<W: LayoutElement> {
-    node: Node<W>,
+    /// Temporary storage for extracted subtree
+    /// This contains tiles that were removed from the main tree
+    tiles: Vec<Tile<W>>,
+    _phantom: std::marker::PhantomData<W>,
 }
 
 /// STUB: Column width enum
@@ -1040,7 +1046,8 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         _height: Option<WindowHeight>,
     ) {
         let idx = _col_idx.unwrap_or_else(|| self.tree.root_children_len());
-        self.tree.insert_node_at_root(idx, column.into_node(), activate);
+        let tiles = column.into_tiles();
+        self.tree.insert_tiles_at_root(idx, tiles, activate);
         self.tree.layout();
     }
     pub fn remove_tile(&mut self, window: &W::Id, _transaction: Transaction) -> RemovedTile<W> {
@@ -1078,8 +1085,8 @@ impl<W: LayoutElement> ScrollingSpace<W> {
     }
     pub fn remove_active_column(&mut self) -> Option<Column<W>> {
         let idx = self.tree.focused_root_index()?;
-        let node = self.tree.take_root_child(idx)?;
-        let column = Column::from_node(node);
+        let tiles = self.tree.take_root_child_tiles(idx)?;
+        let column = Column::from_tiles(tiles);
 
         if let Some(full_id) = self.fullscreen_window.clone() {
             if self.tree.find_window(&full_id).is_none() {
@@ -1558,48 +1565,29 @@ impl<W: LayoutElement> ScrollingSpace<W> {
 impl<W: LayoutElement> Column<W> {
     pub fn new(tile: Tile<W>) -> Self {
         Self {
-            node: Node::Leaf(tile),
+            tiles: vec![tile],
+            _phantom: std::marker::PhantomData,
         }
     }
 
-    pub fn from_node(node: Node<W>) -> Self {
-        Self { node }
+    pub fn from_tiles(tiles: Vec<Tile<W>>) -> Self {
+        Self {
+            tiles,
+            _phantom: std::marker::PhantomData,
+        }
     }
 
     pub fn tiles(&self) -> Vec<&Tile<W>> {
-        let mut out = Vec::new();
-        Self::collect_tiles(&self.node, &mut out);
-        out
-    }
-
-    fn collect_tiles<'a>(node: &'a Node<W>, out: &mut Vec<&'a Tile<W>>) {
-        match node {
-            Node::Leaf(tile) => out.push(tile),
-            Node::Container(container) => {
-                for child in container.children() {
-                    Self::collect_tiles(child, out);
-                }
-            }
-        }
+        self.tiles.iter().collect()
     }
 
     pub fn contains(&self, window: &W) -> bool {
         let target_id = window.id();
-        Self::node_contains(&self.node, target_id)
+        self.tiles.iter().any(|tile| tile.window().id() == target_id)
     }
 
-    fn node_contains(node: &Node<W>, target: &W::Id) -> bool {
-        match node {
-            Node::Leaf(tile) => tile.window().id() == target,
-            Node::Container(container) => container
-                .children()
-                .iter()
-                .any(|child| Self::node_contains(child, target)),
-        }
-    }
-
-    pub fn into_node(self) -> Node<W> {
-        self.node
+    pub fn into_tiles(self) -> Vec<Tile<W>> {
+        self.tiles
     }
 }
 

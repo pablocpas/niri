@@ -73,8 +73,6 @@ pub struct ContainerData {
     child_percents: Vec<f64>,
     /// Index of focused child
     focused_idx: usize,
-    /// Percentage of parent space this container occupies (0.0-1.0)
-    percent: f64,
     /// Cached geometry for rendering
     geometry: Rectangle<f64, Logical>,
 }
@@ -110,35 +108,6 @@ pub struct ContainerTree<W: LayoutElement> {
     options: Rc<Options>,
 }
 
-// ============================================================================
-// Legacy Node/Container types for API compatibility
-// ============================================================================
-
-/// Legacy wrapper for API compatibility
-#[derive(Debug)]
-pub enum Node<W: LayoutElement> {
-    /// Container node with children
-    Container(Container<W>),
-    /// Leaf node containing a window
-    Leaf(Tile<W>),
-}
-
-/// Legacy container wrapper
-#[derive(Debug)]
-pub struct Container<W: LayoutElement> {
-    /// Layout mode for this container
-    layout: Layout,
-    /// Child nodes (containers or leaves)
-    children: Vec<Node<W>>,
-    /// Relative sizes of children (sum normalized to 1.0 for split layouts)
-    child_percents: Vec<f64>,
-    /// Index of focused child
-    focused_idx: usize,
-    /// Percentage of parent space this container occupies (0.0-1.0)
-    percent: f64,
-    /// Cached geometry for rendering
-    geometry: Rectangle<f64, Logical>,
-}
 
 // ============================================================================
 // ContainerData Implementation
@@ -152,7 +121,6 @@ impl ContainerData {
             children: Vec::new(),
             child_percents: Vec::new(),
             focused_idx: 0,
-            percent: 1.0,
             geometry: Rectangle::from_size(Size::from((0.0, 0.0))),
         }
     }
@@ -436,82 +404,6 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.root.is_none()
     }
 
-    /// Get root node (legacy API - stub)
-    pub fn root(&self) -> Option<&Node<W>> {
-        // Can't return Node from NodeData without cloning entire tree
-        None
-    }
-
-    /// Get root node (mutable) - legacy API stub
-    pub fn root_mut(&mut self) -> Option<&mut Node<W>> {
-        // Can't return Node from NodeData without cloning entire tree
-        None
-    }
-
-    /// Set root node (legacy API - converts to NodeData)
-    pub fn set_root(&mut self, node: Node<W>) {
-        self.clear_focus_history();
-        let key = self.node_to_slotmap(node);
-        self.root = Some(key);
-    }
-
-    /// Take the root node, leaving None
-    pub fn take_root(&mut self) -> Option<Node<W>> {
-        self.clear_focus_history();
-        let key = self.root.take()?;
-        let node_data = self.remove_node_recursive(key)?;
-        Some(self.slotmap_to_node(node_data))
-    }
-
-    /// Convert legacy Node to slotmap representation
-    fn node_to_slotmap(&mut self, node: Node<W>) -> NodeKey {
-        match node {
-            Node::Container(container) => {
-                let mut child_keys = Vec::new();
-                for child in container.children {
-                    let child_key = self.node_to_slotmap(child);
-                    child_keys.push(child_key);
-                }
-                let container_data = NodeData::Container(ContainerData {
-                    layout: container.layout,
-                    children: child_keys,
-                    child_percents: container.child_percents,
-                    focused_idx: container.focused_idx,
-                    percent: container.percent,
-                    geometry: container.geometry,
-                });
-                self.insert_node(container_data)
-            }
-            Node::Leaf(tile) => {
-                self.insert_node(NodeData::Leaf(tile))
-            }
-        }
-    }
-
-    /// Convert slotmap NodeData to legacy Node
-    fn slotmap_to_node(&self, node_data: NodeData<W>) -> Node<W> {
-        match node_data {
-            NodeData::Container(container_data) => {
-                let mut children = Vec::new();
-                for &child_key in &container_data.children {
-                    if let Some(child_data) = self.get_node(child_key) {
-                        // We need to clone child_data here since we can't move it
-                        // This is expensive but necessary for the legacy API
-                        // TODO: Consider removing legacy API entirely
-                    }
-                }
-                Node::Container(Container {
-                    layout: container_data.layout,
-                    children,
-                    child_percents: container_data.child_percents,
-                    focused_idx: container_data.focused_idx,
-                    percent: container_data.percent,
-                    geometry: container_data.geometry,
-                })
-            }
-            NodeData::Leaf(tile) => Node::Leaf(tile),
-        }
-    }
 
     /// Insert a window into the tree
     pub fn insert_window(&mut self, tile: Tile<W>) {
@@ -1660,17 +1552,44 @@ impl<W: LayoutElement> ContainerTree<W> {
         true
     }
 
-    /// Remove and return the root-level child at the given index.
-    pub fn take_root_child(&mut self, idx: usize) -> Option<Node<W>> {
+    /// Extract all tiles from a subtree rooted at the given key.
+    /// This recursively collects all tiles and removes the entire subtree from the slotmap.
+    fn extract_tiles_from_subtree(&mut self, key: NodeKey) -> Vec<Tile<W>> {
+        let mut tiles = Vec::new();
+        self.collect_and_remove_tiles(key, &mut tiles);
+        tiles
+    }
+
+    /// Recursively collect tiles from a subtree and remove all nodes
+    fn collect_and_remove_tiles(&mut self, key: NodeKey, tiles: &mut Vec<Tile<W>>) {
+        let node_data = match self.nodes.remove(key) {
+            Some(data) => data,
+            None => return,
+        };
+
+        match node_data {
+            NodeData::Leaf(tile) => {
+                tiles.push(tile);
+            }
+            NodeData::Container(container) => {
+                for child_key in container.children {
+                    self.collect_and_remove_tiles(child_key, tiles);
+                }
+            }
+        }
+    }
+
+    /// Remove and return the root-level child at the given index as a vector of tiles.
+    pub fn take_root_child_tiles(&mut self, idx: usize) -> Option<Vec<Tile<W>>> {
         let root_key = self.root?;
 
         match self.get_node(root_key) {
             Some(NodeData::Leaf(_)) => {
                 if idx == 0 {
                     self.focus_path.clear();
-                    let node_data = self.remove_node_recursive(root_key)?;
+                    let tiles = self.extract_tiles_from_subtree(root_key);
                     self.root = None;
-                    Some(self.slotmap_to_node(node_data))
+                    Some(tiles)
                 } else {
                     None
                 }
@@ -1712,8 +1631,9 @@ impl<W: LayoutElement> ContainerTree<W> {
                     }
                 }
 
-                let node_data = self.remove_node_recursive(child_key)?;
-                Some(self.slotmap_to_node(node_data))
+                // Extract all tiles from the subtree
+                let tiles = self.extract_tiles_from_subtree(child_key);
+                Some(tiles)
             }
             None => None,
         }
@@ -1794,16 +1714,41 @@ impl<W: LayoutElement> ContainerTree<W> {
     // Insertion methods
     // ========================================================================
 
+    /// Insert multiple tiles as a column (vertical container) at root level
+    pub fn insert_tiles_at_root(&mut self, index: usize, tiles: Vec<Tile<W>>, focus: bool) {
+        if tiles.is_empty() {
+            return;
+        }
+
+        // If only one tile, insert it directly
+        if tiles.len() == 1 {
+            let tile = tiles.into_iter().next().unwrap();
+            self.insert_leaf_at(index, tile, focus);
+            return;
+        }
+
+        // Create a vertical container with all tiles
+        let mut container = ContainerData::new(Layout::SplitV);
+        for tile in tiles {
+            let tile_key = self.insert_node(NodeData::Leaf(tile));
+            container.add_child(tile_key);
+        }
+        container.set_focused_idx(0);
+
+        let container_key = self.insert_node(NodeData::Container(container));
+        self.insert_key_at_root(index, container_key, focus);
+    }
+
     pub fn append_leaf(&mut self, tile: Tile<W>, focus: bool) {
-        self.insert_node_at_root(self.root_children_len(), Node::Leaf(tile), focus);
+        self.insert_leaf_at(self.root_children_len(), tile, focus);
     }
 
     pub fn insert_leaf_at(&mut self, index: usize, tile: Tile<W>, focus: bool) {
-        self.insert_node_at_root(index, Node::Leaf(tile), focus);
+        let tile_key = self.insert_node(NodeData::Leaf(tile));
+        self.insert_key_at_root(index, tile_key, focus);
     }
 
-    pub fn insert_node_at_root(&mut self, index: usize, node: Node<W>, focus: bool) {
-        let node_key = self.node_to_slotmap(node);
+    fn insert_key_at_root(&mut self, index: usize, node_key: NodeKey, focus: bool) {
 
         let (insert_idx, adjust_threshold) = {
             let container_key = self.ensure_root_container();
@@ -1847,10 +1792,6 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
     }
 
-    pub fn append_node_at_root(&mut self, node: Node<W>, focus: bool) {
-        let len = self.root_children_len();
-        self.insert_node_at_root(len, node, focus);
-    }
 
     pub fn insert_leaf_after(&mut self, window_id: &W::Id, tile: Tile<W>, focus: bool) -> bool {
         let path = match self.find_window(window_id) {
@@ -2176,250 +2117,3 @@ impl Direction {
     }
 }
 
-// ============================================================================
-// Legacy Node/Container Implementation (for compatibility)
-// ============================================================================
-
-impl<W: LayoutElement> Container<W> {
-    /// Create a new container with given layout
-    pub fn new(layout: Layout) -> Self {
-        Self {
-            layout,
-            children: Vec::new(),
-            child_percents: Vec::new(),
-            focused_idx: 0,
-            percent: 1.0,
-            geometry: Rectangle::from_size(Size::from((0.0, 0.0))),
-        }
-    }
-
-    pub fn layout(&self) -> Layout {
-        self.layout
-    }
-
-    pub fn set_layout(&mut self, layout: Layout) {
-        self.layout = layout;
-    }
-
-    pub fn children(&self) -> &[Node<W>] {
-        &self.children
-    }
-
-    pub fn child_count(&self) -> usize {
-        self.children.len()
-    }
-
-    pub fn focused_idx(&self) -> usize {
-        self.focused_idx
-    }
-
-    pub fn set_focused_idx(&mut self, idx: usize) {
-        if idx < self.children.len() {
-            self.focused_idx = idx;
-        }
-    }
-
-    pub fn focused_child(&self) -> Option<&Node<W>> {
-        self.children.get(self.focused_idx)
-    }
-
-    pub fn focused_child_mut(&mut self) -> Option<&mut Node<W>> {
-        self.children.get_mut(self.focused_idx)
-    }
-
-    pub fn add_child(&mut self, node: Node<W>) {
-        self.children.push(node);
-        self.child_percents.push(0.0);
-        self.recalculate_percentages();
-    }
-
-    pub fn remove_child(&mut self, idx: usize) -> Option<Node<W>> {
-        if idx >= self.children.len() {
-            return None;
-        }
-
-        let node = self.children.remove(idx);
-        let _ = self.child_percents.remove(idx);
-
-        if self.focused_idx >= self.children.len() && self.focused_idx > 0 {
-            self.focused_idx = self.children.len() - 1;
-        }
-
-        if !self.children.is_empty() {
-            self.recalculate_percentages();
-        }
-
-        Some(node)
-    }
-
-    pub fn insert_child(&mut self, idx: usize, node: Node<W>) {
-        let idx = idx.min(self.children.len());
-        self.children.insert(idx, node);
-        self.child_percents.insert(idx, 0.0);
-        self.recalculate_percentages();
-    }
-
-    pub fn recalculate_percentages(&mut self) {
-        if self.children.is_empty() {
-            self.child_percents.clear();
-            return;
-        }
-        let count = self.children.len() as f64;
-        let value = 1.0 / count;
-        if self.child_percents.len() != self.children.len() {
-            self.child_percents.resize(self.children.len(), value);
-        }
-        for percent in &mut self.child_percents {
-            *percent = value;
-        }
-    }
-
-    pub fn normalize_child_percents(&mut self) {
-        if self.child_percents.is_empty() {
-            return;
-        }
-        let sum: f64 = self.child_percents.iter().copied().sum();
-        if sum <= f64::EPSILON {
-            self.recalculate_percentages();
-        } else {
-            for percent in &mut self.child_percents {
-                *percent /= sum;
-            }
-        }
-    }
-
-    pub fn child_percent(&self, idx: usize) -> f64 {
-        self.child_percents.get(idx).copied().unwrap_or(0.0)
-    }
-
-    pub fn set_child_percent(&mut self, idx: usize, percent: f64) {
-        if self.child_percents.is_empty() || idx >= self.child_percents.len() {
-            return;
-        }
-
-        let len = self.child_percents.len();
-        if len == 1 {
-            self.child_percents[0] = 1.0;
-            return;
-        }
-
-        let min = MIN_CHILD_PERCENT;
-        let max = 1.0 - min * (len as f64 - 1.0);
-        let new_percent = percent.clamp(min, max.max(min));
-
-        self.child_percents[idx] = new_percent;
-
-        let mut remaining = 1.0 - new_percent;
-        if remaining <= f64::EPSILON {
-            remaining = min * (len as f64 - 1.0);
-        }
-
-        let mut others_sum = 0.0;
-        for (i, value) in self.child_percents.iter().enumerate() {
-            if i != idx {
-                others_sum += *value;
-            }
-        }
-
-        if others_sum <= f64::EPSILON {
-            let share = remaining / (len as f64 - 1.0);
-            for (i, value) in self.child_percents.iter_mut().enumerate() {
-                if i != idx {
-                    *value = share;
-                }
-            }
-        } else {
-            let scale = remaining / others_sum;
-            for (i, value) in self.child_percents.iter_mut().enumerate() {
-                if i != idx {
-                    *value *= scale;
-                }
-            }
-        }
-
-        self.normalize_child_percents();
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.children.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.children.len()
-    }
-
-    pub fn set_geometry(&mut self, geometry: Rectangle<f64, Logical>) {
-        self.geometry = geometry;
-    }
-
-    pub fn geometry(&self) -> Rectangle<f64, Logical> {
-        self.geometry
-    }
-}
-
-impl<W: LayoutElement> Node<W> {
-    pub fn container(layout: Layout) -> Self {
-        Node::Container(Container::new(layout))
-    }
-
-    pub fn leaf(tile: Tile<W>) -> Self {
-        Node::Leaf(tile)
-    }
-
-    pub fn is_container(&self) -> bool {
-        matches!(self, Node::Container(_))
-    }
-
-    pub fn is_leaf(&self) -> bool {
-        matches!(self, Node::Leaf(_))
-    }
-
-    pub fn as_container(&self) -> Option<&Container<W>> {
-        match self {
-            Node::Container(c) => Some(c),
-            _ => None,
-        }
-    }
-
-    pub fn as_container_mut(&mut self) -> Option<&mut Container<W>> {
-        match self {
-            Node::Container(c) => Some(c),
-            _ => None,
-        }
-    }
-
-    pub fn as_leaf(&self) -> Option<&Tile<W>> {
-        match self {
-            Node::Leaf(t) => Some(t),
-            _ => None,
-        }
-    }
-
-    pub fn as_leaf_mut(&mut self) -> Option<&mut Tile<W>> {
-        match self {
-            Node::Leaf(t) => Some(t),
-            _ => None,
-        }
-    }
-
-    pub fn set_percent(&mut self, percent: f64) {
-        match self {
-            Node::Container(c) => c.percent = percent,
-            Node::Leaf(_) => {}
-        }
-    }
-
-    pub fn window(&self) -> Option<&W> {
-        match self {
-            Node::Leaf(tile) => Some(tile.window()),
-            _ => None,
-        }
-    }
-
-    pub fn window_mut(&mut self) -> Option<&mut W> {
-        match self {
-            Node::Leaf(tile) => Some(tile.window_mut()),
-            _ => None,
-        }
-    }
-}
