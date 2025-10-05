@@ -1142,13 +1142,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         let path = self.find_window(window_id)?;
         let node_key = self.get_node_key_at_path(&path)?;
 
-        let node_data = self.remove_node_recursive(node_key)?;
-        let tile = match node_data {
-            NodeData::Leaf(tile) => tile,
-            NodeData::Container(_) => return None,
-        };
-
-        // Remove from parent's children list
+        // First, remove from parent's children list BEFORE removing from slotmap
         if !path.is_empty() {
             let parent_path = &path[..path.len() - 1];
             let child_idx = *path.last().unwrap();
@@ -1162,6 +1156,13 @@ impl<W: LayoutElement> ContainerTree<W> {
             // Was root
             self.root = None;
         }
+
+        // Now remove from slotmap (only the leaf, not recursive)
+        let node_data = self.nodes.remove(node_key)?;
+        let tile = match node_data {
+            NodeData::Leaf(tile) => tile,
+            NodeData::Container(_) => return None, // Should never happen
+        };
 
         let container_path = if path.is_empty() {
             Vec::new()
@@ -2021,7 +2022,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                         } else if container.children.len() == 1 {
                             let child_key = container.child_key(0).unwrap();
                             self.root = Some(child_key);
-                            self.remove_node_recursive(root_key);
+                            // Remove only the container node, not its child (already re-assigned)
+                            self.nodes.remove(root_key);
                         }
                     }
                 }
@@ -2061,10 +2063,13 @@ impl<W: LayoutElement> ContainerTree<W> {
                             }
                             self.remove_node_recursive(container_key);
                         } else if let Some(child_key) = replace_with_child {
-                            self.remove_node_recursive(container_key);
+                            // First replace the container with its child in the parent
                             if let Some(parent) = self.get_container_mut(parent_key) {
                                 parent.children[last_idx] = child_key;
                             }
+                            // Then remove the now-orphaned container
+                            // We need to remove only the container itself, not its child
+                            self.nodes.remove(container_key);
                         }
                     }
                 }
