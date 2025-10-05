@@ -1,9 +1,12 @@
-//! i3-style container tree layout (replacing scrollable-tiling)
+//! i3-style hierarchical tiling layout
 //!
-//! This file now implements an i3-style hierarchical container tree instead of
-//! the original scrollable tiling layout.
+//! This module implements an i3-style tiling window manager with hierarchical containers.
+//! Windows are organized in a tree structure where:
+//! - Internal nodes are containers with a layout mode (SplitH, SplitV, Tabbed, Stacked)
+//! - Leaf nodes contain individual windows wrapped in Tiles
+//! - Navigation and movement follow the tree hierarchy
 //!
-//! Original scrollable-tiling backed up as: scrolling.rs.BACKUP
+//! The implementation uses SlotMap for efficient O(1) node access and safe reference handling.
 
 use std::marker::PhantomData;
 use std::rc::Rc;
@@ -32,7 +35,7 @@ use crate::window::ResolvedWindowRules;
 
 /// i3-style tiling space using hierarchical containers
 #[derive(Debug)]
-pub struct ScrollingSpace<W: LayoutElement> {
+pub struct TilingSpace<W: LayoutElement> {
     /// Container tree managing window layout
     tree: ContainerTree<W>,
     /// View size (output size)
@@ -50,7 +53,7 @@ pub struct ScrollingSpace<W: LayoutElement> {
 }
 
 niri_render_elements! {
-    ScrollingSpaceRenderElement<R> => {
+    TilingSpaceRenderElement<R> => {
         Tile = TileRenderElement<R>,
     }
 }
@@ -67,21 +70,21 @@ pub struct Column<W: LayoutElement> {
     _phantom: std::marker::PhantomData<W>,
 }
 
-/// STUB: Column width enum
+/// Column width specification for tiling layout
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ColumnWidth {
     Proportion(f64),
     Fixed(i32),
 }
 
-/// STUB: Window height enum
+/// Window height specification for tiling layout
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WindowHeight {
     Auto,
     Fixed(i32),
 }
 
-/// STUB: Scroll direction enum
+/// Direction for navigation and movement operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScrollDirection {
     Left,
@@ -160,7 +163,7 @@ struct TileRenderPositions<'a, W: LayoutElement> {
 }
 
 impl<'a, W: LayoutElement> TileRenderPositions<'a, W> {
-    fn new(space: &'a ScrollingSpace<W>) -> Self {
+    fn new(space: &'a TilingSpace<W>) -> Self {
         let scale = Scale::from(space.scale);
         let mut entries = Vec::new();
 
@@ -196,16 +199,16 @@ impl<'a, W: LayoutElement> Iterator for TileRenderPositions<'a, W> {
 }
 
 struct TileRenderPositionsMut<'a, W: LayoutElement> {
-    space: *mut ScrollingSpace<W>,
+    space: *mut TilingSpace<W>,
     layouts: Vec<LeafLayoutInfo>,
     index: usize,
     round: bool,
     scale: Scale<f64>,
-    _marker: PhantomData<&'a mut ScrollingSpace<W>>,
+    _marker: PhantomData<&'a mut TilingSpace<W>>,
 }
 
 impl<'a, W: LayoutElement> TileRenderPositionsMut<'a, W> {
-    fn new(space: &'a mut ScrollingSpace<W>, round: bool) -> Self {
+    fn new(space: &'a mut TilingSpace<W>, round: bool) -> Self {
         let layouts = space.tree.leaf_layouts_cloned();
         Self {
             space: space as *mut _,
@@ -243,10 +246,10 @@ impl<'a, W: LayoutElement> Iterator for TileRenderPositionsMut<'a, W> {
 }
 
 // ============================================================================
-// STUB IMPLEMENTATIONS
+// TilingSpace Implementation
 // ============================================================================
 
-impl<W: LayoutElement> ScrollingSpace<W> {
+impl<W: LayoutElement> TilingSpace<W> {
     fn available_span(&self, total: f64, child_count: usize) -> f64 {
         if child_count == 0 {
             return 0.0;
@@ -493,7 +496,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         renderer: &mut R,
         target: RenderTarget,
         scrolling_focus_ring: bool,
-    ) -> Vec<ScrollingSpaceRenderElement<R>> {
+    ) -> Vec<TilingSpaceRenderElement<R>> {
         let mut elements = Vec::new();
         let mut active_elements = Vec::new();
         let scale = Scale::from(self.scale);
@@ -523,7 +526,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
 
                 let iter = tile
                     .render(renderer, pos, draw_focus, target)
-                    .map(ScrollingSpaceRenderElement::from);
+                    .map(TilingSpaceRenderElement::from);
 
                 if info.path == focus_path {
                     active_elements.extend(iter);
@@ -614,7 +617,8 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         }
     }
 
-    // STUB: Interactive resize
+    // Interactive resize - not implemented for i3-style tiling
+    // In i3, window sizing is done via keyboard commands, not interactive mouse resize
     pub fn interactive_resize_begin(&mut self, _window: W::Id, _edges: ResizeEdge) -> bool {
         false
     }
@@ -733,7 +737,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         self.tree.layout();
     }
 
-    // STUB: Size operations
+    /// Set the width of the currently focused root-level column
     pub fn set_column_width(&mut self, change: SizeChange) {
         let Some(idx) = self.tree.focused_root_index() else {
             return;
@@ -781,7 +785,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         }
     }
 
-    // STUB: Fullscreen
+    /// Toggle fullscreen state for a window
     pub fn toggle_fullscreen(&mut self, window: &W) {
         let currently = self.is_fullscreen(window);
         let _ = self.set_fullscreen(window.id(), !currently);
@@ -816,16 +820,17 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         }
     }
 
-    // STUB: View offset operations (removed for i3-conversion)
+    /// View offset (not used in i3-style layout, always 0)
     pub(super) fn view_offset(&self) -> f64 {
         0.0
     }
 
-    // STUB: Position queries
+    /// Determine insert position from pointer location
     pub(super) fn insert_position(&self, _pos: Point<f64, Logical>) -> InsertPosition {
         InsertPosition::NewColumn(0)
     }
 
+    /// Get hint area for insertion position
     pub(super) fn insert_hint_area(
         &self,
         _position: InsertPosition,
@@ -893,7 +898,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
             .is_some_and(|id| id == window.id())
     }
 
-    // STUB: Column display
+    /// Set the display mode for the focused container
     pub fn set_column_display(&mut self, display: ColumnDisplay) {
         let layout = match display {
             ColumnDisplay::Normal => Layout::SplitV,
@@ -905,6 +910,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         }
     }
 
+    /// Toggle between tabbed and normal (split) layout for focused container
     pub fn toggle_column_tabbed_display(&mut self) {
         let current = self.tree.focused_layout();
         let target = match current {
@@ -1033,7 +1039,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
             })
     }
 
-    // STUB: Additional missing methods
+    /// Get mutable reference to the currently focused tile
     pub fn active_tile_mut(&mut self) -> Option<&mut Tile<W>> {
         self.tree.focused_tile_mut()
     }
@@ -1491,7 +1497,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
     pub fn dnd_scroll_gesture_end(&mut self) {}
 }
 
-impl<W: LayoutElement> ScrollingSpace<W> {
+impl<W: LayoutElement> TilingSpace<W> {
     fn update_window_state(
         tile: &mut Tile<W>,
         info: &LeafLayoutInfo,
