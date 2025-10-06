@@ -12,7 +12,7 @@
 
 ### Sistema de Contenedores Core
 - ✅ Árbol jerárquico de contenedores usando SlotMap
-- ✅ Contenedores con Layout: SplitH, SplitV, Tabbed, Stacked
+- ⚠️ Contenedores con Layout: SplitH, SplitV, Tabbed, Stacked (Tabbed/Stacked sin barra ni títulos visibles; ver `src/layout/container.rs:780`)
 - ✅ Nodos internos (containers) y hojas (tiles con ventanas)
 - ✅ Navegación direccional: focus left/right/up/down
 - ✅ Movimiento de ventanas: move left/right/up/down
@@ -22,7 +22,15 @@
 - ✅ Focus child: `focus-child`
 - ✅ Fullscreen básico funcional
 - ✅ Sistema de floating windows
-- ✅ Cambio de layout mode: `set-layout-mode`
+- ⚠️ Cambio de layout mode: `set-layout-mode` (sin UI de feedback ni persistencia por workspace; ver `src/layout/tiling.rs:735`)
+- ⚠️ Centros y presets: `center_{column,window}`, `toggle_width/height` con comportamiento parcial (`src/layout/tiling.rs:1240-1415`)
+- ⚠️ Swap/consume/expel avanzados pendientes (`src/input/mod.rs:1419`)
+- ⚠️ Indicadores visuales estilo i3 (border y barra azul de foco/tab) sin implementación completa (`src/layout/focus_ring.rs`, `src/layout/tab_indicator.rs`)
+
+#### Notas de verificación del layout
+- Tabbed y Stacked ocultan hermanos pero carecen de barra/tab indicator y opciones configurables (`src/layout/container.rs:790`).
+- Persisten métodos marcados como TODO o stubs para swap, animaciones y heurísticas de inserción (`src/layout/tiling.rs:804`, `src/layout/tiling.rs:1408`).
+- Los handlers de foco y movimiento han sido validados en pruebas internas (`TEST_RESULTS.md`) pero requieren cubrir escenarios con layouts mixtos.
 
 ---
 
@@ -159,9 +167,11 @@
 - [ ] Swap con marca (ver sección 2.3)
 
 #### 4.3 Visualización
-- [ ] Mostrar marcas visualmente en ventanas/borders
-- [ ] Indicador de marca en bar
-- [ ] Color configurable para marcas
+- [ ] Renderizar etiqueta de marca en la barra de título/tab (icono + texto)
+- [ ] Dibujar borde resaltado para ventanas con marca (color configurable)
+- [ ] Mostrar badges de marca en overview y scratchpad
+- [ ] Exponer marcas activas en la bar (workspace buttons) y en IPC
+- [ ] Configurar color/patrón por mark (`mark_colors { foo "#ff0000" }`)
 
 #### 4.4 Persistencia
 - [ ] Guardar marcas entre reinicios
@@ -185,48 +195,70 @@
 
 ---
 
-### **5. LAYOUTS Y CONTENEDORES AVANZADOS** (22 tareas)
+### **5. LAYOUTS Y CONTENEDORES AVANZADOS** (38 tareas)
 
 #### 5.1 Toggle de Layouts
-- [ ] `layout toggle split` - alternar entre splith y splitv
-- [ ] `layout toggle all` - rotar: splith → splitv → tabbed → stacked → splith
-- [ ] `layout toggle tabbed stacking`
-- [ ] `layout toggle tabbed stacked splith splitv`
-- [ ] Layout toggle configurable: `layout toggle split tabbed`
+- [ ] Implementar `layout toggle split` conmutando entre SplitH/SplitV en `ContainerTree` sin perder foco
+- [ ] Registrar `layout toggle split` en parser de config y bindings (`niri-config/binds.rs`)
+- [ ] Implementar `layout toggle all` con orden configurable (SplitH→SplitV→Tabbed→Stacked)
+- [ ] Persistir orden de `layout toggle all` en config (`layout toggle tabbed stacked splith splitv`)
+- [ ] Añadir pruebas unitarias para los toggles (tiling + floating) en `src/layout/tests.rs`
+- [ ] Documentar comandos toggle en `docs/wiki/Layouts.md`
 
 #### 5.2 Split Automático
-- [ ] Auto-detección de orientación split basado en aspect ratio
-- [ ] `default_orientation horizontal/vertical/auto` en config
-- [ ] Threshold configurable para auto-split
-- [ ] `split toggle` - cambiar orientación del próximo split
+- [ ] Calcular aspect ratio del contenedor activo antes de hacer split
+- [ ] Añadir opción `default_orientation horizontal/vertical/auto` al parser de config
+- [ ] Implementar heurística `auto` con threshold configurable (`auto_orientation_ratio`)
+- [ ] Exponer comando `split toggle` que invierte la orientación guardada para el próximo split
+- [ ] Guardar la orientación preferida por contenedor para splits consecutivos
+- [ ] Tests que validen la heurística con ventanas anchas vs altas
 
-#### 5.3 Indicadores Visuales
-- [ ] Mostrar split orientation visualmente
-- [ ] Línea/indicador entre splits
-- [ ] Color de indicador configurable
+#### 5.3 Indicadores Visuales de Layout
+- [ ] Renderizar overlay de orientación SplitH (barra vertical azul) alineado al centro del contenedor (`src/layout/focus_ring.rs`)
+- [ ] Renderizar overlay de orientación SplitV (barra horizontal azul) con alpha animado
+- [ ] Mostrar icono/tooltip al pasar el cursor sobre el handler de split
+- [ ] Configurar colores `layout_indicator_focused` y `layout_indicator_unfocused` en `config.kdl`
+- [ ] Animación de fade-in/out al cambiar layout (`Animation` en `focus_ring.rs`)
 
-#### 5.4 Tabbed Layout
-- [ ] Pestañas con título de ventana
-- [ ] Tab bar posición: top/bottom/left/right
-- [ ] Tab width: fixed/auto
-- [ ] Tab close button (opcional)
-- [ ] Scroll tabs si no caben
+#### 5.4 Tabbed Layout (UI completa estilo i3)
+- [ ] Dibujar barra de tabs con fondo configurable para estados focused/unfocused (`src/layout/tab_indicator.rs`)
+- [ ] Resaltar tab activa con borde/banda azul (color configurable)
+- [ ] Renderizar título de ventana en cada tab con truncado y soporte Pango markup
+- [ ] Renderizar icono de aplicación (Wayland XDG `app_id` / X11 WM_CLASS) si está disponible
+- [ ] Gestionar hover y clic izquierdo para cambiar de tab
+- [ ] Gestionar clic central/cerrar (opcional) mediante signal `close`
+- [ ] Añadir botón de cierre opcional en cada tab (render + hitbox)
+- [ ] Navegación por teclado: `focus next/prev tab` y `move tab next/prev`
+- [ ] Scroll wheel sobre barra para rotar tabs
+- [ ] `tab_bar_position` con soporte top/bottom/left/right (ajustar layout y orientación del texto)
+- [ ] Config `tab_min_width` / `tab_max_width` para manejar overflow
+- [ ] Indicador de urgencia en tab (color/animación)
+- [ ] Estados de tab inactiva/urgente/deshabilitada diferenciados por color
+- [ ] Tests de layout (no gráficos) para validaciones de tamaño y foco
 
-#### 5.5 Stacked Layout
-- [ ] Title bars completas para cada ventana
-- [ ] Height de title bar configurable
-- [ ] Mostrar clase/título en stacked
-- [ ] Indicador de ventana activa
+#### 5.5 Stacked Layout (headers por ventana)
+- [ ] Dibujar header individual por ventana con fondo configurable
+- [ ] Resaltar header activo con banda azul y tipografía bold
+- [ ] Mostrar título + clase de ventana en header
+- [ ] Implementar colapso/expand automáticos al cambiar foco
+- [ ] Soportar navegación por teclado entre headers (`focus next/prev sibling`)
+- [ ] Soportar clic en header para enfocar
+- [ ] Config `stacked_header_height` y padding
+- [ ] Mostrar indicador de urgencia en header
+- [ ] Añadir botón opcional de cerrar/minimizar en header (alineado a la derecha)
 
-#### 5.6 Comandos de Gestión
-- [ ] `kill` - cerrar ventana enfocada
-- [ ] `kill` con criterios: `[class=".*"] kill`
-- [ ] `kill window` vs `kill container` (toda la rama)
+#### 5.6 Comandos de Gestión de Contenedores
+- [ ] `kill` (ventana enfocada) enviando close y fallback a terminate
+- [ ] `kill container` para cerrar subárbol completo
+- [ ] Soporte de criterios (`[class=".*"] kill`) usando motor de criterios
+- [ ] `focus parent` seguido de `kill` para cerrar contenedor vacío automáticamente
+- [ ] Tests que verifiquen que `kill` respeta ventanas urgentes/floating
 
-#### 5.7 Workspace Layout por Defecto
-- [ ] `workspace_layout default/stacking/tabbed` en config
-- [ ] Por-workspace layout: `workspace "1" layout tabbed`
-- [ ] Aplicar layout al crear workspace
+#### 5.7 Layout por Defecto de Workspace
+- [ ] Config `workspace_layout default/stacking/tabbed` aplicada en creación
+- [ ] Override per-workspace: `workspace "1" layout tabbed`
+- [ ] Persistir layout preferido al reiniciar (`layout persistence`)
+- [ ] Mostrar layout actual en bar/IPC (`workspace::layout`)
 
 ---
 
@@ -291,45 +323,59 @@
 
 ---
 
-### **8. BORDERS Y DECORACIONES** (18 tareas)
+### **8. BORDERS Y DECORACIONES** (28 tareas)
 
-#### 8.1 Estilos de Border
-- [ ] `border normal` - título + borde
-- [ ] `border normal N` - título + borde de N pixels
-- [ ] `border pixel N` - solo borde de N pixels, sin título
-- [ ] `border none` - sin decoraciones
-- [ ] `border toggle`
+#### 8.1 Motor de tipos de border
+- [ ] Implementar `border normal` (title bar + borde configurable)
+- [ ] Implementar `border normal N` aplicando ancho explícito en logical px
+- [ ] Implementar `border pixel N` (solo borde sin barra)
+- [ ] Implementar `border none`
+- [ ] `border toggle` que cicla entre estilos activos
+- [ ] Registrar comandos en parser de config (`niri-config`)
+- [ ] Tests de estilo que validen cambios en `focus_ring.rs`
 
-#### 8.2 Title Bar
-- [ ] Mostrar título de ventana en border normal
-- [ ] Title bar con clase y título
-- [ ] Truncar títulos largos con "..."
-- [ ] `title_format "%title"` - formato customizable
-- [ ] Placeholders: `%title`, `%class`, `%instance`, `%workspace`
+#### 8.2 Render de Title Bar (barra azul estilo i3)
+- [ ] Renderizar barra de título con background azul para ventana enfocada
+- [ ] Renderizar barra con color atenuado para ventanas no enfocadas
+- [ ] Añadir gradiente opcional (azul → transparente) alineado con i3/sway
+- [ ] Dibujar borde inferior de la barra sincronizado con colores del layout
+- [ ] Soportar icono de aplicación + título con truncado (`title_format`)
+- [ ] Mostrar badges de estado (floating, sticky, urgent) dentro de la barra
+- [ ] Gestionar eventos de mouse (doble clic = toggle fullscreen, drag = mover)
+- [ ] Animar transición de color al cambiar foco
 
-#### 8.3 Alineación de Título
-- [ ] `title_align left` - título alineado a izquierda
-- [ ] `title_align center`
-- [ ] `title_align right`
+#### 8.3 Formato y contenido de título
+- [ ] `title_format "%title"` con placeholders `%title`, `%class`, `%instance`, `%workspace`, `%machine`
+- [ ] Soporte Pango markup en títulos
+- [ ] Truncado con ellipsis + tooltip con título completo
+- [ ] Hooks de internationalización (UTF-8 seguro)
 
-#### 8.4 Colores
-- [ ] Color border focused (ya existe, revisar)
-- [ ] Color border unfocused (ya existe, revisar)
-- [ ] Color border urgent
-- [ ] Color background de title bar
-- [ ] Color texto de title bar
-- [ ] Colores independientes para cada estado
+#### 8.4 Alineación y layout del texto
+- [ ] `title_align left/center/right` global
+- [ ] Overrides por criterio (`for_window [...] title_align center`)
+- [ ] Ajuste automático en tabbed/stacked cuando barra es vertical
+- [ ] Margen/padding configurable para texto e icono
 
-#### 8.5 Hide Edge Borders
-- [ ] `hide_edge_borders none` - mostrar siempre
-- [ ] `hide_edge_borders vertical` - ocultar bordes izq/der en edge
-- [ ] `hide_edge_borders horizontal` - ocultar arriba/abajo en edge
-- [ ] `hide_edge_borders both` - ocultar todos los bordes en edge
-- [ ] `hide_edge_borders smart` - ocultar si solo 1 ventana
+#### 8.5 Paleta de colores y estados
+- [ ] Config `focused_border_color`, `unfocused_border_color`, `urgent_border_color`
+- [ ] Config `focused_background_color` / `unfocused_background_color` para barra
+- [ ] Config `focused_text_color`, `unfocused_text_color`, `urgent_text_color`
+- [ ] Colores independientes para ventanas sticky/floating
+- [ ] API para heredar colores en tabbed/stacked y bar
 
-#### 8.6 Smart Borders
-- [ ] `smart_borders on` - ocultar borders si solo 1 ventana visible
-- [ ] `smart_borders no_gaps` - ocultar solo si no hay gaps
+#### 8.6 Hide Edge Borders
+- [ ] `hide_edge_borders none`
+- [ ] `hide_edge_borders vertical`
+- [ ] `hide_edge_borders horizontal`
+- [ ] `hide_edge_borders both`
+- [ ] `hide_edge_borders smart`
+- [ ] Tests que verifiquen que el borde se oculta solo en edges compartidos
+
+#### 8.7 Smart Borders
+- [ ] `smart_borders on` (ocultar si solo 1 ventana visible)
+- [ ] `smart_borders no_gaps`
+- [ ] Integrar smart borders con estado fullscreen/floating
+- [ ] Mostrar en IPC el estado de smart borders activado
 
 ---
 
@@ -382,47 +428,53 @@
 
 ---
 
-### **10. BARRAS Y UI** (15 tareas)
+### **10. BARRAS Y UI** (26 tareas)
 
-#### 10.1 Bar Nativa
-- [ ] Implementar bar tipo swaybar/i3bar
-- [ ] Integración con compositor
-- [ ] Renderer usando cairo/pango
+#### 10.1 Bar nativa estilo swaybar
+- [ ] Crear superficie layer-shell exclusiva para la bar
+- [ ] Renderer GPU (cairo/pango) con soporte HiDPI y escalado fraccional
+- [ ] Permitir múltiples barras (`bar { id "bar-1" }`)
+- [ ] Alinear bar a `position top/bottom/left/right` ajustando orientación del layout
+- [ ] Asociar bar a `output <name>` y actualizar al mover workspaces
 
-#### 10.2 Configuración de Bar
-- [ ] `bar { }` block en config
-- [ ] `position top/bottom/left/right`
-- [ ] `output <name>` - bar en output específico
-- [ ] Multiple bars: `bar { id "bar-1" }`
+#### 10.2 Configuración de bar
+- [ ] Parser completo del bloque `bar { ... }` en `config.kdl`
+- [ ] Campos básicos: `mode dock/hidden`, `hidden_state show/hide/invisible`
+- [ ] Recarga dinámica e IPC `barconfig_update`
+- [ ] Validación de configuración (IDs únicos, outputs válidos)
 
-#### 10.3 Workspace Buttons
-- [ ] Botones de workspace clickeables
-- [ ] Mostrar número/nombre de workspace
-- [ ] Highlight workspace activo
-- [ ] Indicador de workspace urgente
-- [ ] Color de workspace vacío/con ventanas
+#### 10.3 Workspace buttons
+- [ ] Renderizar botón por workspace con número + nombre
+- [ ] Resaltar workspace activo con banda azul y texto bold
+- [ ] Mostrar estados: visible, urgent, occupied, empty, sticky
+- [ ] Click izquierdo = focus workspace, click medio = mover ventana enfocada
+- [ ] Scroll wheel sobre botones = workspace next/prev
+- [ ] Tooltip opcional con lista de ventanas
 
-#### 10.4 Status Line
-- [ ] `status_command <command>` - ejecutar i3status/waybar
-- [ ] Parsear salida JSON
-- [ ] Parsear salida texto plano
-- [ ] Click events en status
+#### 10.4 Status line
+- [ ] Lanzar `status_command <cmd>` y gestionar IPC bidireccional
+- [ ] Parsear flujo JSON (i3bar protocol) y texto plano
+- [ ] Renderizar bloques con padding, separadores y colores configurables
+- [ ] Propagar click events al proceso (`{"name":"...","button":1,...}`)
+- [ ] Manejar reconexión cuando el proceso termina
 
-#### 10.5 System Tray
-- [ ] StatusNotifierItem protocol (SNI)
-- [ ] Tray icons clickeables
-- [ ] `tray_output <output>` - en qué monitor
+#### 10.5 System tray (SNI)
+- [ ] Implementar listener para `org.kde.StatusNotifierWatcher`
+- [ ] Representar iconos en bar con escala correcta
+- [ ] Click izquierdo/derecho enviando `Activate`/`ContextMenu`
+- [ ] Config `tray_output <output>` y `tray_padding`
+- [ ] Soporte de iconos legacy XEmbed (opcional)
 
-#### 10.6 Binding Mode Indicator
-- [ ] Mostrar modo actual: "resize", "default", etc
-- [ ] Color/posición configurable
-- [ ] Pango markup support
+#### 10.6 Indicador de modo/binding mode
+- [ ] Mostrar modo actual (`resize`, `passthrough`, etc.) en bar
+- [ ] Colores/posición configurables (`mode_color`, `mode_border`)
+- [ ] Soporte de Pango markup
 
-#### 10.7 Colores y Estilo
-- [ ] Colors block en bar config
-- [ ] `background`, `statusline`, `separator`
-- [ ] `focused_workspace`, `active_workspace`, `inactive_workspace`, `urgent_workspace`
-- [ ] Custom fonts: `font pango:DejaVu Sans Mono 10`
+#### 10.7 Paleta y tipografía
+- [ ] `colors { background ... }` block con campos `statusline`, `separator`
+- [ ] Colores por workspace: `focused_workspace`, `active_workspace`, `inactive_workspace`, `urgent_workspace`
+- [ ] Fuente configurable (`font pango:DejaVu Sans Mono 10`)
+- [ ] Validación de fallbacks cuando la fuente no existe
 
 ---
 
