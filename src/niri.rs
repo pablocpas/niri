@@ -136,26 +136,40 @@ use crate::input::pick_color_grab::PickColorGrab;
 #[derive(Debug)]
 pub struct ScrollSwipeGestureAction;
 impl ScrollSwipeGestureAction {
-    pub fn begin(&self) -> bool { false }
-    pub fn end(&self) -> bool { false }
+    pub fn begin(&self) -> bool {
+        false
+    }
+    pub fn end(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug)]
 pub struct ScrollSwipeGesture;
 impl ScrollSwipeGesture {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
     pub fn update(&mut self, _horizontal: f64, _vertical: f64) -> ScrollSwipeGestureAction {
         ScrollSwipeGestureAction
     }
-    pub fn is_vertical(&self) -> bool { false }
-    pub fn reset(&mut self) -> bool { false }
+    pub fn is_vertical(&self) -> bool {
+        false
+    }
+    pub fn reset(&mut self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug)]
 pub struct ScrollTracker;
 impl ScrollTracker {
-    pub fn new(_threshold: i32) -> Self { Self }
-    pub fn accumulate(&mut self, _delta: f64) -> i32 { 0 }
+    pub fn new(_threshold: i32) -> Self {
+        Self
+    }
+    pub fn accumulate(&mut self, _delta: f64) -> i32 {
+        0
+    }
     pub fn reset(&mut self) {}
 }
 use crate::input::{

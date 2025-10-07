@@ -42,11 +42,11 @@ use self::resize_grab::ResizeGrab;
 // REMOVED for i3-conversion: use self::spatial_movement_grab::SpatialMovementGrab;
 // REMOVED for i3-conversion: use crate::layout::scrolling::ScrollDirection;
 use crate::layout::{ActivateWindow, ContainerLayout, LayoutElement as _};
-use niri_ipc::SizeChange;
 use crate::niri::{CastTarget, PointerVisibility, State};
 use crate::ui::screenshot_ui::ScreenshotUi;
 use crate::utils::spawning::{spawn, spawn_sh};
 use crate::utils::{center, get_monotonic_time, ResizeEdge};
+use niri_ipc::SizeChange;
 
 pub mod backend_ext;
 pub mod move_grab;
@@ -1881,24 +1881,16 @@ impl State {
                 self.niri.layout.split_vertical();
             }
             Action::SetLayoutSplitH => {
-                self.niri
-                    .layout
-                    .set_layout_mode(ContainerLayout::SplitH);
+                self.niri.layout.set_layout_mode(ContainerLayout::SplitH);
             }
             Action::SetLayoutSplitV => {
-                self.niri
-                    .layout
-                    .set_layout_mode(ContainerLayout::SplitV);
+                self.niri.layout.set_layout_mode(ContainerLayout::SplitV);
             }
             Action::SetLayoutStacked => {
-                self.niri
-                    .layout
-                    .set_layout_mode(ContainerLayout::Stacked);
+                self.niri.layout.set_layout_mode(ContainerLayout::Stacked);
             }
             Action::SetLayoutTabbed => {
-                self.niri
-                    .layout
-                    .set_layout_mode(ContainerLayout::Tabbed);
+                self.niri.layout.set_layout_mode(ContainerLayout::Tabbed);
             }
             Action::SetColumnWidth(change) => {
                 if self.niri.screenshot_ui.is_open() {
