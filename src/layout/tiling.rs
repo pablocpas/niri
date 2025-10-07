@@ -234,7 +234,9 @@ impl<'a, W: LayoutElement> Iterator for TileRenderPositionsMut<'a, W> {
                 if let Some(tile) = space.tree.tile_at_path_mut(&info.path) {
                     let mut pos = info.rect.loc + tile.render_offset();
                     if self.round {
-                        pos = pos.to_physical_precise_round(self.scale).to_logical(self.scale);
+                        pos = pos
+                            .to_physical_precise_round(self.scale)
+                            .to_logical(self.scale);
                     }
                     return Some((tile, pos));
                 }
@@ -355,7 +357,8 @@ impl<W: LayoutElement> TilingSpace<W> {
         layout: Layout,
     ) -> Option<(Vec<usize>, usize, f64, usize, Rectangle<f64, Logical>)> {
         let (parent_path, child_idx) = self.tree.find_parent_with_layout(path.to_vec(), layout)?;
-        let (container_layout, rect, child_count) = self.tree.container_info(parent_path.as_slice())?;
+        let (container_layout, rect, child_count) =
+            self.tree.container_info(parent_path.as_slice())?;
         if container_layout != layout || child_count == 0 {
             return None;
         }
@@ -379,12 +382,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         clock: Clock,
         options: Rc<Options>,
     ) -> Self {
-        let tree = ContainerTree::new(
-            view_size,
-            working_area,
-            scale,
-            options.clone(),
-        );
+        let tree = ContainerTree::new(view_size, working_area, scale, options.clone());
 
         Self {
             tree,
@@ -444,7 +442,13 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     // Window management using ContainerTree
-    pub fn add_window(&mut self, window: W, _rules: ResolvedWindowRules, _width: ColumnWidth, _height: WindowHeight) {
+    pub fn add_window(
+        &mut self,
+        window: W,
+        _rules: ResolvedWindowRules,
+        _width: ColumnWidth,
+        _height: WindowHeight,
+    ) {
         // Create a tile for the window
         let tile = Tile::new(
             window,
@@ -505,8 +509,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         for info in self.tree.leaf_layouts().iter().rev() {
             if let Some(tile) = self.tree.tile_at_path(&info.path) {
-                let is_fullscreen_tile = fullscreen_id
-                    .is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
                 let show_tile = fullscreen_id.map_or(info.visible, |_| is_fullscreen_tile);
 
                 if !show_tile {
@@ -552,11 +555,16 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.working_area = working_area;
         self.scale = scale;
         self.options = options.clone();
-        self.tree.update_config(view_size, working_area, scale, options);
+        self.tree
+            .update_config(view_size, working_area, scale, options);
         self.tree.layout();
     }
 
-    pub fn set_view_size(&mut self, view_size: Size<f64, Logical>, working_area: Rectangle<f64, Logical>) {
+    pub fn set_view_size(
+        &mut self,
+        view_size: Size<f64, Logical>,
+        working_area: Rectangle<f64, Logical>,
+    ) {
         self.view_size = view_size;
         self.working_area = working_area;
         self.tree.set_view_size(view_size, working_area);
@@ -583,8 +591,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         for info in layouts {
             if let Some(tile) = self.tree.tile_at_path_mut(&info.path) {
-                let is_fullscreen_tile = fullscreen_id
-                    .is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
 
                 let mut pos = info.rect.loc + tile.render_offset();
                 pos = pos.to_physical_precise_round(scale).to_logical(scale);
@@ -845,8 +852,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         for info in self.tree.leaf_layouts().iter().rev() {
             if let Some(tile) = self.tree.tile_at_path(&info.path) {
-                let is_fullscreen_tile = fullscreen_id
-                    .is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
                 if fullscreen_id.is_some() && !is_fullscreen_tile {
                     continue;
                 }
@@ -855,9 +861,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                 }
 
                 let mut tile_pos = info.rect.loc + tile.render_offset();
-                tile_pos = tile_pos
-                    .to_physical_precise_round(scale)
-                    .to_logical(scale);
+                tile_pos = tile_pos.to_physical_precise_round(scale).to_logical(scale);
 
                 if let Some(hit) = super::HitType::hit_tile(tile, tile_pos, pos) {
                     return Some(hit);
@@ -879,9 +883,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         let scale = Scale::from(self.scale);
 
         let mut tile_pos = info.rect.loc + tile.render_offset();
-        tile_pos = tile_pos
-            .to_physical_precise_round(scale)
-            .to_logical(scale);
+        tile_pos = tile_pos.to_physical_precise_round(scale).to_logical(scale);
 
         Some(tile_pos + tile.window_loc())
     }
@@ -928,7 +930,9 @@ impl<W: LayoutElement> TilingSpace<W> {
         TileIterMut::new(&mut self.tree)
     }
 
-    pub fn tiles_with_render_positions(&self) -> impl Iterator<Item = (&Tile<W>, Point<f64, Logical>, bool)> + '_ {
+    pub fn tiles_with_render_positions(
+        &self,
+    ) -> impl Iterator<Item = (&Tile<W>, Point<f64, Logical>, bool)> + '_ {
         TileRenderPositions::new(self)
     }
 
@@ -939,7 +943,9 @@ impl<W: LayoutElement> TilingSpace<W> {
         TileRenderPositionsMut::new(self, round)
     }
 
-    pub fn tiles_with_ipc_layouts(&self) -> impl Iterator<Item = (&Tile<W>, niri_ipc::WindowLayout)> + '_ {
+    pub fn tiles_with_ipc_layouts(
+        &self,
+    ) -> impl Iterator<Item = (&Tile<W>, niri_ipc::WindowLayout)> + '_ {
         let scale = Scale::from(self.scale);
 
         self.tree
@@ -992,8 +998,20 @@ impl<W: LayoutElement> TilingSpace<W> {
     ) {
         if let Some(index) = col_idx {
             self.tree.insert_leaf_at(index, tile, activate);
-        } else {
+        } else if self.tree.is_empty() {
             self.tree.append_leaf(tile, activate);
+        } else {
+            let focused_id = self
+                .tree
+                .focused_tile()
+                .map(|tile| tile.window().id().clone());
+
+            if let Some(id) = focused_id {
+                let inserted = self.tree.insert_leaf_after(&id, tile, activate);
+                assert!(inserted, "failed to insert tile after focused window");
+            } else {
+                self.tree.append_leaf(tile, activate);
+            }
         }
         self.tree.layout();
     }
@@ -1104,7 +1122,12 @@ impl<W: LayoutElement> TilingSpace<W> {
         Some(column)
     }
 
-    pub fn new_window_size(&self, _width: Option<PresetSize>, _height: Option<PresetSize>, _rules: &ResolvedWindowRules) -> Size<i32, Logical> {
+    pub fn new_window_size(
+        &self,
+        _width: Option<PresetSize>,
+        _height: Option<PresetSize>,
+        _rules: &ResolvedWindowRules,
+    ) -> Size<i32, Logical> {
         Size::from((800, 600))
     }
 
@@ -1447,13 +1470,16 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn swap_window_in_direction(&mut self, _direction: ScrollDirection) {}
 
-    pub fn start_open_animation(&mut self, _id: &W::Id) -> bool { false }
+    pub fn start_open_animation(&mut self, _id: &W::Id) -> bool {
+        false
+    }
     pub fn start_close_animation_for_window<R: NiriRenderer>(
         &mut self,
         _renderer: &mut R,
         _window: &W::Id,
         _blocker: crate::utils::transaction::TransactionBlocker,
-    ) {}
+    ) {
+    }
 
     pub fn refresh(&mut self, is_active: bool, is_focused: bool) {
         let layouts = self.tree.leaf_layouts_cloned();
@@ -1478,14 +1504,25 @@ impl<W: LayoutElement> TilingSpace<W> {
             }
         }
     }
-    pub fn render_above_top_layer(&self) -> bool { false }
+    pub fn render_above_top_layer(&self) -> bool {
+        false
+    }
 
-    pub fn scroll_amount_to_activate(&self, _window: &W::Id) -> f64 { 0.0 }
+    pub fn scroll_amount_to_activate(&self, _window: &W::Id) -> f64 {
+        0.0
+    }
 
-    pub fn popup_target_rect(&self, _window: &W::Id) -> Option<Rectangle<f64, Logical>> { None }
+    pub fn popup_target_rect(&self, _window: &W::Id) -> Option<Rectangle<f64, Logical>> {
+        None
+    }
 
     pub fn view_offset_gesture_begin(&mut self, _is_touchpad: bool) {}
-    pub fn view_offset_gesture_update(&mut self, _delta: f64, _timestamp: Duration, _is_touchpad: bool) -> Option<bool> {
+    pub fn view_offset_gesture_update(
+        &mut self,
+        _delta: f64,
+        _timestamp: Duration,
+        _is_touchpad: bool,
+    ) -> Option<bool> {
         None
     }
     pub fn view_offset_gesture_end(&mut self, _cancelled: Option<bool>) -> bool {
@@ -1493,7 +1530,9 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn dnd_scroll_gesture_begin(&mut self) {}
-    pub fn dnd_scroll_gesture_scroll(&mut self, _delta: f64) -> bool { false }
+    pub fn dnd_scroll_gesture_scroll(&mut self, _delta: f64) -> bool {
+        false
+    }
     pub fn dnd_scroll_gesture_end(&mut self) {}
 }
 
@@ -1589,7 +1628,9 @@ impl<W: LayoutElement> Column<W> {
 
     pub fn contains(&self, window: &W) -> bool {
         let target_id = window.id();
-        self.tiles.iter().any(|tile| tile.window().id() == target_id)
+        self.tiles
+            .iter()
+            .any(|tile| tile.window().id() == target_id)
     }
 
     pub fn into_tiles(self) -> Vec<Tile<W>> {
@@ -1621,8 +1662,14 @@ fn compute_toplevel_bounds(
     }
 
     Size::from((
-        f64::max(working_area_size.w - gaps * 2.0 - extra_size.w - border, 1.0),
-        f64::max(working_area_size.h - gaps * 2.0 - extra_size.h - border, 1.0),
+        f64::max(
+            working_area_size.w - gaps * 2.0 - extra_size.w - border,
+            1.0,
+        ),
+        f64::max(
+            working_area_size.h - gaps * 2.0 - extra_size.h - border,
+            1.0,
+        ),
     ))
     .to_i32_floor()
 }
