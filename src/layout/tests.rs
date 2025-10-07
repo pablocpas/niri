@@ -3,13 +3,13 @@ use std::cell::{Cell, OnceCell, RefCell};
 use niri_config::utils::{Flag, MergeWith as _};
 use niri_config::workspace::WorkspaceName;
 use niri_config::{
-    CenterFocusedColumn, FloatOrInt, OutputName, Struts, TabIndicatorLength, TabIndicatorPosition,
-    WorkspaceReference,
+    CenterFocusedColumn, Config, FloatOrInt, OutputName, Struts, TabIndicatorLength,
+    TabIndicatorPosition, WorkspaceReference,
 };
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use smithay::output::{Mode, PhysicalProperties, Subpixel};
-use smithay::utils::Rectangle;
+use smithay::utils::{Logical, Point, Rectangle};
 
 use super::*;
 
@@ -20,6 +20,35 @@ impl<W: LayoutElement> Default for Layout<W> {
     fn default() -> Self {
         Self::with_options(Clock::with_time(Duration::ZERO), Default::default())
     }
+}
+
+fn make_test_output(name: &str) -> Output {
+    let output = Output::new(
+        name.to_string(),
+        PhysicalProperties {
+            size: Size::from((1280, 720)),
+            subpixel: Subpixel::Unknown,
+            make: String::new(),
+            model: String::new(),
+            serial_number: String::new(),
+        },
+    );
+    output.change_current_state(
+        Some(Mode {
+            size: Size::from((1280, 720)),
+            refresh: 60000,
+        }),
+        None,
+        None,
+        None,
+    );
+    output.user_data().insert_if_missing(|| OutputName {
+        connector: name.to_string(),
+        make: None,
+        model: None,
+        serial: None,
+    });
+    output
 }
 
 #[derive(Debug)]
@@ -1621,6 +1650,104 @@ impl Op {
             }
         }
     }
+}
+
+fn approx_eq(actual: f64, expected: f64, tolerance: f64) {
+    let diff = (actual - expected).abs();
+    assert!(
+        diff <= tolerance,
+        "expected {expected}, got {actual} (diff {diff} > {tolerance})"
+    );
+}
+
+#[test]
+fn auto_insertion_respects_split_containers() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    let params1 = TestWindowParams::new(1);
+    let id1 = params1.id;
+    layout.add_window(
+        TestWindow::new(params1),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let params2 = TestWindowParams::new(2);
+    let id2 = params2.id;
+    layout.add_window(
+        TestWindow::new(params2),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    layout.split_vertical();
+
+    let params3 = TestWindowParams::new(3);
+    let id3 = params3.id;
+    layout.add_window(
+        TestWindow::new(params3),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let working_area = workspace.working_area();
+    let tiles = workspace
+        .tiles_with_render_positions()
+        .map(|(tile, pos, _)| {
+            let id = tile.window().id().clone();
+            let size = tile.animated_tile_size();
+            let offset = tile.render_offset();
+            let loc = Point::<f64, Logical>::from((pos.x - offset.x, pos.y - offset.y));
+            (id, size, loc)
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(tiles.len(), 3);
+
+    let mut by_id = tiles
+        .into_iter()
+        .map(|(id, size, loc)| (id, (size, loc)))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    let (size1, loc1) = by_id.remove(&id1).expect("window 1 present");
+    let (size2, loc2) = by_id.remove(&id2).expect("window 2 present");
+    let (size3, loc3) = by_id.remove(&id3).expect("window 3 present");
+
+    let width = working_area.size.w;
+    let height = working_area.size.h;
+    let origin = working_area.loc;
+
+    approx_eq(loc1.x, origin.x, 0.5);
+    approx_eq(loc1.y, origin.y, 0.5);
+    approx_eq(size1.w, width / 2.0, 1.0);
+    approx_eq(size1.h, height, 1.0);
+
+    approx_eq(loc2.x, origin.x + size1.w, 1.0);
+    approx_eq(loc2.y, origin.y, 0.5);
+    approx_eq(size2.w, width / 2.0, 1.0);
+    approx_eq(size2.h, height / 2.0, 1.0);
+
+    approx_eq(loc3.x, loc2.x, 0.5);
+    approx_eq(loc3.y, origin.y + size2.h, 1.0);
+    approx_eq(size3.w, size2.w, 0.5);
+    approx_eq(size3.h, size2.h, 1.0);
 }
 
 #[track_caller]

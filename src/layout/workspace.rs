@@ -19,11 +19,9 @@ use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use super::container::Layout;
 use super::floating::{FloatingSpace, FloatingSpaceRenderElement};
-use super::tiling::{
-    Column, ColumnWidth, ScrollDirection, TilingSpace, TilingSpaceRenderElement,
-};
 use super::shadow::Shadow;
 use super::tile::{Tile, TileRenderSnapshot};
+use super::tiling::{Column, ColumnWidth, ScrollDirection, TilingSpace, TilingSpaceRenderElement};
 use super::{
     ActivateWindow, HitType, InsertPosition, InteractiveResizeData, LayoutElement, Options,
     RemovedTile, SizeFrac,

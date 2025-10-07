@@ -2026,24 +2026,16 @@ impl State {
                 self.niri.layout.split_vertical();
             }
             Action::SetLayoutSplitH => {
-                self.niri
-                    .layout
-                    .set_layout_mode(ContainerLayout::SplitH);
+                self.niri.layout.set_layout_mode(ContainerLayout::SplitH);
             }
             Action::SetLayoutSplitV => {
-                self.niri
-                    .layout
-                    .set_layout_mode(ContainerLayout::SplitV);
+                self.niri.layout.set_layout_mode(ContainerLayout::SplitV);
             }
             Action::SetLayoutStacked => {
-                self.niri
-                    .layout
-                    .set_layout_mode(ContainerLayout::Stacked);
+                self.niri.layout.set_layout_mode(ContainerLayout::Stacked);
             }
             Action::SetLayoutTabbed => {
-                self.niri
-                    .layout
-                    .set_layout_mode(ContainerLayout::Tabbed);
+                self.niri.layout.set_layout_mode(ContainerLayout::Tabbed);
             }
             Action::SetColumnWidth(change) => {
                 if self.niri.screenshot_ui.is_open() {
