@@ -17,7 +17,7 @@ use niri_config::{Border, PresetSize};
 use niri_ipc::{ColumnDisplay, SizeChange};
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 
-use super::container::{ContainerTree, Direction, Layout, LeafLayoutInfo};
+use super::container::{ContainerTree, DetachedContainer, DetachedNode, Direction, Layout, LeafLayoutInfo};
 use super::monitor::InsertPosition;
 use super::tile::{Tile, TileRenderElement};
 use super::{ConfigureIntent, LayoutElement, Options, RemovedTile};
@@ -60,14 +60,11 @@ niri_render_elements! {
 
 /// Container wrapper representing a top-level column in the i3-style tree.
 ///
-/// This holds a NodeKey that references a subtree in the ContainerTree.
-/// The subtree is removed from the main tree and stored separately.
+/// This holds a detached subtree so structure survives moving across workspaces.
 #[derive(Debug)]
 pub struct Column<W: LayoutElement> {
-    /// Temporary storage for extracted subtree
-    /// This contains tiles that were removed from the main tree
-    tiles: Vec<Tile<W>>,
-    _phantom: std::marker::PhantomData<W>,
+    /// Detached subtree that preserves container structure.
+    subtree: DetachedNode<W>,
 }
 
 /// Column width specification for tiling layout
@@ -1070,8 +1067,8 @@ impl<W: LayoutElement> TilingSpace<W> {
         _height: Option<WindowHeight>,
     ) {
         let idx = _col_idx.unwrap_or_else(|| self.tree.root_children_len());
-        let tiles = column.into_tiles();
-        self.tree.insert_tiles_at_root(idx, tiles, activate);
+        let subtree = column.into_subtree();
+        self.tree.insert_subtree_at_root(idx, subtree, activate);
         self.tree.layout();
     }
     pub fn remove_tile(&mut self, window: &W::Id, _transaction: Transaction) -> RemovedTile<W> {
@@ -1109,8 +1106,8 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
     pub fn remove_active_column(&mut self) -> Option<Column<W>> {
         let idx = self.tree.focused_root_index()?;
-        let tiles = self.tree.take_root_child_tiles(idx)?;
-        let column = Column::from_tiles(tiles);
+        let subtree = self.tree.take_root_child_subtree(idx)?;
+        let column = Column::from_subtree(subtree);
 
         if let Some(full_id) = self.fullscreen_window.clone() {
             if self.tree.find_window(&full_id).is_none() {
@@ -1468,7 +1465,17 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
-    pub fn swap_window_in_direction(&mut self, _direction: ScrollDirection) {}
+    pub fn swap_window_in_direction(&mut self, direction: ScrollDirection) {
+        let result = match direction {
+            ScrollDirection::Left => self.tree.move_in_direction(Direction::Left),
+            ScrollDirection::Right => self.tree.move_in_direction(Direction::Right),
+            ScrollDirection::Up => self.tree.move_in_direction(Direction::Up),
+            ScrollDirection::Down => self.tree.move_in_direction(Direction::Down),
+        };
+        if result {
+            self.tree.layout();
+        }
+    }
 
     pub fn start_open_animation(&mut self, _id: &W::Id) -> bool {
         false
@@ -1610,31 +1617,48 @@ impl<W: LayoutElement> TilingSpace<W> {
 impl<W: LayoutElement> Column<W> {
     pub fn new(tile: Tile<W>) -> Self {
         Self {
-            tiles: vec![tile],
-            _phantom: std::marker::PhantomData,
+            subtree: DetachedNode::Leaf(tile),
         }
     }
 
     pub fn from_tiles(tiles: Vec<Tile<W>>) -> Self {
+        if tiles.is_empty() {
+            return Self {
+                subtree: DetachedNode::Container(DetachedContainer::new(Layout::SplitV, Vec::new())),
+            };
+        }
+
+        if tiles.len() == 1 {
+            return Self::new(tiles.into_iter().next().unwrap());
+        }
+
+        let children = tiles
+            .into_iter()
+            .map(DetachedNode::Leaf)
+            .collect::<Vec<_>>();
         Self {
-            tiles,
-            _phantom: std::marker::PhantomData,
+            subtree: DetachedNode::Container(DetachedContainer::new(Layout::SplitV, children)),
         }
     }
 
     pub fn tiles(&self) -> Vec<&Tile<W>> {
-        self.tiles.iter().collect()
+        self.subtree.tiles()
     }
 
     pub fn contains(&self, window: &W) -> bool {
-        let target_id = window.id();
-        self.tiles
-            .iter()
-            .any(|tile| tile.window().id() == target_id)
+        self.subtree.contains_window(window.id())
+    }
+
+    pub fn from_subtree(subtree: DetachedNode<W>) -> Self {
+        Self { subtree }
+    }
+
+    pub fn into_subtree(self) -> DetachedNode<W> {
+        self.subtree
     }
 
     pub fn into_tiles(self) -> Vec<Tile<W>> {
-        self.tiles
+        self.subtree.into_tiles()
     }
 }
 

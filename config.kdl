@@ -397,7 +397,7 @@ binds {
     // or do a four-finger swipe up on a touchpad.
     Mod+O repeat=false { toggle-overview; }
 
-    Mod+Q repeat=false { close-window; }
+    Mod+Shift+Q repeat=false { close-window; }
 
     Mod+Left  { focus-column-left; }
     Mod+Down  { focus-window-down; }
@@ -417,10 +417,14 @@ binds {
     Mod+Ctrl+K     { move-window-up; }
     Mod+Ctrl+L     { move-column-right; }
 
-    Mod+Shift+Left  { move-column-left; }
-    Mod+Shift+Right { move-column-right; }
-    Mod+Shift+H     { move-column-left; }
-    Mod+Shift+L     { move-column-right; }
+    Mod+Shift+Left  { swap-window-left; }
+    Mod+Shift+Down  { move-window-down; }
+    Mod+Shift+Up    { move-window-up; }
+    Mod+Shift+Right { swap-window-right; }
+    Mod+Shift+H     { swap-window-left; }
+    Mod+Shift+J     { move-window-down; }
+    Mod+Shift+K     { move-window-up; }
+    Mod+Shift+L     { swap-window-right; }
 
     // Alternative commands that move across workspaces when reaching
     // the first or last window in a column.
@@ -556,8 +560,8 @@ binds {
     // Mod+C { center-column; }
     // Mod+Ctrl+C { center-visible-columns; }
 
-    // i3-style fullscreen (kept)
-    Mod+Shift+F { fullscreen-window; }
+    // i3-style fullscreen toggle
+    Mod+F { fullscreen-window; }
 
     // i3-style resize commands (usando teclas accesibles en teclado español)
     // Resize con Ctrl+Flechas (más compatible con teclado español)
@@ -574,20 +578,18 @@ binds {
     Mod+A { focus-parent; }
     Mod+Z { focus-child; }
 
-    // i3-style split commands (create new container with split direction)
-    // Usando teclas accesibles en teclado español
-    Mod+X { split-horizontal; }  // Split horizontal (tecla X)
-    Mod+Y { split-vertical; }    // Split vertical (tecla Y)
+    // i3-style split commands
+    Mod+B { split-horizontal; }
+    Mod+V { split-vertical; }
 
     // i3-style layout mode commands
-    Mod+E { set-layout-split-h; }    // Layout horizontal
-    Mod+S { set-layout-stacked; }    // Layout apilado
-    Mod+W { set-layout-tabbed; }     // Layout pestañas
-    // Mod+Shift+E { set-layout-split-v; }   // Layout vertical (opcional)
+    Mod+E { set-layout-split-h; }
+    Mod+S { set-layout-stacked; }
+    Mod+W { set-layout-tabbed; }
 
     // Move the focused window between the floating and the tiling layout.
-    Mod+V       { toggle-window-floating; }      // i3: floating toggle
-    Mod+Shift+V { switch-focus-between-floating-and-tiling; }
+    Mod+Shift+Space { toggle-window-floating; }
+    Mod+Space       { switch-focus-between-floating-and-tiling; }
 
     // Note: Mod+W is now used for set-layout-tabbed (i3-style)
     // Old binding: Mod+W { toggle-column-tabbed-display; } - removed
