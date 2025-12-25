@@ -1779,6 +1779,13 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn start_open_animation(&mut self, _id: &W::Id) -> bool {
+        let Some(path) = self.tree.find_window(_id) else {
+            return false;
+        };
+        if let Some(tile) = self.tree.tile_at_path_mut(&path) {
+            tile.start_open_animation();
+            return true;
+        }
         false
     }
     pub fn start_close_animation_for_window<R: NiriRenderer>(
