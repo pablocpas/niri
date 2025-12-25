@@ -654,27 +654,51 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn focus_left(&mut self) -> bool {
-        self.tree.focus_in_direction(Direction::Left)
+        let focused = self.tree.focus_in_direction(Direction::Left);
+        if focused {
+            self.tree.layout();
+        }
+        focused
     }
 
     pub fn focus_right(&mut self) -> bool {
-        self.tree.focus_in_direction(Direction::Right)
+        let focused = self.tree.focus_in_direction(Direction::Right);
+        if focused {
+            self.tree.layout();
+        }
+        focused
     }
 
     pub fn focus_down(&mut self) -> bool {
-        self.tree.focus_in_direction(Direction::Down)
+        let focused = self.tree.focus_in_direction(Direction::Down);
+        if focused {
+            self.tree.layout();
+        }
+        focused
     }
 
     pub fn focus_up(&mut self) -> bool {
-        self.tree.focus_in_direction(Direction::Up)
+        let focused = self.tree.focus_in_direction(Direction::Up);
+        if focused {
+            self.tree.layout();
+        }
+        focused
     }
 
     pub fn focus_parent(&mut self) -> bool {
-        self.tree.focus_parent()
+        let focused = self.tree.focus_parent();
+        if focused {
+            self.tree.layout();
+        }
+        focused
     }
 
     pub fn focus_child(&mut self) -> bool {
-        self.tree.focus_child()
+        let focused = self.tree.focus_child();
+        if focused {
+            self.tree.layout();
+        }
+        focused
     }
 
     // Move operations using ContainerTree
@@ -1144,12 +1168,14 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn focus_column_first(&mut self) {
         self.tree.focus_root_child(0);
+        self.tree.layout();
     }
 
     pub fn focus_column_last(&mut self) {
         let len = self.tree.root_children_len();
         if len > 0 {
             self.tree.focus_root_child(len - 1);
+            self.tree.layout();
         }
     }
 
@@ -1159,6 +1185,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             return;
         }
         self.tree.focus_root_child(idx - 1);
+        self.tree.layout();
     }
 
     /// Windows inside the current column are 1-based.
@@ -1172,29 +1199,38 @@ impl<W: LayoutElement> TilingSpace<W> {
         };
         self.tree
             .focus_leaf_in_root_child(column_idx, index as usize);
+        self.tree.layout();
     }
 
     pub fn focus_down_or_left(&mut self) {
-        if !self.tree.focus_in_direction(Direction::Down) {
-            self.tree.focus_in_direction(Direction::Left);
+        let focused = self.tree.focus_in_direction(Direction::Down)
+            || self.tree.focus_in_direction(Direction::Left);
+        if focused {
+            self.tree.layout();
         }
     }
 
     pub fn focus_down_or_right(&mut self) {
-        if !self.tree.focus_in_direction(Direction::Down) {
-            self.tree.focus_in_direction(Direction::Right);
+        let focused = self.tree.focus_in_direction(Direction::Down)
+            || self.tree.focus_in_direction(Direction::Right);
+        if focused {
+            self.tree.layout();
         }
     }
 
     pub fn focus_up_or_left(&mut self) {
-        if !self.tree.focus_in_direction(Direction::Up) {
-            self.tree.focus_in_direction(Direction::Left);
+        let focused = self.tree.focus_in_direction(Direction::Up)
+            || self.tree.focus_in_direction(Direction::Left);
+        if focused {
+            self.tree.layout();
         }
     }
 
     pub fn focus_up_or_right(&mut self) {
-        if !self.tree.focus_in_direction(Direction::Up) {
-            self.tree.focus_in_direction(Direction::Right);
+        let focused = self.tree.focus_in_direction(Direction::Up)
+            || self.tree.focus_in_direction(Direction::Right);
+        if focused {
+            self.tree.layout();
         }
     }
 
