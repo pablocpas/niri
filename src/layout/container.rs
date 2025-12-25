@@ -71,6 +71,7 @@ pub struct TabBarInfo {
 }
 
 const MIN_CHILD_PERCENT: f64 = 0.05;
+const MOVE_ANIMATION_THRESHOLD: f64 = 0.1;
 
 /// Node type in the container tree
 #[derive(Debug)]
@@ -853,6 +854,16 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Calculate and apply layout to the tree
     pub fn layout(&mut self) {
+        let animate = !self.options.animations.off;
+        let mut prev_positions = Vec::new();
+        if animate {
+            for info in &self.leaf_layouts {
+                if let Some(tile) = self.tile_at_path(&info.path) {
+                    prev_positions.push((tile.window().id().clone(), info.rect.loc));
+                }
+            }
+        }
+
         self.leaf_layouts.clear();
 
         if let Some(root_key) = self.root {
@@ -865,7 +876,28 @@ impl<W: LayoutElement> ContainerTree<W> {
                 area.size.w = (area.size.w - gap * 2.0).max(0.0);
                 area.size.h = (area.size.h - gap * 2.0).max(0.0);
             }
-            self.layout_node(root_key, area, &mut path, true);
+            self.layout_node(root_key, area, &mut path, true, animate);
+        }
+
+        if animate {
+            let layouts = self.leaf_layouts.clone();
+            for info in layouts {
+                if let Some(tile) = self.tile_at_path_mut(&info.path) {
+                    if let Some((_, prev_loc)) = prev_positions
+                        .iter()
+                        .find(|(id, _)| id == tile.window().id())
+                    {
+                        let delta = *prev_loc - info.rect.loc;
+                        if delta.x.abs() > MOVE_ANIMATION_THRESHOLD
+                            || delta.y.abs() > MOVE_ANIMATION_THRESHOLD
+                        {
+                            tile.animate_move_from(delta);
+                        }
+                    } else {
+                        tile.start_open_animation();
+                    }
+                }
+            }
         }
     }
 
@@ -876,6 +908,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         rect: Rectangle<f64, Logical>,
         path: &mut Vec<usize>,
         visible: bool,
+        animate: bool,
     ) {
         // We need to work around borrow checker by getting info first
         let node_info = match self.get_node(node_key) {
@@ -883,7 +916,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 // Handle leaf
                 if let Some(NodeData::Leaf(tile)) = self.get_node_mut(node_key) {
                     let size = Size::from((rect.size.w, rect.size.h));
-                    tile.request_tile_size(size, false, None);
+                    tile.request_tile_size(size, animate, None);
                     self.leaf_layouts.push(LeafLayoutInfo {
                         path: path.clone(),
                         rect,
@@ -952,7 +985,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     );
 
                     path.push(idx);
-                    self.layout_node(child_key, child_rect, path, visible);
+                    self.layout_node(child_key, child_rect, path, visible, animate);
                     path.pop();
 
                     used_width += width;
@@ -995,7 +1028,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     );
 
                     path.push(idx);
-                    self.layout_node(child_key, child_rect, path, visible);
+                    self.layout_node(child_key, child_rect, path, visible, animate);
                     path.pop();
 
                     used_height += height;
@@ -1035,7 +1068,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 for (idx, &child_key) in children.iter().enumerate() {
                     path.push(idx);
                     let child_visible = visible && idx == focused_idx;
-                    self.layout_node(child_key, child_rect, path, child_visible);
+                    self.layout_node(child_key, child_rect, path, child_visible, animate);
                     path.pop();
                 }
             }
@@ -1352,9 +1385,12 @@ impl<W: LayoutElement> ContainerTree<W> {
                 if let Some(container) = self.get_container(parent_key) {
                     // Check if this container's layout matches the direction
                     let layout_matches = match (container.layout, direction) {
-                        (Layout::SplitH, Direction::Left | Direction::Right) => true,
-                        (Layout::SplitV, Direction::Up | Direction::Down) => true,
-                        (Layout::Tabbed | Layout::Stacked, _) => true,
+                        (Layout::SplitH | Layout::Tabbed, Direction::Left | Direction::Right) => {
+                            true
+                        }
+                        (Layout::SplitV | Layout::Stacked, Direction::Up | Direction::Down) => {
+                            true
+                        }
                         _ => false,
                     };
 
@@ -1534,9 +1570,8 @@ impl<W: LayoutElement> ContainerTree<W> {
         };
 
         let layout_matches = match (parent_layout, direction) {
-            (Layout::SplitH, Direction::Left | Direction::Right) => true,
-            (Layout::SplitV, Direction::Up | Direction::Down) => true,
-            (Layout::Tabbed | Layout::Stacked, _) => true,
+            (Layout::SplitH | Layout::Tabbed, Direction::Left | Direction::Right) => true,
+            (Layout::SplitV | Layout::Stacked, Direction::Up | Direction::Down) => true,
             _ => false,
         };
 

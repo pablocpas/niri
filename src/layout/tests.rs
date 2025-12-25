@@ -4343,6 +4343,51 @@ fn move_down_swaps_in_stacked_layout() {
 }
 
 #[test]
+fn move_up_escapes_tabbed_layout() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::SplitV));
+    harness.tree.split_focused(ContainerLayout::Tabbed);
+    harness.add_window(3);
+    assert!(harness.tree.focus_window_by_id(&2));
+    assert!(harness.tree.move_in_direction(Direction::Up));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  Window 1
+  Window 2 *
+  Tabbed
+    Window 3
+"
+    );
+}
+
+#[test]
+fn move_left_escapes_stacked_layout() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.tree.split_focused(ContainerLayout::Stacked);
+    harness.add_window(3);
+    assert!(harness.tree.focus_window_by_id(&2));
+    assert!(harness.tree.move_in_direction(Direction::Left));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitH
+  Window 1
+  Window 2 *
+  Stacked
+    Window 3
+"
+    );
+}
+
+#[test]
 fn move_left_at_edge_is_noop() {
     let mut harness = TreeHarness::new();
     harness.add_window(1);
