@@ -165,6 +165,21 @@ pub fn render_tab_bar(
         cursor_x += w;
     }
 
+    let row_count = if layout == Layout::Tabbed { 1 } else { tab_count };
+    let extra_height = height_px - row_height_px.saturating_mul(row_count as i32);
+    if extra_height > 0 {
+        let focused = tabs.iter().find(|tab| tab.is_focused).unwrap_or(&tabs[0]);
+        let (bg, _fg) = tab_colors(config, focused, is_active_workspace);
+        set_source_color(&cr, bg);
+        cr.rectangle(
+            0.0,
+            f64::from(height_px - extra_height),
+            f64::from(width_px),
+            f64::from(extra_height),
+        );
+        cr.fill()?;
+    }
+
     drop(text_layout);
     drop(cr);
 

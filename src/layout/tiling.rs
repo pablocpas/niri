@@ -311,6 +311,23 @@ impl<'a, W: LayoutElement> Iterator for TileRenderPositionsMut<'a, W> {
 // ============================================================================
 
 impl<W: LayoutElement> TilingSpace<W> {
+    fn effective_tab_bar_config(&self) -> TabBar {
+        let mut config = self.options.layout.tab_bar.clone();
+        if config == TabBar::default() {
+            let focus = self.options.layout.focus_ring;
+            let border = self.options.layout.border;
+            let (active, inactive, urgent) = if !border.off {
+                (border.active_color, border.inactive_color, border.urgent_color)
+            } else {
+                (focus.active_color, focus.inactive_color, focus.urgent_color)
+            };
+            config.active_bg = active;
+            config.inactive_bg = inactive;
+            config.urgent_bg = urgent;
+        }
+        config
+    }
+
     fn available_span(&self, total: f64, child_count: usize) -> f64 {
         if child_count == 0 {
             return 0.0;
@@ -606,14 +623,15 @@ impl<W: LayoutElement> TilingSpace<W> {
             let mut cache = self.tab_bar_cache.borrow_mut();
             let mut next_cache = HashMap::new();
             let gles = renderer.as_gles_renderer();
+            let tab_bar_config = self.effective_tab_bar_config();
             for info in tab_bar_infos {
                 let state =
-                    tab_bar_state_from_info(&info, &self.options.layout.tab_bar, scrolling_focus_ring, self.scale);
+                    tab_bar_state_from_info(&info, &tab_bar_config, scrolling_focus_ring, self.scale);
                 let buffer = match cache.get(&info.path) {
                     Some(entry) if entry.state == state => entry.buffer.clone(),
                     _ => match render_tab_bar(
                         gles,
-                        &self.options.layout.tab_bar,
+                        &tab_bar_config,
                         info.layout,
                         info.rect,
                         info.row_height,

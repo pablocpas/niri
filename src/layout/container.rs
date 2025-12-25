@@ -1081,12 +1081,13 @@ impl<W: LayoutElement> ContainerTree<W> {
             inner_rect.size.h = (inner_rect.size.h - gap * 2.0).max(0.0);
         }
 
-        let bar_height = match layout {
+        let spacing = self.tab_bar_spacing();
+        let base_height = match layout {
             Layout::Tabbed => row_height,
             Layout::Stacked => row_height * tab_count as f64,
             _ => 0.0,
         };
-        let bar_height = bar_height.min(inner_rect.size.h).max(0.0);
+        let bar_height = (base_height + spacing).min(inner_rect.size.h).max(0.0);
         if bar_height <= 0.0 {
             return None;
         }
@@ -1097,9 +1098,9 @@ impl<W: LayoutElement> ContainerTree<W> {
         );
 
         let actual_row_height = if layout == Layout::Stacked {
-            bar_height / tab_count as f64
+            row_height
         } else {
-            bar_height
+            row_height
         };
 
         Some((bar_rect, actual_row_height))
