@@ -426,7 +426,6 @@ impl<W: LayoutElement> DetachedContainer<W> {
     pub fn new(layout: Layout, children: Vec<DetachedNode<W>>) -> Self {
         let mut container = Self {
             layout,
-            preserve_on_single: false,
             children,
             child_percents: Vec::new(),
             focused_idx: 0,
@@ -437,14 +436,12 @@ impl<W: LayoutElement> DetachedContainer<W> {
 
     pub(crate) fn from_parts(
         layout: Layout,
-        preserve_on_single: bool,
         children: Vec<DetachedNode<W>>,
         child_percents: Vec<f64>,
         focused_idx: usize,
     ) -> Self {
         let mut container = Self {
             layout,
-            preserve_on_single,
             children,
             child_percents,
             focused_idx,
@@ -1407,7 +1404,6 @@ impl<W: LayoutElement> ContainerTree<W> {
                 if matches!(self.get_node(root_key), Some(NodeData::Leaf(_))) {
                     let old_root_key = self.root.take().unwrap();
                     let mut container = ContainerData::new(layout);
-                    container.set_preserve_on_single(true);
                     container.add_child(old_root_key);
                     let container_key = self.insert_node(NodeData::Container(container));
                     self.root = Some(container_key);
@@ -1454,9 +1450,6 @@ impl<W: LayoutElement> ContainerTree<W> {
         // Only split if it's a leaf
         if matches!(self.get_node(focused_child_key), Some(NodeData::Leaf(_))) {
             if parent_layout == layout {
-                if let Some(container) = self.get_container_mut(parent_key) {
-                    container.set_preserve_on_single(true);
-                }
                 return true;
             }
 
@@ -1467,7 +1460,6 @@ impl<W: LayoutElement> ContainerTree<W> {
 
             // Create new container with the leaf
             let mut new_container = ContainerData::new(layout);
-            new_container.set_preserve_on_single(true);
             new_container.add_child(focused_child_key);
             let new_container_key = self.insert_node(NodeData::Container(new_container));
 
@@ -1487,6 +1479,21 @@ impl<W: LayoutElement> ContainerTree<W> {
     /// Change layout of focused container
     pub fn set_focused_layout(&mut self, layout: Layout) -> bool {
         let focus_path = self.focus_path.clone();
+
+        if focus_path.is_empty() {
+            if let Some(root_key) = self.root {
+                if matches!(self.get_node(root_key), Some(NodeData::Leaf(_))) {
+                    let old_root_key = self.root.take().unwrap();
+                    let mut container = ContainerData::new(layout);
+                    container.add_child(old_root_key);
+                    container.set_focused_idx(0);
+                    let container_key = self.insert_node(NodeData::Container(container));
+                    self.root = Some(container_key);
+                    self.focus_path = vec![0];
+                    return true;
+                }
+            }
+        }
 
         // If focus is on a leaf, use parent container
         if let Some(node_key) = self.get_node_key_at_path(&focus_path) {
@@ -1511,14 +1518,12 @@ impl<W: LayoutElement> ContainerTree<W> {
 
                 if let Some(container) = self.get_container_mut(parent_key) {
                     container.set_layout(layout);
-                    container.set_preserve_on_single(true);
                     return true;
                 }
             } else {
                 // It's already a container, change its layout
                 if let Some(container) = self.get_container_mut(node_key) {
                     container.set_layout(layout);
-                    container.set_preserve_on_single(true);
                     return true;
                 }
             }
@@ -1823,14 +1828,12 @@ impl<W: LayoutElement> ContainerTree<W> {
         match node_data {
             NodeData::Leaf(tile) => DetachedNode::Leaf(tile),
             NodeData::Container(container) => {
-                let preserve_on_single = container.preserve_on_single();
                 let mut children = Vec::new();
                 for child_key in container.children {
                     children.push(self.extract_subtree(child_key));
                 }
                 DetachedNode::Container(DetachedContainer::from_parts(
                     container.layout,
-                    preserve_on_single,
                     children,
                     container.child_percents,
                     container.focused_idx,
@@ -1853,7 +1856,6 @@ impl<W: LayoutElement> ContainerTree<W> {
                 }
 
                 if let Some(node) = self.get_container_mut(container_key) {
-                    node.set_preserve_on_single(container.preserve_on_single);
                     node.children = child_keys;
                     node.child_percents = container.child_percents;
                     if node.child_percents.len() != node.children.len() {
@@ -2289,11 +2291,6 @@ impl<W: LayoutElement> ContainerTree<W> {
                         if container.children.is_empty() {
                             self.remove_node_recursive(root_key);
                             self.root = None;
-                        } else if container.children.len() == 1 && !container.preserve_on_single() {
-                            let child_key = container.child_key(0).unwrap();
-                            self.root = Some(child_key);
-                            // Remove only the container node, not its child (already re-assigned)
-                            self.nodes.remove(root_key);
                         }
                     }
                 }
@@ -2323,8 +2320,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                             let parent_layout = self.get_container(parent_key).map(|p| p.layout());
                             if container.children.is_empty() {
                                 remove_container = true;
-                            } else if container.children.len() == 1 && !container.preserve_on_single()
-                            {
+                            } else if container.children.len() == 1 {
                                 if parent_layout.map_or(true, |layout| layout == container.layout())
                                 {
                                     replace_with_child = container.child_key(0);
