@@ -62,6 +62,21 @@ pub enum NodeData<W: LayoutElement> {
     Leaf(Tile<W>),
 }
 
+/// Detached subtree used to move container structures across trees.
+#[derive(Debug)]
+pub enum DetachedNode<W: LayoutElement> {
+    Container(DetachedContainer<W>),
+    Leaf(Tile<W>),
+}
+
+#[derive(Debug)]
+pub struct DetachedContainer<W: LayoutElement> {
+    layout: Layout,
+    children: Vec<DetachedNode<W>>,
+    child_percents: Vec<f64>,
+    focused_idx: usize,
+}
+
 /// Container data stored in slotmap
 #[derive(Debug)]
 pub struct ContainerData {
@@ -163,9 +178,8 @@ impl ContainerData {
 
     /// Add a child node by key
     pub fn add_child(&mut self, node_key: NodeKey) {
-        self.children.push(node_key);
-        self.child_percents.push(0.0);
-        self.recalculate_percentages();
+        let idx = self.children.len();
+        self.insert_child(idx, node_key);
     }
 
     /// Remove a child at index, returns the removed node key
@@ -175,15 +189,35 @@ impl ContainerData {
         }
 
         let key = self.children.remove(idx);
-        let _ = self.child_percents.remove(idx);
+        let removed_percent = if self.child_percents.len() == self.children.len() + 1 {
+            self.child_percents.remove(idx)
+        } else {
+            0.0
+        };
 
         // Adjust focused index if needed
         if self.focused_idx >= self.children.len() && self.focused_idx > 0 {
             self.focused_idx = self.children.len() - 1;
         }
 
-        // Recalculate percentages
-        if !self.children.is_empty() {
+        if self.children.is_empty() {
+            self.child_percents.clear();
+            return Some(key);
+        }
+
+        if self.child_percents.len() != self.children.len() {
+            self.recalculate_percentages();
+            return Some(key);
+        }
+
+        let remaining = 1.0 - removed_percent;
+        if remaining > f64::EPSILON {
+            let scale = 1.0 / remaining;
+            for percent in &mut self.child_percents {
+                *percent *= scale;
+            }
+            self.normalize_child_percents();
+        } else {
             self.recalculate_percentages();
         }
 
@@ -197,9 +231,32 @@ impl ContainerData {
 
     pub fn insert_child(&mut self, idx: usize, node_key: NodeKey) {
         let idx = idx.min(self.children.len());
+        let old_len = self.children.len();
+
+        if old_len == 0 {
+            self.children.insert(idx, node_key);
+            self.child_percents.clear();
+            self.child_percents.push(1.0);
+            return;
+        }
+
+        if self.child_percents.len() != old_len {
+            self.child_percents.clear();
+            let value = 1.0 / old_len as f64;
+            self.child_percents.resize(old_len, value);
+        } else {
+            self.normalize_child_percents();
+        }
+
+        let new_share = 1.0 / (old_len as f64 + 1.0);
+        let scale = 1.0 - new_share;
+        for percent in &mut self.child_percents {
+            *percent *= scale;
+        }
+
         self.children.insert(idx, node_key);
-        self.child_percents.insert(idx, 0.0);
-        self.recalculate_percentages();
+        self.child_percents.insert(idx, new_share);
+        self.normalize_child_percents();
     }
 
     pub fn recalculate_percentages(&mut self) {
@@ -221,13 +278,20 @@ impl ContainerData {
         if self.child_percents.is_empty() {
             return;
         }
-        let sum: f64 = self.child_percents.iter().copied().sum();
+        let mut sum = 0.0;
+        for percent in &self.child_percents {
+            if !percent.is_finite() || *percent < 0.0 {
+                sum = 0.0;
+                break;
+            }
+            sum += *percent;
+        }
         if sum <= f64::EPSILON {
             self.recalculate_percentages();
-        } else {
-            for percent in &mut self.child_percents {
-                *percent /= sum;
-            }
+            return;
+        }
+        for percent in &mut self.child_percents {
+            *percent /= sum;
         }
     }
 
@@ -236,6 +300,10 @@ impl ContainerData {
     }
 
     pub fn set_child_percent(&mut self, idx: usize, percent: f64) {
+        if self.child_percents.len() != self.children.len() {
+            self.recalculate_percentages();
+        }
+
         if self.child_percents.is_empty() || idx >= self.child_percents.len() {
             return;
         }
@@ -301,6 +369,127 @@ impl ContainerData {
     /// Get geometry
     pub fn geometry(&self) -> Rectangle<f64, Logical> {
         self.geometry
+    }
+}
+
+// ============================================================================
+// Detached subtree helpers
+// ============================================================================
+
+impl<W: LayoutElement> DetachedNode<W> {
+    pub fn tiles(&self) -> Vec<&Tile<W>> {
+        let mut tiles = Vec::new();
+        self.collect_tiles(&mut tiles);
+        tiles
+    }
+
+    fn collect_tiles<'a>(&'a self, tiles: &mut Vec<&'a Tile<W>>) {
+        match self {
+            DetachedNode::Leaf(tile) => tiles.push(tile),
+            DetachedNode::Container(container) => {
+                for child in &container.children {
+                    child.collect_tiles(tiles);
+                }
+            }
+        }
+    }
+
+    pub fn contains_window(&self, window_id: &W::Id) -> bool {
+        match self {
+            DetachedNode::Leaf(tile) => tile.window().id() == window_id,
+            DetachedNode::Container(container) => container
+                .children
+                .iter()
+                .any(|child| child.contains_window(window_id)),
+        }
+    }
+
+    pub fn into_tiles(self) -> Vec<Tile<W>> {
+        let mut tiles = Vec::new();
+        self.collect_tiles_owned(&mut tiles);
+        tiles
+    }
+
+    fn collect_tiles_owned(self, tiles: &mut Vec<Tile<W>>) {
+        match self {
+            DetachedNode::Leaf(tile) => tiles.push(tile),
+            DetachedNode::Container(container) => {
+                for child in container.children {
+                    child.collect_tiles_owned(tiles);
+                }
+            }
+        }
+    }
+}
+
+impl<W: LayoutElement> DetachedContainer<W> {
+    pub fn new(layout: Layout, children: Vec<DetachedNode<W>>) -> Self {
+        let mut container = Self {
+            layout,
+            preserve_on_single: false,
+            children,
+            child_percents: Vec::new(),
+            focused_idx: 0,
+        };
+        container.recalculate_percentages();
+        container
+    }
+
+    pub(crate) fn from_parts(
+        layout: Layout,
+        preserve_on_single: bool,
+        children: Vec<DetachedNode<W>>,
+        child_percents: Vec<f64>,
+        focused_idx: usize,
+    ) -> Self {
+        let mut container = Self {
+            layout,
+            preserve_on_single,
+            children,
+            child_percents,
+            focused_idx,
+        };
+        container.normalize_child_percents();
+        if container.focused_idx >= container.children.len() {
+            container.focused_idx = container.children.len().saturating_sub(1);
+        }
+        container
+    }
+
+    fn recalculate_percentages(&mut self) {
+        if self.children.is_empty() {
+            self.child_percents.clear();
+            return;
+        }
+        let count = self.children.len() as f64;
+        let value = 1.0 / count;
+        self.child_percents.clear();
+        self.child_percents.resize(self.children.len(), value);
+    }
+
+    fn normalize_child_percents(&mut self) {
+        if self.child_percents.len() != self.children.len() {
+            self.recalculate_percentages();
+            return;
+        }
+        if self.child_percents.is_empty() {
+            return;
+        }
+        let mut sum = 0.0;
+        for percent in &self.child_percents {
+            if !percent.is_finite() || *percent < 0.0 {
+                sum = 0.0;
+                break;
+            }
+            sum += *percent;
+        }
+        if sum <= f64::EPSILON {
+            self.recalculate_percentages();
+            return;
+        }
+        for percent in &mut self.child_percents {
+            *percent /= sum;
+        }
     }
 }
 
@@ -1098,71 +1287,109 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
 
         let focus_path = self.focus_path.clone();
+        if focus_path.is_empty() {
+            return false;
+        }
 
-        for depth in (0..focus_path.len()).rev() {
-            let parent_path = &focus_path[..depth];
-            let current_idx = if depth < focus_path.len() {
-                focus_path[depth]
-            } else {
-                continue;
+        let leaf_parent_path = &focus_path[..focus_path.len() - 1];
+        let leaf_idx = *focus_path.last().unwrap();
+
+        let parent_key = if leaf_parent_path.is_empty() {
+            self.root
+        } else {
+            self.get_node_key_at_path(leaf_parent_path)
+        };
+
+        let Some(parent_key) = parent_key else {
+            return false;
+        };
+
+        let Some(parent_layout) = self.get_container(parent_key).map(|c| c.layout()) else {
+            return false;
+        };
+
+        let layout_matches = match (parent_layout, direction) {
+            (Layout::SplitH, Direction::Left | Direction::Right) => true,
+            (Layout::SplitV, Direction::Up | Direction::Down) => true,
+            (Layout::Tabbed | Layout::Stacked, _) => true,
+            _ => false,
+        };
+
+        if layout_matches {
+            let child_count = match self.get_container(parent_key) {
+                Some(container) => container.child_count(),
+                None => 0,
             };
+            if child_count == 0 {
+                return false;
+            }
 
-            let parent_key = if parent_path.is_empty() {
-                self.root
-            } else {
-                self.get_node_key_at_path(parent_path)
-            };
-
-            if let Some(parent_key) = parent_key {
-                if let Some(container) = self.get_container(parent_key) {
-                    let layout_matches = match (container.layout, direction) {
-                        (Layout::SplitH, Direction::Left | Direction::Right) => true,
-                        (Layout::SplitV, Direction::Up | Direction::Down) => true,
-                        (Layout::Tabbed | Layout::Stacked, _) => true,
-                        _ => false,
-                    };
-
-                    if !layout_matches {
-                        continue;
+            let target_idx = match direction {
+                Direction::Left | Direction::Up => {
+                    if leaf_idx > 0 {
+                        Some(leaf_idx - 1)
+                    } else {
+                        None
                     }
+                }
+                Direction::Right | Direction::Down => {
+                    if leaf_idx + 1 < child_count {
+                        Some(leaf_idx + 1)
+                    } else {
+                        None
+                    }
+                }
+            };
 
-                    let child_count = container.children.len();
-                    let target_idx = match direction {
-                        Direction::Left | Direction::Up => {
-                            if current_idx > 0 {
-                                Some(current_idx - 1)
-                            } else {
-                                None
-                            }
-                        }
-                        Direction::Right | Direction::Down => {
-                            if current_idx + 1 < child_count {
-                                Some(current_idx + 1)
-                            } else {
-                                None
-                            }
-                        }
-                    };
+            let Some(target_idx) = target_idx else {
+                return false;
+            };
 
-                    if let Some(target_idx) = target_idx {
-                        // Swap children
-                        if let Some(container) = self.get_container_mut(parent_key) {
-                            container.children.swap(current_idx, target_idx);
-                            container.child_percents.swap(current_idx, target_idx);
-                            container.set_focused_idx(target_idx);
-                        }
+            let target_key = match self.get_container(parent_key).and_then(|c| c.child_key(target_idx)) {
+                Some(key) => key,
+                None => return false,
+            };
 
-                        self.focus_path.truncate(depth);
-                        self.focus_path.push(target_idx);
-                        self.focus_to_first_leaf_from_path();
-
-                        return true;
+            if matches!(parent_layout, Layout::SplitH | Layout::SplitV) {
+                if let Some(target_container) = self.get_container(target_key) {
+                    if target_container.layout() != parent_layout {
+                        return self.move_leaf_into_container(
+                            leaf_parent_path,
+                            leaf_idx,
+                            target_key,
+                            direction,
+                            target_container.focused_idx(),
+                        );
                     }
                 }
             }
+
+            if let Some(container) = self.get_container_mut(parent_key) {
+                container.children.swap(leaf_idx, target_idx);
+                container.child_percents.swap(leaf_idx, target_idx);
+                container.set_focused_idx(target_idx);
+            }
+
+            self.focus_path.truncate(leaf_parent_path.len());
+            self.focus_path.push(target_idx);
+            self.focus_to_first_leaf_from_path();
+            return true;
         }
 
-        false
+        if leaf_parent_path.is_empty() {
+            return false;
+        }
+
+        let grandparent_path = &leaf_parent_path[..leaf_parent_path.len() - 1];
+        let parent_idx = *leaf_parent_path.last().unwrap();
+
+        self.reparent_leaf_to_grandparent(
+            leaf_parent_path,
+            leaf_idx,
+            grandparent_path,
+            parent_idx,
+            direction,
+        )
     }
 
     /// Split the focused container in a direction
@@ -1180,6 +1407,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 if matches!(self.get_node(root_key), Some(NodeData::Leaf(_))) {
                     let old_root_key = self.root.take().unwrap();
                     let mut container = ContainerData::new(layout);
+                    container.set_preserve_on_single(true);
                     container.add_child(old_root_key);
                     let container_key = self.insert_node(NodeData::Container(container));
                     self.root = Some(container_key);
@@ -1208,6 +1436,11 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
         };
 
+        let parent_layout = match self.get_container(parent_key) {
+            Some(container) => container.layout(),
+            None => return false,
+        };
+
         // Get the focused child key
         let focused_child_key = if let Some(container) = self.get_container(parent_key) {
             match container.child_key(child_idx) {
@@ -1220,6 +1453,13 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         // Only split if it's a leaf
         if matches!(self.get_node(focused_child_key), Some(NodeData::Leaf(_))) {
+            if parent_layout == layout {
+                if let Some(container) = self.get_container_mut(parent_key) {
+                    container.set_preserve_on_single(true);
+                }
+                return true;
+            }
+
             // Remove child from parent
             if let Some(container) = self.get_container_mut(parent_key) {
                 container.remove_child(child_idx);
@@ -1227,6 +1467,7 @@ impl<W: LayoutElement> ContainerTree<W> {
 
             // Create new container with the leaf
             let mut new_container = ContainerData::new(layout);
+            new_container.set_preserve_on_single(true);
             new_container.add_child(focused_child_key);
             let new_container_key = self.insert_node(NodeData::Container(new_container));
 
@@ -1270,12 +1511,14 @@ impl<W: LayoutElement> ContainerTree<W> {
 
                 if let Some(container) = self.get_container_mut(parent_key) {
                     container.set_layout(layout);
+                    container.set_preserve_on_single(true);
                     return true;
                 }
             } else {
                 // It's already a container, change its layout
                 if let Some(container) = self.get_container_mut(node_key) {
                     container.set_layout(layout);
+                    container.set_preserve_on_single(true);
                     return true;
                 }
             }
@@ -1570,6 +1813,64 @@ impl<W: LayoutElement> ContainerTree<W> {
         true
     }
 
+    /// Extract a subtree rooted at the given key into a detached representation.
+    fn extract_subtree(&mut self, key: NodeKey) -> DetachedNode<W> {
+        let node_data = self
+            .nodes
+            .remove(key)
+            .expect("node key must exist when extracting subtree");
+
+        match node_data {
+            NodeData::Leaf(tile) => DetachedNode::Leaf(tile),
+            NodeData::Container(container) => {
+                let preserve_on_single = container.preserve_on_single();
+                let mut children = Vec::new();
+                for child_key in container.children {
+                    children.push(self.extract_subtree(child_key));
+                }
+                DetachedNode::Container(DetachedContainer::from_parts(
+                    container.layout,
+                    preserve_on_single,
+                    children,
+                    container.child_percents,
+                    container.focused_idx,
+                ))
+            }
+        }
+    }
+
+    /// Insert a detached subtree into this tree, returning the new root key.
+    fn insert_subtree(&mut self, subtree: DetachedNode<W>) -> NodeKey {
+        match subtree {
+            DetachedNode::Leaf(tile) => self.insert_node(NodeData::Leaf(tile)),
+            DetachedNode::Container(container) => {
+                let container_key =
+                    self.insert_node(NodeData::Container(ContainerData::new(container.layout)));
+
+                let mut child_keys = Vec::new();
+                for child in container.children {
+                    child_keys.push(self.insert_subtree(child));
+                }
+
+                if let Some(node) = self.get_container_mut(container_key) {
+                    node.set_preserve_on_single(container.preserve_on_single);
+                    node.children = child_keys;
+                    node.child_percents = container.child_percents;
+                    if node.child_percents.len() != node.children.len() {
+                        node.recalculate_percentages();
+                    } else {
+                        node.normalize_child_percents();
+                    }
+                    node.focused_idx = container
+                        .focused_idx
+                        .min(node.children.len().saturating_sub(1));
+                }
+
+                container_key
+            }
+        }
+    }
+
     /// Extract all tiles from a subtree rooted at the given key.
     /// This recursively collects all tiles and removes the entire subtree from the slotmap.
     fn extract_tiles_from_subtree(&mut self, key: NodeKey) -> Vec<Tile<W>> {
@@ -1597,17 +1898,17 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
     }
 
-    /// Remove and return the root-level child at the given index as a vector of tiles.
-    pub fn take_root_child_tiles(&mut self, idx: usize) -> Option<Vec<Tile<W>>> {
+    /// Remove and return the root-level child at the given index as a detached subtree.
+    pub fn take_root_child_subtree(&mut self, idx: usize) -> Option<DetachedNode<W>> {
         let root_key = self.root?;
 
         match self.get_node(root_key) {
             Some(NodeData::Leaf(_)) => {
                 if idx == 0 {
                     self.focus_path.clear();
-                    let tiles = self.extract_tiles_from_subtree(root_key);
+                    let subtree = self.extract_subtree(root_key);
                     self.root = None;
-                    Some(tiles)
+                    Some(subtree)
                 } else {
                     None
                 }
@@ -1621,14 +1922,12 @@ impl<W: LayoutElement> ContainerTree<W> {
                     container.child_key(idx)?
                 };
 
-                // Remove from container
                 if let Some(container) = self.get_container_mut(root_key) {
                     container.remove_child(idx);
                 }
 
                 let remaining = self.get_container(root_key)?.children.len();
 
-                // Cleanup containers
                 self.cleanup_containers(Vec::new());
 
                 match self.get_node(root_key) {
@@ -1649,12 +1948,23 @@ impl<W: LayoutElement> ContainerTree<W> {
                     }
                 }
 
-                // Extract all tiles from the subtree
-                let tiles = self.extract_tiles_from_subtree(child_key);
-                Some(tiles)
+                let subtree = self.extract_subtree(child_key);
+                Some(subtree)
             }
             None => None,
         }
+    }
+
+    /// Remove and return the root-level child at the given index as a vector of tiles.
+    pub fn take_root_child_tiles(&mut self, idx: usize) -> Option<Vec<Tile<W>>> {
+        self.take_root_child_subtree(idx)
+            .map(|subtree| subtree.into_tiles())
+    }
+
+    /// Insert a detached subtree at root level.
+    pub fn insert_subtree_at_root(&mut self, index: usize, subtree: DetachedNode<W>, focus: bool) {
+        let node_key = self.insert_subtree(subtree);
+        self.insert_key_at_root(index, node_key, focus);
     }
 
     /// Focus nth (1-based) leaf within the given root child.
@@ -1979,7 +2289,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                         if container.children.is_empty() {
                             self.remove_node_recursive(root_key);
                             self.root = None;
-                        } else if container.children.len() == 1 {
+                        } else if container.children.len() == 1 && !container.preserve_on_single() {
                             let child_key = container.child_key(0).unwrap();
                             self.root = Some(child_key);
                             // Remove only the container node, not its child (already re-assigned)
@@ -2010,10 +2320,15 @@ impl<W: LayoutElement> ContainerTree<W> {
                         let mut replace_with_child = None;
 
                         if let Some(container) = self.get_container(container_key) {
+                            let parent_layout = self.get_container(parent_key).map(|p| p.layout());
                             if container.children.is_empty() {
                                 remove_container = true;
-                            } else if container.children.len() == 1 {
-                                replace_with_child = container.child_key(0);
+                            } else if container.children.len() == 1 && !container.preserve_on_single()
+                            {
+                                if parent_layout.map_or(true, |layout| layout == container.layout())
+                                {
+                                    replace_with_child = container.child_key(0);
+                                }
                             }
                         }
 
@@ -2101,6 +2416,131 @@ impl<W: LayoutElement> ContainerTree<W> {
         } else {
             root_key
         }
+    }
+
+    fn reparent_leaf_to_grandparent(
+        &mut self,
+        leaf_parent_path: &[usize],
+        leaf_idx: usize,
+        grandparent_path: &[usize],
+        parent_idx: usize,
+        direction: Direction,
+    ) -> bool {
+        let leaf_key = match self.get_node_key_at_path(&self.focus_path) {
+            Some(key) => key,
+            None => return false,
+        };
+        let window_id = match self.get_node(leaf_key) {
+            Some(NodeData::Leaf(tile)) => tile.window().id().clone(),
+            _ => return false,
+        };
+
+        let leaf_parent_key = if leaf_parent_path.is_empty() {
+            match self.root {
+                Some(key) => key,
+                None => return false,
+            }
+        } else {
+            match self.get_node_key_at_path(leaf_parent_path) {
+                Some(key) => key,
+                None => return false,
+            }
+        };
+
+        if let Some(container) = self.get_container_mut(leaf_parent_key) {
+            let _ = container.remove_child(leaf_idx);
+        } else {
+            return false;
+        }
+
+        let grandparent_key = if grandparent_path.is_empty() {
+            match self.root {
+                Some(key) => key,
+                None => return false,
+            }
+        } else {
+            match self.get_node_key_at_path(grandparent_path) {
+                Some(key) => key,
+                None => return false,
+            }
+        };
+
+        let insert_at = match direction {
+            Direction::Left | Direction::Up => parent_idx,
+            Direction::Right | Direction::Down => parent_idx + 1,
+        };
+
+        if let Some(container) = self.get_container_mut(grandparent_key) {
+            container.insert_child(insert_at, leaf_key);
+            container.set_focused_idx(insert_at);
+        } else {
+            return false;
+        }
+
+        self.cleanup_containers(leaf_parent_path.to_vec());
+
+        if let Some(path) = self.find_window(&window_id) {
+            self.focus_path = path;
+        }
+
+        true
+    }
+
+    fn move_leaf_into_container(
+        &mut self,
+        leaf_parent_path: &[usize],
+        leaf_idx: usize,
+        target_key: NodeKey,
+        direction: Direction,
+        target_focus_idx: usize,
+    ) -> bool {
+        let leaf_key = match self.get_node_key_at_path(&self.focus_path) {
+            Some(key) => key,
+            None => return false,
+        };
+        let window_id = match self.get_node(leaf_key) {
+            Some(NodeData::Leaf(tile)) => tile.window().id().clone(),
+            _ => return false,
+        };
+
+        let leaf_parent_key = if leaf_parent_path.is_empty() {
+            match self.root {
+                Some(key) => key,
+                None => return false,
+            }
+        } else {
+            match self.get_node_key_at_path(leaf_parent_path) {
+                Some(key) => key,
+                None => return false,
+            }
+        };
+
+        if let Some(container) = self.get_container_mut(leaf_parent_key) {
+            let _ = container.remove_child(leaf_idx);
+        } else {
+            return false;
+        }
+
+        let insert_idx = match direction {
+            Direction::Left | Direction::Up => target_focus_idx,
+            Direction::Right | Direction::Down => target_focus_idx + 1,
+        };
+
+        if let Some(container) = self.get_container_mut(target_key) {
+            let idx = insert_idx.min(container.child_count());
+            container.insert_child(idx, leaf_key);
+            container.set_focused_idx(idx);
+        } else {
+            return false;
+        }
+
+        self.cleanup_containers(leaf_parent_path.to_vec());
+
+        if let Some(path) = self.find_window(&window_id) {
+            self.focus_path = path;
+        }
+
+        true
     }
 }
 

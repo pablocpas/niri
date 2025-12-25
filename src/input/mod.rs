@@ -1544,22 +1544,20 @@ impl State {
                 self.niri.queue_redraw_all();
             }
             Action::SwapWindowRight => {
-                // TODO i3-conversion: Implement swap in container tree
-                // self.niri
-                //     .layout
-                //     .swap_window_in_direction(ScrollDirection::Right);
-                // self.maybe_warp_cursor_to_focus();
+                self.niri
+                    .layout
+                    .swap_window_in_direction(ScrollDirection::Right);
+                self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
-                // self.niri.queue_redraw_all();
+                self.niri.queue_redraw_all();
             }
             Action::SwapWindowLeft => {
-                // TODO i3-conversion: Implement swap in container tree
-                // self.niri
-                //     .layout
-                //     .swap_window_in_direction(ScrollDirection::Left);
-                // self.maybe_warp_cursor_to_focus();
+                self.niri
+                    .layout
+                    .swap_window_in_direction(ScrollDirection::Left);
+                self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
-                // self.niri.queue_redraw_all();
+                self.niri.queue_redraw_all();
             }
             Action::ToggleColumnTabbedDisplay => {
                 self.niri.layout.toggle_column_tabbed_display();
