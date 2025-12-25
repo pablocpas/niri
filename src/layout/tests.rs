@@ -6,12 +6,15 @@ use niri_config::{
     CenterFocusedColumn, Config, FloatOrInt, OutputName, Struts, TabIndicatorLength,
     TabIndicatorPosition, WorkspaceReference,
 };
+use insta::assert_snapshot;
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use smithay::output::{Mode, PhysicalProperties, Subpixel};
-use smithay::utils::{Logical, Point, Rectangle};
+use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use super::*;
+use super::container::{ContainerTree, Direction, Layout as ContainerLayout};
+use super::tile::Tile;
 
 mod animations;
 mod fullscreen;
@@ -3988,6 +3991,388 @@ prop_compose! {
             ..Default::default()
         }
     }
+}
+
+struct TreeHarness {
+    tree: ContainerTree<TestWindow>,
+    options: Rc<Options>,
+    clock: Clock,
+    view_size: Size<f64, Logical>,
+    scale: f64,
+}
+
+impl TreeHarness {
+    fn new() -> Self {
+        let options = Rc::new(Options::from_config(&Config::default()));
+        let clock = Clock::with_time(Duration::ZERO);
+        let view_size = Size::from((800.0, 600.0));
+        let working_area = Rectangle::from_size(view_size);
+        let scale = 1.0;
+        let tree = ContainerTree::new(view_size, working_area, scale, options.clone());
+        Self {
+            tree,
+            options,
+            clock,
+            view_size,
+            scale,
+        }
+    }
+
+    fn add_window(&mut self, id: usize) {
+        let window = TestWindow::new(TestWindowParams::new(id));
+        let tile = Tile::new(
+            window,
+            self.view_size,
+            self.scale,
+            self.clock.clone(),
+            self.options.clone(),
+        );
+        self.tree.insert_window(tile);
+    }
+}
+
+#[test]
+fn move_right_enters_container_with_different_layout() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.tree.split_focused(ContainerLayout::SplitV);
+    harness.add_window(3);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    assert!(harness.tree.move_in_direction(Direction::Right));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitH
+  SplitV
+    Window 2
+    Window 3
+    Window 1 *
+"
+    );
+}
+
+#[test]
+fn move_right_escapes_to_grandparent_on_layout_mismatch() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    harness.tree.split_focused(ContainerLayout::SplitV);
+    harness.add_window(3);
+    assert!(harness.tree.move_in_direction(Direction::Right));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitH
+  SplitV
+    Window 1
+  Window 3 *
+  Window 2
+"
+    );
+}
+
+#[test]
+fn flatten_same_layout_container_on_cleanup() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    harness.tree.split_focused(ContainerLayout::SplitV);
+    harness.add_window(3);
+    harness.add_window(4);
+    assert!(harness.tree.focus_in_direction(Direction::Right));
+    assert!(harness.tree.set_focused_layout(ContainerLayout::SplitV));
+    let _ = harness.tree.remove_window(&3);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  Window 1
+  Window 4
+  Window 2 *
+"
+    );
+}
+
+#[test]
+fn move_right_swaps_with_sibling_in_same_layout() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.add_window(3);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    assert!(harness.tree.move_in_direction(Direction::Right));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitH
+  Window 1
+  Window 3
+  Window 2 *
+"
+    );
+}
+
+#[test]
+fn move_down_swaps_in_splitv() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.add_window(3);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::SplitV));
+    assert!(harness.tree.focus_in_direction(Direction::Up));
+    assert!(harness.tree.move_in_direction(Direction::Down));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  Window 1
+  Window 3
+  Window 2 *
+"
+    );
+}
+
+#[test]
+fn move_down_enters_container_with_different_layout() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::SplitV));
+    harness.tree.split_focused(ContainerLayout::SplitH);
+    harness.add_window(3);
+    assert!(harness.tree.focus_in_direction(Direction::Up));
+    assert!(harness.tree.move_in_direction(Direction::Down));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  SplitH
+    Window 2
+    Window 3
+    Window 1 *
+"
+    );
+}
+
+#[test]
+fn move_left_enters_container_with_different_layout() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    harness.tree.split_focused(ContainerLayout::SplitV);
+    harness.add_window(3);
+    assert!(harness.tree.focus_in_direction(Direction::Right));
+    assert!(harness.tree.move_in_direction(Direction::Left));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitH
+  SplitV
+    Window 1
+    Window 2 *
+    Window 3
+"
+    );
+}
+
+#[test]
+fn move_up_enters_container_with_different_layout() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::SplitV));
+    assert!(harness.tree.focus_in_direction(Direction::Up));
+    harness.tree.split_focused(ContainerLayout::SplitH);
+    harness.add_window(3);
+    assert!(harness.tree.focus_in_direction(Direction::Down));
+    assert!(harness.tree.move_in_direction(Direction::Up));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  SplitH
+    Window 1
+    Window 2 *
+    Window 3
+"
+    );
+}
+
+#[test]
+fn move_up_escapes_to_grandparent_on_layout_mismatch() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::SplitV));
+    harness.tree.split_focused(ContainerLayout::SplitH);
+    harness.add_window(3);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    assert!(harness.tree.move_in_direction(Direction::Up));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  Window 1
+  Window 2 *
+  SplitH
+    Window 3
+"
+    );
+}
+
+#[test]
+fn preserve_single_child_container_with_different_layout() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    harness.tree.split_focused(ContainerLayout::SplitV);
+    harness.add_window(3);
+    let _ = harness.tree.remove_window(&3);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitH
+  SplitV
+    Window 1 *
+  Window 2
+"
+    );
+}
+
+#[test]
+fn replace_single_child_container_with_same_layout() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    harness.tree.split_focused(ContainerLayout::SplitV);
+    harness.add_window(3);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::SplitH));
+    let _ = harness.tree.remove_window(&3);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitH
+  Window 1 *
+  Window 2
+"
+    );
+}
+
+#[test]
+fn move_right_enters_tabbed_container() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.tree.split_focused(ContainerLayout::Tabbed);
+    harness.add_window(3);
+    assert!(harness.tree.focus_window_by_id(&1));
+    assert!(harness.tree.move_in_direction(Direction::Right));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitH
+  Tabbed
+    Window 2
+    Window 3
+    Window 1 *
+"
+    );
+}
+
+#[test]
+fn move_left_swaps_in_tabbed_layout() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.add_window(3);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    assert!(harness.tree.move_in_direction(Direction::Left));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"Tabbed
+  Window 1
+  Window 3 *
+  Window 2
+"
+    );
+}
+
+#[test]
+fn move_down_swaps_in_stacked_layout() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.add_window(3);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Stacked));
+    assert!(harness.tree.focus_in_direction(Direction::Up));
+    assert!(harness.tree.move_in_direction(Direction::Down));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"Stacked
+  Window 1
+  Window 3
+  Window 2 *
+"
+    );
+}
+
+#[test]
+fn move_left_at_edge_is_noop() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    assert!(!harness.tree.move_in_direction(Direction::Left));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitH
+  Window 1 *
+  Window 2
+"
+    );
+}
+
+#[test]
+fn move_up_at_edge_is_noop() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::SplitV));
+    assert!(harness.tree.focus_in_direction(Direction::Up));
+    assert!(!harness.tree.move_in_direction(Direction::Up));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  Window 1 *
+  Window 2
+"
+    );
 }
 
 proptest! {

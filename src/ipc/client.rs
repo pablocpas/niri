@@ -7,8 +7,8 @@ use anyhow::{anyhow, bail, Context};
 use niri_config::OutputName;
 use niri_ipc::socket::Socket;
 use niri_ipc::{
-    Action, Event, KeyboardLayouts, LogicalOutput, Mode, Output, OutputConfigChanged, Overview,
-    Request, Response, Transform, Window, WindowLayout,
+    Action, Event, KeyboardLayouts, LayoutTree, LayoutTreeLayout, LogicalOutput, Mode, Output,
+    OutputConfigChanged, Overview, Request, Response, Transform, Window, WindowLayout,
 };
 use serde_json::json;
 
@@ -48,6 +48,7 @@ pub fn handle_msg(mut msg: Msg, json: bool) -> anyhow::Result<()> {
         Msg::EventStream => Request::EventStream,
         Msg::RequestError => Request::ReturnError,
         Msg::OverviewState => Request::OverviewState,
+        Msg::LayoutTree => Request::LayoutTree,
     };
 
     let mut socket = Socket::connect().context("error connecting to the niri socket")?;
@@ -518,9 +519,62 @@ pub fn handle_msg(mut msg: Msg, json: bool) -> anyhow::Result<()> {
                 println!("Overview is closed.");
             }
         }
+        Msg::LayoutTree => {
+            let Response::LayoutTree(tree) = response else {
+                bail!("unexpected response: expected LayoutTree, got {response:?}");
+            };
+
+            if json {
+                let tree = serde_json::to_string(&tree).context("error formatting response")?;
+                println!("{tree}");
+                return Ok(());
+            }
+
+            print_layout_tree(&tree);
+        }
     }
 
     Ok(())
+}
+
+fn print_layout_tree(tree: &LayoutTree) {
+    if let Some(id) = tree.workspace_id {
+        if let Some(name) = &tree.workspace_name {
+            println!("workspace: {id} ({name})");
+        } else {
+            println!("workspace: {id}");
+        }
+    } else {
+        println!("workspace: none");
+    }
+
+    if let Some(root) = &tree.root {
+        print_layout_tree_node(root, 0);
+    } else {
+        println!("(empty)");
+    }
+}
+
+fn print_layout_tree_node(node: &niri_ipc::LayoutTreeNode, depth: usize) {
+    let indent = "  ".repeat(depth);
+    let focus_mark = if node.focused { " *" } else { "" };
+
+    if let Some(layout) = node.layout {
+        let label = match layout {
+            LayoutTreeLayout::SplitH => "SplitH",
+            LayoutTreeLayout::SplitV => "SplitV",
+            LayoutTreeLayout::Tabbed => "Tabbed",
+            LayoutTreeLayout::Stacked => "Stacked",
+        };
+        println!("{indent}{label}{focus_mark}");
+        for child in &node.children {
+            print_layout_tree_node(child, depth + 1);
+        }
+    } else if let Some(id) = node.window_id {
+        println!("{indent}Window {id}{focus_mark}");
+    } else {
+        println!("{indent}Window (unknown){focus_mark}");
+    }
 }
 
 fn print_output(output: Output) -> anyhow::Result<()> {

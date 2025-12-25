@@ -450,6 +450,16 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
             let is_open = state.overview.is_open;
             Response::OverviewState(Overview { is_open })
         }
+        Request::LayoutTree => {
+            let (tx, rx) = async_channel::bounded(1);
+            ctx.event_loop.insert_idle(move |state| {
+                let tree = state.niri.layout.layout_tree();
+                let _ = tx.send_blocking(tree);
+            });
+            let result = rx.recv().await;
+            let tree = result.map_err(|_| String::from("error getting layout tree"))?;
+            Response::LayoutTree(tree)
+        }
     };
 
     Ok(response)

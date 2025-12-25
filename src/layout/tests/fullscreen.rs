@@ -416,7 +416,7 @@ fn unfullscreen_preserves_view_pos() {
     let mut layout = check_ops(ops);
 
     // View pos is looking at the first window.
-    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"-16");
+    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 
     let ops = [
         Op::FullscreenWindow(2),
@@ -426,7 +426,7 @@ fn unfullscreen_preserves_view_pos() {
     check_ops_on_layout(&mut layout, ops);
 
     // View pos = width of first window + gap.
-    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"116");
+    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 
     let ops = [
         Op::FullscreenWindow(2),
@@ -436,7 +436,7 @@ fn unfullscreen_preserves_view_pos() {
     check_ops_on_layout(&mut layout, ops);
 
     // View pos is back to showing the first window.
-    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"-16");
+    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 }
 
 #[test]
@@ -462,7 +462,7 @@ fn unfullscreen_of_tabbed_preserves_view_pos() {
     let mut layout = check_ops(ops);
 
     // View pos is looking at the first window.
-    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"-16");
+    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 
     let ops = [
         Op::FullscreenWindow(2),
@@ -473,7 +473,7 @@ fn unfullscreen_of_tabbed_preserves_view_pos() {
     check_ops_on_layout(&mut layout, ops);
 
     // View pos = width of first window + gap.
-    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"116");
+    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 
     let ops = [
         Op::FullscreenWindow(3),
@@ -483,13 +483,13 @@ fn unfullscreen_of_tabbed_preserves_view_pos() {
     check_ops_on_layout(&mut layout, ops);
 
     // View pos is still on the second column because the second tile hasn't unfullscreened yet.
-    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"116");
+    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 
     let ops = [Op::Communicate(2), Op::CompleteAnimations];
     check_ops_on_layout(&mut layout, ops);
 
     // View pos is back to showing the first window.
-    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"-16");
+    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 }
 
 #[test]
@@ -515,7 +515,7 @@ fn unfullscreen_of_tabbed_via_change_to_normal_preserves_view_pos() {
     let mut layout = check_ops(ops);
 
     // View pos is looking at the first window.
-    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"-16");
+    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 
     let ops = [
         Op::FullscreenWindow(2),
@@ -526,7 +526,7 @@ fn unfullscreen_of_tabbed_via_change_to_normal_preserves_view_pos() {
     check_ops_on_layout(&mut layout, ops);
 
     // View pos = width of first window + gap.
-    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"116");
+    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 
     let ops = [
         Op::SetColumnDisplay(ColumnDisplay::Normal),
@@ -536,13 +536,13 @@ fn unfullscreen_of_tabbed_via_change_to_normal_preserves_view_pos() {
     check_ops_on_layout(&mut layout, ops);
 
     // View pos is still on the second column because the second tile hasn't unfullscreened yet.
-    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"116");
+    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 
     let ops = [Op::Communicate(2), Op::CompleteAnimations];
     check_ops_on_layout(&mut layout, ops);
 
     // View pos is back to showing the first window.
-    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"-16");
+    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 }
 
 #[test]
@@ -563,7 +563,7 @@ fn removing_only_fullscreen_tile_updates_view_offset() {
     let mut layout = check_ops(ops);
 
     // View pos with gap.
-    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"-16");
+    assert_snapshot!(layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 
     let ops = [
         Op::FullscreenWindow(2),

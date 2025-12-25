@@ -117,6 +117,8 @@ pub enum Request {
     ReturnError,
     /// Request information about the overview.
     OverviewState,
+    /// Request the tiling layout tree for the focused workspace.
+    LayoutTree,
 }
 
 /// Reply from niri to client.
@@ -161,6 +163,8 @@ pub enum Response {
     OutputConfigChanged(OutputConfigChanged),
     /// Information about the overview.
     OverviewState(Overview),
+    /// Information about the tiling layout tree.
+    LayoutTree(LayoutTree),
 }
 
 /// Overview information.
@@ -169,6 +173,46 @@ pub enum Response {
 pub struct Overview {
     /// Whether the overview is currently open.
     pub is_open: bool,
+}
+
+/// Tiling layout tree for the focused workspace.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct LayoutTree {
+    /// Focused workspace id, if any.
+    pub workspace_id: Option<u64>,
+    /// Focused workspace name, if any.
+    pub workspace_name: Option<String>,
+    /// Root of the tiling layout tree.
+    pub root: Option<LayoutTreeNode>,
+}
+
+/// Layout kind of a container node in the tiling tree.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub enum LayoutTreeLayout {
+    /// Horizontal split.
+    SplitH,
+    /// Vertical split.
+    SplitV,
+    /// Tabbed layout.
+    Tabbed,
+    /// Stacked layout.
+    Stacked,
+}
+
+/// Node in the tiling layout tree.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct LayoutTreeNode {
+    /// Layout of a container node. `None` for leaf nodes.
+    pub layout: Option<LayoutTreeLayout>,
+    /// Window id for leaf nodes.
+    pub window_id: Option<u64>,
+    /// Whether this node is focused.
+    pub focused: bool,
+    /// Children nodes for container nodes.
+    pub children: Vec<LayoutTreeNode>,
 }
 
 /// Color picked from the screen.

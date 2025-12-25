@@ -6,7 +6,7 @@ use niri_config::utils::MergeWith as _;
 use niri_config::{
     CenterFocusedColumn, CornerRadius, OutputName, PresetSize, Workspace as WorkspaceConfig,
 };
-use niri_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
+use niri_ipc::{ColumnDisplay, LayoutTreeNode, PositionChange, SizeChange, WindowLayout};
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::{layer_map_for_output, Window};
@@ -2096,6 +2096,12 @@ impl<W: LayoutElement> Workspace<W> {
                 );
             }
         }
+    }
+}
+
+impl Workspace<crate::window::Mapped> {
+    pub(crate) fn layout_tree(&self) -> Option<LayoutTreeNode> {
+        self.scrolling.layout_tree()
     }
 }
 
