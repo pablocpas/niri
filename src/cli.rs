@@ -107,6 +107,9 @@ pub enum Msg {
     RequestError,
     /// Print the overview state.
     OverviewState,
+    /// Print the tiling layout tree for the focused workspace.
+    #[command(name = "tree")]
+    LayoutTree,
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]

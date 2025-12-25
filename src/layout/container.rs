@@ -15,6 +15,8 @@ use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use super::tile::Tile;
 use super::{LayoutElement, Options};
+use crate::window::Mapped;
+use niri_ipc::{LayoutTreeLayout, LayoutTreeNode};
 
 // ============================================================================
 // SlotMap Key Types
@@ -2315,6 +2317,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     if let Some(container_key) = container_key {
                         let mut remove_container = false;
                         let mut replace_with_child = None;
+                        let mut flatten_container = false;
 
                         if let Some(container) = self.get_container(container_key) {
                             let parent_layout = self.get_container(parent_key).map(|p| p.layout());
@@ -2325,10 +2328,22 @@ impl<W: LayoutElement> ContainerTree<W> {
                                 {
                                     replace_with_child = container.child_key(0);
                                 }
+                            } else if parent_layout
+                                .is_some_and(|layout| layout == container.layout())
+                                && matches!(container.layout(), Layout::SplitH | Layout::SplitV)
+                            {
+                                flatten_container = true;
                             }
                         }
 
-                        if remove_container {
+                        if flatten_container {
+                            self.flatten_container_into_parent(
+                                parent_key,
+                                parent_path,
+                                last_idx,
+                                container_key,
+                            );
+                        } else if remove_container {
                             if let Some(parent) = self.get_container_mut(parent_key) {
                                 parent.remove_child(last_idx);
                             }
@@ -2351,6 +2366,107 @@ impl<W: LayoutElement> ContainerTree<W> {
                 path.pop();
             }
         }
+    }
+
+    fn flatten_container_into_parent(
+        &mut self,
+        parent_key: NodeKey,
+        parent_path: &[usize],
+        child_idx: usize,
+        container_key: NodeKey,
+    ) {
+        let Some(NodeData::Container(container)) = self.nodes.remove(container_key) else {
+            return;
+        };
+
+        let child_count = container.children.len();
+        if child_count == 0 {
+            return;
+        }
+
+        let mut child_percents = container.child_percents;
+        normalize_percents(&mut child_percents, child_count);
+
+        let container_focus_idx = container.focused_idx;
+        if let Some(parent) = self.get_container_mut(parent_key) {
+            if parent.child_percents.len() != parent.children.len() {
+                parent.recalculate_percentages();
+            } else {
+                parent.normalize_child_percents();
+            }
+
+            let parent_focus_idx = parent.focused_idx;
+            let parent_percent = parent
+                .child_percents
+                .get(child_idx)
+                .copied()
+                .unwrap_or_else(|| 1.0 / parent.children.len().max(1) as f64);
+
+            parent.children.remove(child_idx);
+            if parent.child_percents.len() == parent.children.len() + 1 {
+                parent.child_percents.remove(child_idx);
+            }
+
+            for (offset, child_key) in container.children.into_iter().enumerate() {
+                let insert_idx = child_idx + offset;
+                parent.children.insert(insert_idx, child_key);
+                let child_percent = child_percents
+                    .get(offset)
+                    .copied()
+                    .unwrap_or_else(|| 1.0 / child_count as f64);
+                parent
+                    .child_percents
+                    .insert(insert_idx, parent_percent * child_percent);
+            }
+
+            let mut new_focus_idx = parent_focus_idx;
+            if parent_focus_idx > child_idx {
+                new_focus_idx = parent_focus_idx + child_count - 1;
+            } else if parent_focus_idx == child_idx {
+                new_focus_idx = child_idx + container_focus_idx.min(child_count - 1);
+            }
+            parent.set_focused_idx(new_focus_idx);
+
+            parent.normalize_child_percents();
+        }
+
+        self.adjust_focus_after_flatten(parent_path, child_idx, child_count, parent_key);
+    }
+
+    fn adjust_focus_after_flatten(
+        &mut self,
+        parent_path: &[usize],
+        child_idx: usize,
+        child_count: usize,
+        parent_key: NodeKey,
+    ) {
+        self.focus_parent_stack.clear();
+        if !self.focus_path.starts_with(parent_path) {
+            return;
+        }
+
+        let depth = parent_path.len();
+        if self.focus_path.len() <= depth {
+            return;
+        }
+
+        let current_idx = self.focus_path[depth];
+        if current_idx > child_idx {
+            self.focus_path[depth] = current_idx + child_count - 1;
+        } else if current_idx == child_idx {
+            if let Some(inner_idx) = self.focus_path.get(depth + 1).copied() {
+                self.focus_path.remove(depth + 1);
+                self.focus_path[depth] = child_idx + inner_idx;
+            }
+        }
+
+        let focus_idx = self.focus_path.get(depth).copied();
+        if let Some(container) = self.get_container_mut(parent_key) {
+            if let Some(idx) = focus_idx {
+                container.set_focused_idx(idx);
+            }
+        }
+
     }
 
     fn focus_first_leaf(&mut self) {
@@ -2538,6 +2654,106 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         true
     }
+
+    #[cfg(test)]
+    pub(crate) fn debug_tree(&self) -> String
+    where
+        W::Id: std::fmt::Display,
+    {
+        let mut out = String::new();
+        let Some(root_key) = self.root else {
+            out.push_str("(empty)\n");
+            return out;
+        };
+
+        let mut path = Vec::new();
+        self.debug_tree_node(root_key, &mut path, &mut out);
+        out
+    }
+
+    #[cfg(test)]
+    fn debug_tree_node(
+        &self,
+        node_key: NodeKey,
+        path: &mut Vec<usize>,
+        out: &mut String,
+    ) where
+        W::Id: std::fmt::Display,
+    {
+        use std::fmt::Write as _;
+
+        let indent = "  ".repeat(path.len());
+        match self.get_node(node_key) {
+            Some(NodeData::Leaf(tile)) => {
+                let focused = if *path == self.focus_path { " *" } else { "" };
+                let _ = writeln!(
+                    out,
+                    "{indent}Window {}{focused}",
+                    tile.window().id()
+                );
+            }
+            Some(NodeData::Container(container)) => {
+                let label = layout_label(container.layout());
+                let _ = writeln!(out, "{indent}{label}");
+                for (idx, child_key) in container.children.iter().enumerate() {
+                    path.push(idx);
+                    self.debug_tree_node(*child_key, path, out);
+                    path.pop();
+                }
+            }
+            None => {
+                let _ = writeln!(out, "{indent}(missing)");
+            }
+        }
+    }
+}
+
+impl ContainerTree<Mapped> {
+    pub fn layout_tree(&self) -> Option<LayoutTreeNode> {
+        let root_key = self.root?;
+        let focused_key = self.get_node_key_at_path(&self.focus_path);
+        Some(self.build_layout_tree_node(root_key, focused_key))
+    }
+
+    fn build_layout_tree_node(
+        &self,
+        node_key: NodeKey,
+        focused_key: Option<NodeKey>,
+    ) -> LayoutTreeNode {
+        match self.get_node(node_key) {
+            Some(NodeData::Leaf(tile)) => LayoutTreeNode {
+                layout: None,
+                window_id: Some(tile.window().id().get()),
+                focused: focused_key == Some(node_key),
+                children: Vec::new(),
+            },
+            Some(NodeData::Container(container)) => LayoutTreeNode {
+                layout: Some(layout_to_ipc(container.layout())),
+                window_id: None,
+                focused: focused_key == Some(node_key),
+                children: container
+                    .children
+                    .iter()
+                    .map(|child_key| self.build_layout_tree_node(*child_key, focused_key))
+                    .collect(),
+            },
+            None => LayoutTreeNode {
+                layout: None,
+                window_id: None,
+                focused: false,
+                children: Vec::new(),
+            },
+        }
+    }
+}
+
+fn layout_to_ipc(layout: Layout) -> LayoutTreeLayout {
+    match layout {
+        Layout::SplitH => LayoutTreeLayout::SplitH,
+        Layout::SplitV => LayoutTreeLayout::SplitV,
+        Layout::Tabbed => LayoutTreeLayout::Tabbed,
+        Layout::Stacked => LayoutTreeLayout::Stacked,
+    }
 }
 
 // ============================================================================
@@ -2569,5 +2785,49 @@ impl Direction {
     /// Check if direction is vertical
     pub fn is_vertical(self) -> bool {
         matches!(self, Direction::Up | Direction::Down)
+    }
+}
+
+#[cfg(test)]
+fn layout_label(layout: Layout) -> &'static str {
+    match layout {
+        Layout::SplitH => "SplitH",
+        Layout::SplitV => "SplitV",
+        Layout::Tabbed => "Tabbed",
+        Layout::Stacked => "Stacked",
+    }
+}
+
+fn normalize_percents(percents: &mut Vec<f64>, count: usize) {
+    if count == 0 {
+        percents.clear();
+        return;
+    }
+
+    if percents.len() != count {
+        let value = 1.0 / count as f64;
+        percents.clear();
+        percents.resize(count, value);
+        return;
+    }
+
+    let mut sum = 0.0;
+    for percent in percents.iter() {
+        if !percent.is_finite() || *percent < 0.0 {
+            sum = 0.0;
+            break;
+        }
+        sum += *percent;
+    }
+
+    if sum <= f64::EPSILON {
+        let value = 1.0 / count as f64;
+        percents.clear();
+        percents.resize(count, value);
+        return;
+    }
+
+    for percent in percents.iter_mut() {
+        *percent /= sum;
     }
 }

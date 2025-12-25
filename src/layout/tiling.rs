@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use niri_config::utils::MergeWith as _;
 use niri_config::{Border, PresetSize};
-use niri_ipc::{ColumnDisplay, SizeChange};
+use niri_ipc::{ColumnDisplay, LayoutTreeNode, SizeChange};
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 
 use super::container::{ContainerTree, DetachedContainer, DetachedNode, Direction, Layout, LeafLayoutInfo};
@@ -829,6 +829,16 @@ impl<W: LayoutElement> TilingSpace<W> {
         0.0
     }
 
+    #[cfg(test)]
+    pub fn view_pos(&self) -> f64 {
+        self.view_offset()
+    }
+
+    #[cfg(test)]
+    pub fn active_column_idx(&self) -> usize {
+        self.tree.focused_root_index().unwrap_or(0)
+    }
+
     /// Determine insert position from pointer location
     pub(super) fn insert_position(&self, _pos: Point<f64, Logical>) -> InsertPosition {
         InsertPosition::NewColumn(0)
@@ -1541,6 +1551,12 @@ impl<W: LayoutElement> TilingSpace<W> {
         false
     }
     pub fn dnd_scroll_gesture_end(&mut self) {}
+}
+
+impl TilingSpace<crate::window::Mapped> {
+    pub(crate) fn layout_tree(&self) -> Option<LayoutTreeNode> {
+        self.tree.layout_tree()
+    }
 }
 
 impl<W: LayoutElement> TilingSpace<W> {

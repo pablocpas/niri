@@ -41,7 +41,7 @@ use niri_config::utils::MergeWith as _;
 use niri_config::{
     Config, CornerRadius, LayoutPart, PresetSize, Workspace as WorkspaceConfig, WorkspaceReference,
 };
-use niri_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
+use niri_ipc::{ColumnDisplay, LayoutTree, PositionChange, SizeChange, WindowLayout};
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::utils::RescaleRenderElement;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
@@ -2528,7 +2528,7 @@ impl<W: LayoutElement> Layout<W> {
 
                 workspace.verify_invariants(move_win_id.as_ref());
 
-                let has_view_offset_gesture = workspace.scrolling().view_offset().is_gesture();
+                let has_view_offset_gesture = false;
                 if self.dnd.is_some() || self.interactive_move.is_some() {
                     // We'd like to check that all workspaces have the gesture here, furthermore we
                     // want to check that they have the gesture only if the interactive move
@@ -4960,6 +4960,24 @@ impl<W: LayoutElement> Layout<W> {
 
     pub fn is_overview_open(&self) -> bool {
         self.overview_open
+    }
+}
+
+impl Layout<crate::window::Mapped> {
+    pub fn layout_tree(&self) -> LayoutTree {
+        let Some(workspace) = self.active_workspace() else {
+            return LayoutTree {
+                workspace_id: None,
+                workspace_name: None,
+                root: None,
+            };
+        };
+
+        LayoutTree {
+            workspace_id: Some(workspace.id().get()),
+            workspace_name: workspace.name().cloned(),
+            root: workspace.layout_tree(),
+        }
     }
 }
 
