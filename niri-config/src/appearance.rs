@@ -526,6 +526,103 @@ impl MergeWith<TabIndicatorPart> for TabIndicator {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct TabBar {
+    pub off: bool,
+    pub height: f64,
+    pub padding_x: f64,
+    pub padding_y: f64,
+    pub separator_width: f64,
+    pub font: String,
+    pub active_bg: Color,
+    pub inactive_bg: Color,
+    pub urgent_bg: Color,
+    pub active_fg: Color,
+    pub inactive_fg: Color,
+    pub urgent_fg: Color,
+    pub separator_color: Color,
+}
+
+impl Default for TabBar {
+    fn default() -> Self {
+        Self {
+            off: false,
+            height: 20.0,
+            padding_x: 6.0,
+            padding_y: 2.0,
+            separator_width: 1.0,
+            font: String::from("sans 10px"),
+            active_bg: Color::from_rgba8_unpremul(0x4c, 0x78, 0x99, 0xff),
+            inactive_bg: Color::from_rgba8_unpremul(0x33, 0x33, 0x33, 0xff),
+            urgent_bg: Color::from_rgba8_unpremul(0x90, 0x00, 0x00, 0xff),
+            active_fg: Color::from_rgba8_unpremul(0xff, 0xff, 0xff, 0xff),
+            inactive_fg: Color::from_rgba8_unpremul(0x88, 0x88, 0x88, 0xff),
+            urgent_fg: Color::from_rgba8_unpremul(0xff, 0xff, 0xff, 0xff),
+            separator_color: Color::from_rgba8_unpremul(0x22, 0x22, 0x22, 0xff),
+        }
+    }
+}
+
+impl MergeWith<TabBarPart> for TabBar {
+    fn merge_with(&mut self, part: &TabBarPart) {
+        self.off |= part.off;
+        if part.on {
+            self.off = false;
+        }
+
+        merge!(
+            (self, part),
+            height,
+            padding_x,
+            padding_y,
+            separator_width,
+        );
+        merge_clone!((self, part), font);
+        merge_clone!(
+            (self, part),
+            active_bg,
+            inactive_bg,
+            urgent_bg,
+            active_fg,
+            inactive_fg,
+            urgent_fg,
+            separator_color,
+        );
+    }
+}
+
+#[derive(knuffel::Decode, Debug, Default, Clone, PartialEq)]
+pub struct TabBarPart {
+    #[knuffel(child)]
+    pub off: bool,
+    #[knuffel(child)]
+    pub on: bool,
+    #[knuffel(child, unwrap(argument))]
+    pub height: Option<FloatOrInt<0, 65535>>,
+    #[knuffel(child, unwrap(argument))]
+    pub padding_x: Option<FloatOrInt<0, 65535>>,
+    #[knuffel(child, unwrap(argument))]
+    pub padding_y: Option<FloatOrInt<0, 65535>>,
+    #[knuffel(child, unwrap(argument))]
+    pub separator_width: Option<FloatOrInt<0, 65535>>,
+    #[knuffel(child, unwrap(argument, str))]
+    pub font: Option<String>,
+    #[knuffel(child)]
+    pub active_bg: Option<Color>,
+    #[knuffel(child)]
+    pub inactive_bg: Option<Color>,
+    #[knuffel(child)]
+    pub urgent_bg: Option<Color>,
+    #[knuffel(child)]
+    pub active_fg: Option<Color>,
+    #[knuffel(child)]
+    pub inactive_fg: Option<Color>,
+    #[knuffel(child)]
+    pub urgent_fg: Option<Color>,
+    #[knuffel(child)]
+    pub separator_color: Option<Color>,
+}
+
 #[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
 pub struct TabIndicatorPart {
     #[knuffel(child)]

@@ -186,6 +186,10 @@ impl LayoutElement for TestWindow {
         &self.0.id
     }
 
+    fn title(&self) -> Option<String> {
+        Some(format!("Window {}", self.0.id))
+    }
+
     fn size(&self) -> Size<i32, Logical> {
         self.0.bbox.get().size
     }

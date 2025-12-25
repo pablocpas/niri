@@ -83,6 +83,7 @@ pub mod monitor;
 pub mod opening_window;
 pub mod shadow;
 pub mod tab_indicator;
+pub mod tab_bar;
 pub mod tile;
 pub mod tiling;
 pub mod workspace;
@@ -133,6 +134,11 @@ pub trait LayoutElement {
 
     /// Unique ID of this element.
     fn id(&self) -> &Self::Id;
+
+    /// Optional window title for UI elements like tab bars.
+    fn title(&self) -> Option<String> {
+        None
+    }
 
     /// Visual size of the element.
     ///
