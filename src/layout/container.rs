@@ -1018,12 +1018,14 @@ impl<W: LayoutElement> ContainerTree<W> {
                 let mut child_rect = inner_rect;
                 let bar_row_height = self.tab_bar_row_height();
                 if bar_row_height > 0.0 && child_count > 0 {
-                    let total_bar_height = match layout {
+                    let bar_height = match layout {
                         Layout::Tabbed => bar_row_height,
                         Layout::Stacked => bar_row_height * child_count as f64,
                         _ => 0.0,
                     };
-                    let total_bar_height = total_bar_height.min(inner_rect.size.h).max(0.0);
+                    let total_bar_height = (bar_height + self.tab_bar_spacing())
+                        .min(inner_rect.size.h)
+                        .max(0.0);
                     child_rect.loc.y += total_bar_height;
                     child_rect.size.h = (child_rect.size.h - total_bar_height).max(0.0);
                 }
@@ -1045,6 +1047,14 @@ impl<W: LayoutElement> ContainerTree<W> {
             return 0.0;
         }
         round_logical_in_physical_max1(self.scale, self.options.layout.tab_bar.height)
+    }
+
+    fn tab_bar_spacing(&self) -> f64 {
+        let focus_ring = self.options.layout.focus_ring;
+        let border = self.options.layout.border;
+        let focus_width = if focus_ring.off { 0.0 } else { focus_ring.width };
+        let border_width = if border.off { 0.0 } else { border.width };
+        round_logical_in_physical_max1(self.scale, focus_width.max(border_width))
     }
 
     fn tab_bar_rect(
@@ -1071,25 +1081,25 @@ impl<W: LayoutElement> ContainerTree<W> {
             inner_rect.size.h = (inner_rect.size.h - gap * 2.0).max(0.0);
         }
 
-        let total_bar_height = match layout {
+        let bar_height = match layout {
             Layout::Tabbed => row_height,
             Layout::Stacked => row_height * tab_count as f64,
             _ => 0.0,
         };
-        let total_bar_height = total_bar_height.min(inner_rect.size.h).max(0.0);
-        if total_bar_height <= 0.0 {
+        let bar_height = bar_height.min(inner_rect.size.h).max(0.0);
+        if bar_height <= 0.0 {
             return None;
         }
 
         let bar_rect = Rectangle::new(
             inner_rect.loc,
-            Size::from((inner_rect.size.w, total_bar_height)),
+            Size::from((inner_rect.size.w, bar_height)),
         );
 
         let actual_row_height = if layout == Layout::Stacked {
-            total_bar_height / tab_count as f64
+            bar_height / tab_count as f64
         } else {
-            total_bar_height
+            bar_height
         };
 
         Some((bar_rect, actual_row_height))
