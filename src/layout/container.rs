@@ -1208,6 +1208,17 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
     }
 
+    pub fn window_for_tab(&self, container_path: &[usize], tab_idx: usize) -> Option<&W> {
+        let key = if container_path.is_empty() {
+            self.root?
+        } else {
+            self.get_node_key_at_path(container_path)?
+        };
+        let container = self.get_container(key)?;
+        let child_key = container.child_key(tab_idx)?;
+        self.focused_window_in_subtree(child_key)
+    }
+
     fn focused_title_in_subtree(&self, node_key: NodeKey) -> String {
         match self.get_node(node_key) {
             Some(NodeData::Leaf(tile)) => tile
@@ -1225,6 +1236,20 @@ impl<W: LayoutElement> ContainerTree<W> {
                 self.focused_title_in_subtree(child_key)
             }
             None => String::from("untitled"),
+        }
+    }
+
+    fn focused_window_in_subtree(&self, node_key: NodeKey) -> Option<&W> {
+        match self.get_node(node_key) {
+            Some(NodeData::Leaf(tile)) => Some(tile.window()),
+            Some(NodeData::Container(container)) => {
+                let focused_idx = container
+                    .focused_idx
+                    .min(container.children.len().saturating_sub(1));
+                let child_key = container.child_key(focused_idx)?;
+                self.focused_window_in_subtree(child_key)
+            }
+            None => None,
         }
     }
 
@@ -1378,6 +1403,21 @@ impl<W: LayoutElement> ContainerTree<W> {
     pub fn focus_window_by_id(&mut self, window_id: &W::Id) -> bool {
         self.clear_focus_history();
         if let Some(path) = self.find_window(window_id) {
+            if let Some(mut key) = self.root {
+                for &idx in &path {
+                    let Some(container) = self.get_container_mut(key) else {
+                        break;
+                    };
+                    if idx >= container.children.len() {
+                        break;
+                    }
+                    container.set_focused_idx(idx);
+                    let Some(child_key) = container.child_key(idx) else {
+                        break;
+                    };
+                    key = child_key;
+                }
+            }
             self.focus_path = path;
             self.focus_to_first_leaf_from_path();
             true

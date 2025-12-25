@@ -19,7 +19,7 @@ use niri_config::{Border, PresetSize, TabBar};
 use niri_ipc::{ColumnDisplay, LayoutTreeNode, SizeChange};
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesTexture;
-use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
+use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
 
 use super::container::{
     ContainerTree, DetachedContainer, DetachedNode, Direction, Layout, LeafLayoutInfo, TabBarInfo,
@@ -36,8 +36,9 @@ use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::utils::transaction::Transaction;
 use crate::utils::ResizeEdge;
 use crate::window::ResolvedWindowRules;
-use crate::layout::tab_bar::render_tab_bar;
+use crate::layout::tab_bar::{render_tab_bar, TabBarRenderOutput};
 use log::warn;
+use crate::utils::to_physical_precise_round;
 
 // ============================================================================
 // MAIN STRUCTURES - i3-style container tree implementation
@@ -85,6 +86,7 @@ struct TabBarState {
 struct TabBarCacheEntry {
     state: TabBarState,
     buffer: TextureBuffer<GlesTexture>,
+    tab_widths_px: Vec<i32>,
 }
 
 fn tab_bar_state_from_info(
@@ -313,16 +315,21 @@ impl<'a, W: LayoutElement> Iterator for TileRenderPositionsMut<'a, W> {
 impl<W: LayoutElement> TilingSpace<W> {
     fn effective_tab_bar_config(&self) -> TabBar {
         let mut config = self.options.layout.tab_bar.clone();
-        if config == TabBar::default() {
-            let focus = self.options.layout.focus_ring;
-            let border = self.options.layout.border;
-            let (active, inactive, urgent) = if !border.off {
-                (border.active_color, border.inactive_color, border.urgent_color)
-            } else {
-                (focus.active_color, focus.inactive_color, focus.urgent_color)
-            };
+        let defaults = TabBar::default();
+        let focus = self.options.layout.focus_ring;
+        let border = self.options.layout.border;
+        let (active, inactive, urgent) = if !border.off {
+            (border.active_color, border.inactive_color, border.urgent_color)
+        } else {
+            (focus.active_color, focus.inactive_color, focus.urgent_color)
+        };
+        if config.active_bg == defaults.active_bg {
             config.active_bg = active;
+        }
+        if config.inactive_bg == defaults.inactive_bg {
             config.inactive_bg = inactive;
+        }
+        if config.urgent_bg == defaults.urgent_bg {
             config.urgent_bg = urgent;
         }
         config
@@ -627,8 +634,10 @@ impl<W: LayoutElement> TilingSpace<W> {
             for info in tab_bar_infos {
                 let state =
                     tab_bar_state_from_info(&info, &tab_bar_config, scrolling_focus_ring, self.scale);
-                let buffer = match cache.get(&info.path) {
-                    Some(entry) if entry.state == state => entry.buffer.clone(),
+                let (buffer, tab_widths_px) = match cache.get(&info.path) {
+                    Some(entry) if entry.state == state => {
+                        (entry.buffer.clone(), entry.tab_widths_px.clone())
+                    }
                     _ => match render_tab_bar(
                         gles,
                         &tab_bar_config,
@@ -639,7 +648,10 @@ impl<W: LayoutElement> TilingSpace<W> {
                         scrolling_focus_ring,
                         self.scale,
                     ) {
-                        Ok(buffer) => buffer,
+                        Ok(TabBarRenderOutput {
+                            buffer,
+                            tab_widths_px,
+                        }) => (buffer, tab_widths_px),
                         Err(err) => {
                             warn!("tab bar render failed: {err}");
                             continue;
@@ -666,6 +678,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                     TabBarCacheEntry {
                         state,
                         buffer,
+                        tab_widths_px,
                     },
                 );
             }
@@ -1014,9 +1027,114 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     // Window queries
+    fn tab_bar_hit(&self, pos: Point<f64, Logical>) -> Option<(&W, super::HitType)> {
+        if self.fullscreen_window.is_some() || self.options.layout.tab_bar.off {
+            return None;
+        }
+
+        let scale = Scale::from(self.scale);
+        let tab_bar_infos = self.tree.tab_bar_layouts();
+        if tab_bar_infos.is_empty() {
+            return None;
+        }
+
+        let cache = self.tab_bar_cache.borrow();
+        for info in tab_bar_infos {
+            let tab_count = info.tabs.len();
+            if tab_count == 0 {
+                continue;
+            }
+
+            let bar_loc_px: Point<i32, Physical> = info.rect.loc.to_physical_precise_round(scale);
+            let pos_px: Point<i32, Physical> = pos.to_physical_precise_round(scale) - bar_loc_px;
+            let width_px = to_physical_precise_round::<i32>(self.scale, info.rect.size.w).max(1);
+            let height_px = to_physical_precise_round::<i32>(self.scale, info.rect.size.h).max(1);
+
+            if pos_px.x < 0 || pos_px.y < 0 || pos_px.x >= width_px || pos_px.y >= height_px {
+                continue;
+            }
+
+            let row_height_px =
+                to_physical_precise_round::<i32>(self.scale, info.row_height).max(1);
+            let focused_idx = info
+                .tabs
+                .iter()
+                .position(|tab| tab.is_focused)
+                .unwrap_or(0);
+
+            let tab_idx = match info.layout {
+                Layout::Tabbed => {
+                    if pos_px.y >= row_height_px {
+                        focused_idx
+                    } else if let Some(widths) = cache.get(&info.path).and_then(|entry| {
+                        if entry.tab_widths_px.len() == tab_count {
+                            Some(entry.tab_widths_px.as_slice())
+                        } else {
+                            None
+                        }
+                    }) {
+                        let mut cursor = 0;
+                        let mut found = None;
+                        for (idx, width) in widths.iter().enumerate() {
+                            let end = cursor + *width;
+                            if pos_px.x < end {
+                                found = Some(idx);
+                                break;
+                            }
+                            cursor = end;
+                        }
+                        found.unwrap_or_else(|| tab_count.saturating_sub(1))
+                    } else {
+                        let base = width_px / tab_count as i32;
+                        let mut cursor = 0;
+                        let mut found = None;
+                        for idx in 0..tab_count {
+                            let mut width = base;
+                            if idx + 1 == tab_count {
+                                width += width_px - base * tab_count as i32;
+                            }
+                            let end = cursor + width;
+                            if pos_px.x < end {
+                                found = Some(idx);
+                                break;
+                            }
+                            cursor = end;
+                        }
+                        found.unwrap_or_else(|| tab_count.saturating_sub(1))
+                    }
+                }
+                Layout::Stacked => {
+                    let stack_height_px = row_height_px * tab_count as i32;
+                    if pos_px.y >= stack_height_px {
+                        focused_idx
+                    } else {
+                        let max_idx = tab_count.saturating_sub(1) as i32;
+                        (pos_px.y / row_height_px).min(max_idx) as usize
+                    }
+                }
+                _ => continue,
+            };
+
+            if let Some(window) = self.tree.window_for_tab(&info.path, tab_idx) {
+                return Some((
+                    window,
+                    super::HitType::Activate {
+                        is_tab_indicator: true,
+                    },
+                ));
+            }
+        }
+
+        None
+    }
+
     pub fn window_under(&self, pos: Point<f64, Logical>) -> Option<(&W, super::HitType)> {
         let scale = Scale::from(self.scale);
         let fullscreen_id = self.fullscreen_window.as_ref();
+
+        if let Some(hit) = self.tab_bar_hit(pos) {
+            return Some(hit);
+        }
 
         for info in self.tree.leaf_layouts().iter().rev() {
             if let Some(tile) = self.tree.tile_at_path(&info.path) {

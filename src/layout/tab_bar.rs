@@ -25,6 +25,11 @@ fn tab_colors(config: &TabBar, tab: &TabBarTab, is_active_workspace: bool) -> (C
     }
 }
 
+pub struct TabBarRenderOutput {
+    pub buffer: TextureBuffer<GlesTexture>,
+    pub tab_widths_px: Vec<i32>,
+}
+
 pub fn render_tab_bar(
     renderer: &mut GlesRenderer,
     config: &TabBar,
@@ -34,7 +39,7 @@ pub fn render_tab_bar(
     tabs: &[TabBarTab],
     is_active_workspace: bool,
     scale: f64,
-) -> Result<TextureBuffer<GlesTexture>> {
+) -> Result<TabBarRenderOutput> {
     let tab_count = tabs.len();
     if tab_count == 0 || rect.size.w <= 0.0 || rect.size.h <= 0.0 {
         bail!("tab bar has no visible size");
@@ -197,5 +202,8 @@ pub fn render_tab_bar(
         Vec::new(),
     )?;
 
-    Ok(buffer)
+    Ok(TabBarRenderOutput {
+        buffer,
+        tab_widths_px: tab_widths,
+    })
 }
