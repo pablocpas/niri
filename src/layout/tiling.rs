@@ -21,13 +21,14 @@ use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesTexture;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
 
+use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
     ContainerTree, DetachedContainer, DetachedNode, Direction, Layout, LeafLayoutInfo, TabBarInfo,
 };
 use super::monitor::InsertPosition;
 use super::tile::{Tile, TileRenderElement};
 use super::{ConfigureIntent, LayoutElement, Options, RemovedTile};
-use crate::animation::Clock;
+use crate::animation::{Animation, Clock};
 use crate::niri_render_elements;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
@@ -63,6 +64,8 @@ pub struct TilingSpace<W: LayoutElement> {
     tab_bar_cache: RefCell<HashMap<Vec<usize>, TabBarCacheEntry>>,
     /// Currently fullscreen window (if any)
     fullscreen_window: Option<W::Id>,
+    /// Windows in the closing animation.
+    closing_windows: Vec<ClosingWindow>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -119,6 +122,7 @@ niri_render_elements! {
     TilingSpaceRenderElement<R> => {
         Tile = TileRenderElement<R>,
         TabBar = PrimaryGpuTextureRenderElement,
+        ClosingWindow = ClosingWindowRenderElement,
     }
 }
 
@@ -476,6 +480,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             options,
             tab_bar_cache: RefCell::new(HashMap::new()),
             fullscreen_window: None,
+            closing_windows: Vec::new(),
         }
     }
 
@@ -590,6 +595,12 @@ impl<W: LayoutElement> TilingSpace<W> {
         let scale = Scale::from(self.scale);
         let focus_path = self.tree.focus_path();
         let fullscreen_id = self.fullscreen_window.as_ref();
+        let view_rect = Rectangle::from_size(self.view_size);
+
+        for closing in self.closing_windows.iter().rev() {
+            let elem = closing.render(renderer.as_gles_renderer(), view_rect, scale, target);
+            elements.push(TilingSpaceRenderElement::ClosingWindow(elem));
+        }
 
         for info in self.tree.leaf_layouts().iter().rev() {
             if let Some(tile) = self.tree.tile_at_path(&info.path) {
@@ -723,10 +734,16 @@ impl<W: LayoutElement> TilingSpace<W> {
         for tile in TileIterMut::new(&mut self.tree) {
             tile.advance_animations();
         }
+
+        self.closing_windows.retain_mut(|closing| {
+            closing.advance_animations();
+            closing.are_animations_ongoing()
+        });
     }
 
     pub fn are_animations_ongoing(&self) -> bool {
         TileIter::new(&self.tree).any(|tile| tile.are_animations_ongoing())
+            || !self.closing_windows.is_empty()
     }
 
     pub fn update_render_elements(&mut self, is_active: bool) {
@@ -1257,6 +1274,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn are_transitions_ongoing(&self) -> bool {
         TileIter::new(&self.tree).any(|tile| tile.are_transitions_ongoing())
+            || !self.closing_windows.is_empty()
     }
 
     pub fn update_shaders(&mut self) {
@@ -1790,10 +1808,71 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
     pub fn start_close_animation_for_window<R: NiriRenderer>(
         &mut self,
-        _renderer: &mut R,
-        _window: &W::Id,
-        _blocker: crate::utils::transaction::TransactionBlocker,
+        renderer: &mut R,
+        window: &W::Id,
+        blocker: crate::utils::transaction::TransactionBlocker,
     ) {
+        let Some(path) = self.tree.find_window(window) else {
+            return;
+        };
+
+        let Some((rect, visible)) = self
+            .tree
+            .leaf_layouts()
+            .iter()
+            .find(|info| info.path == path)
+            .map(|info| (info.rect, info.visible))
+        else {
+            return;
+        };
+
+        if !visible {
+            return;
+        }
+
+        let Some(tile) = self.tree.tile_at_path_mut(&path) else {
+            return;
+        };
+
+        let Some(snapshot) = tile.take_unmap_snapshot() else {
+            return;
+        };
+
+        let tile_size = tile.tile_size();
+        let tile_pos = rect.loc + tile.render_offset();
+
+        let anim = Animation::new(
+            self.clock.clone(),
+            0.,
+            1.,
+            0.,
+            self.options.animations.window_close.anim,
+        );
+
+        let blocker = if self.options.disable_transactions {
+            crate::utils::transaction::TransactionBlocker::completed()
+        } else {
+            blocker
+        };
+
+        let scale = Scale::from(self.scale);
+        let res = ClosingWindow::new(
+            renderer.as_gles_renderer(),
+            snapshot,
+            scale,
+            tile_size,
+            tile_pos,
+            blocker,
+            anim,
+        );
+        match res {
+            Ok(closing) => {
+                self.closing_windows.push(closing);
+            }
+            Err(err) => {
+                warn!("error creating a closing window animation: {err:?}");
+            }
+        }
     }
 
     pub fn refresh(&mut self, is_active: bool, is_focused: bool) {
