@@ -15,6 +15,7 @@ use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use super::tile::Tile;
 use super::{LayoutElement, Options};
+use crate::utils::round_logical_in_physical_max1;
 use crate::window::Mapped;
 use niri_ipc::{LayoutTreeLayout, LayoutTreeNode};
 
@@ -51,6 +52,22 @@ pub enum Direction {
     Right,
     Up,
     Down,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabBarTab {
+    pub title: String,
+    pub is_focused: bool,
+    pub is_urgent: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct TabBarInfo {
+    pub path: Vec<usize>,
+    pub layout: Layout,
+    pub rect: Rectangle<f64, Logical>,
+    pub row_height: f64,
+    pub tabs: Vec<TabBarTab>,
 }
 
 const MIN_CHILD_PERCENT: f64 = 0.05;
@@ -988,13 +1005,27 @@ impl<W: LayoutElement> ContainerTree<W> {
                 }
             }
             Layout::Tabbed | Layout::Stacked => {
-                // All children get full size, only focused is visible
-                let mut child_rect = rect;
+                // All children get full size, only focused is visible.
+                let child_count = children.len();
+                let mut inner_rect = rect;
                 if gap > 0.0 {
-                    child_rect.loc.x += gap;
-                    child_rect.loc.y += gap;
-                    child_rect.size.w = (child_rect.size.w - gap * 2.0).max(0.0);
-                    child_rect.size.h = (child_rect.size.h - gap * 2.0).max(0.0);
+                    inner_rect.loc.x += gap;
+                    inner_rect.loc.y += gap;
+                    inner_rect.size.w = (inner_rect.size.w - gap * 2.0).max(0.0);
+                    inner_rect.size.h = (inner_rect.size.h - gap * 2.0).max(0.0);
+                }
+
+                let mut child_rect = inner_rect;
+                let bar_row_height = self.tab_bar_row_height();
+                if bar_row_height > 0.0 && child_count > 0 {
+                    let total_bar_height = match layout {
+                        Layout::Tabbed => bar_row_height,
+                        Layout::Stacked => bar_row_height * child_count as f64,
+                        _ => 0.0,
+                    };
+                    let total_bar_height = total_bar_height.min(inner_rect.size.h).max(0.0);
+                    child_rect.loc.y += total_bar_height;
+                    child_rect.size.h = (child_rect.size.h - total_bar_height).max(0.0);
                 }
 
                 let focused_idx = focused_idx.min(children.len().saturating_sub(1));
@@ -1007,6 +1038,61 @@ impl<W: LayoutElement> ContainerTree<W> {
                 }
             }
         }
+    }
+
+    fn tab_bar_row_height(&self) -> f64 {
+        if self.options.layout.tab_bar.off {
+            return 0.0;
+        }
+        round_logical_in_physical_max1(self.scale, self.options.layout.tab_bar.height)
+    }
+
+    fn tab_bar_rect(
+        &self,
+        layout: Layout,
+        rect: Rectangle<f64, Logical>,
+        tab_count: usize,
+    ) -> Option<(Rectangle<f64, Logical>, f64)> {
+        if tab_count == 0 {
+            return None;
+        }
+
+        let row_height = self.tab_bar_row_height();
+        if row_height <= 0.0 {
+            return None;
+        }
+
+        let gap = self.options.layout.gaps;
+        let mut inner_rect = rect;
+        if gap > 0.0 {
+            inner_rect.loc.x += gap;
+            inner_rect.loc.y += gap;
+            inner_rect.size.w = (inner_rect.size.w - gap * 2.0).max(0.0);
+            inner_rect.size.h = (inner_rect.size.h - gap * 2.0).max(0.0);
+        }
+
+        let total_bar_height = match layout {
+            Layout::Tabbed => row_height,
+            Layout::Stacked => row_height * tab_count as f64,
+            _ => 0.0,
+        };
+        let total_bar_height = total_bar_height.min(inner_rect.size.h).max(0.0);
+        if total_bar_height <= 0.0 {
+            return None;
+        }
+
+        let bar_rect = Rectangle::new(
+            inner_rect.loc,
+            Size::from((inner_rect.size.w, total_bar_height)),
+        );
+
+        let actual_row_height = if layout == Layout::Stacked {
+            total_bar_height / tab_count as f64
+        } else {
+            total_bar_height
+        };
+
+        Some((bar_rect, actual_row_height))
     }
 
     /// Get all windows in the tree (depth-first traversal)
@@ -1050,6 +1136,95 @@ impl<W: LayoutElement> ContainerTree<W> {
                 }
             }
             None => {}
+        }
+    }
+
+    pub fn tab_bar_layouts(&self) -> Vec<TabBarInfo> {
+        let mut out = Vec::new();
+        let Some(root_key) = self.root else {
+            return out;
+        };
+
+        let mut path = Vec::new();
+        self.collect_tab_bar_layouts(root_key, &mut path, &mut out, true);
+        out
+    }
+
+    fn collect_tab_bar_layouts(
+        &self,
+        node_key: NodeKey,
+        path: &mut Vec<usize>,
+        out: &mut Vec<TabBarInfo>,
+        visible: bool,
+    ) {
+        let Some(NodeData::Container(container)) = self.get_node(node_key) else {
+            return;
+        };
+
+        if visible && matches!(container.layout, Layout::Tabbed | Layout::Stacked) {
+            if let Some((rect, row_height)) =
+                self.tab_bar_rect(container.layout, container.geometry, container.children.len())
+            {
+                let tabs = container
+                    .children
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, &child_key)| TabBarTab {
+                        title: self.focused_title_in_subtree(child_key),
+                        is_focused: idx == container.focused_idx,
+                        is_urgent: self.subtree_has_urgent(child_key),
+                    })
+                    .collect();
+
+                out.push(TabBarInfo {
+                    path: path.clone(),
+                    layout: container.layout,
+                    rect,
+                    row_height,
+                    tabs,
+                });
+            }
+        }
+
+        for (idx, &child_key) in container.children.iter().enumerate() {
+            path.push(idx);
+            let child_visible = match container.layout {
+                Layout::Tabbed | Layout::Stacked => idx == container.focused_idx,
+                _ => true,
+            };
+            self.collect_tab_bar_layouts(child_key, path, out, visible && child_visible);
+            path.pop();
+        }
+    }
+
+    fn focused_title_in_subtree(&self, node_key: NodeKey) -> String {
+        match self.get_node(node_key) {
+            Some(NodeData::Leaf(tile)) => tile
+                .window()
+                .title()
+                .filter(|title| !title.trim().is_empty())
+                .unwrap_or_else(|| String::from("untitled")),
+            Some(NodeData::Container(container)) => {
+                let focused_idx = container
+                    .focused_idx
+                    .min(container.children.len().saturating_sub(1));
+                let Some(child_key) = container.child_key(focused_idx) else {
+                    return String::from("untitled");
+                };
+                self.focused_title_in_subtree(child_key)
+            }
+            None => String::from("untitled"),
+        }
+    }
+
+    fn subtree_has_urgent(&self, node_key: NodeKey) -> bool {
+        match self.get_node(node_key) {
+            Some(NodeData::Leaf(tile)) => tile.window().is_urgent(),
+            Some(NodeData::Container(container)) => container
+                .children
+                .iter()
+                .any(|&child_key| self.subtree_has_urgent(child_key)),
+            None => false,
         }
     }
 

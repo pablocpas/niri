@@ -1362,6 +1362,9 @@ mod tests {
                     inactive_gradient: None,
                     urgent_gradient: None,
                 },
+                tab_bar: TabBar {
+                    ..Default::default()
+                },
                 insert_hint: InsertHint {
                     off: false,
                     color: Color {

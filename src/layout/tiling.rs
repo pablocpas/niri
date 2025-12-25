@@ -8,26 +8,36 @@
 //!
 //! The implementation uses SlotMap for efficient O(1) node access and safe reference handling.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::time::Duration;
 
 use niri_config::utils::MergeWith as _;
-use niri_config::{Border, PresetSize};
+use niri_config::{Border, PresetSize, TabBar};
 use niri_ipc::{ColumnDisplay, LayoutTreeNode, SizeChange};
+use smithay::backend::renderer::element::Kind;
+use smithay::backend::renderer::gles::GlesTexture;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 
-use super::container::{ContainerTree, DetachedContainer, DetachedNode, Direction, Layout, LeafLayoutInfo};
+use super::container::{
+    ContainerTree, DetachedContainer, DetachedNode, Direction, Layout, LeafLayoutInfo, TabBarInfo,
+};
 use super::monitor::InsertPosition;
 use super::tile::{Tile, TileRenderElement};
 use super::{ConfigureIntent, LayoutElement, Options, RemovedTile};
 use crate::animation::Clock;
 use crate::niri_render_elements;
+use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::RenderTarget;
+use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::utils::transaction::Transaction;
 use crate::utils::ResizeEdge;
 use crate::window::ResolvedWindowRules;
+use crate::layout::tab_bar::render_tab_bar;
+use log::warn;
 
 // ============================================================================
 // MAIN STRUCTURES - i3-style container tree implementation
@@ -48,13 +58,65 @@ pub struct TilingSpace<W: LayoutElement> {
     clock: Clock,
     /// Layout options
     options: Rc<Options>,
+    /// Cached tab bar textures keyed by container path.
+    tab_bar_cache: RefCell<HashMap<Vec<usize>, TabBarCacheEntry>>,
     /// Currently fullscreen window (if any)
     fullscreen_window: Option<W::Id>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct TabBarTabState {
+    title: String,
+    is_focused: bool,
+    is_urgent: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct TabBarState {
+    layout: Layout,
+    size: Size<f64, Logical>,
+    row_height: f64,
+    scale: f64,
+    config: TabBar,
+    tabs: Vec<TabBarTabState>,
+}
+
+#[derive(Debug, Clone)]
+struct TabBarCacheEntry {
+    state: TabBarState,
+    buffer: TextureBuffer<GlesTexture>,
+}
+
+fn tab_bar_state_from_info(
+    info: &TabBarInfo,
+    config: &TabBar,
+    is_active: bool,
+    scale: f64,
+) -> TabBarState {
+    let tabs = info
+        .tabs
+        .iter()
+        .map(|tab| TabBarTabState {
+            title: tab.title.clone(),
+            is_focused: tab.is_focused && is_active,
+            is_urgent: tab.is_urgent,
+        })
+        .collect();
+
+    TabBarState {
+        layout: info.layout,
+        size: info.rect.size,
+        row_height: info.row_height,
+        scale,
+        config: config.clone(),
+        tabs,
+    }
 }
 
 niri_render_elements! {
     TilingSpaceRenderElement<R> => {
         Tile = TileRenderElement<R>,
+        TabBar = PrimaryGpuTextureRenderElement,
     }
 }
 
@@ -388,6 +450,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             scale,
             clock,
             options,
+            tab_bar_cache: RefCell::new(HashMap::new()),
             fullscreen_window: None,
         }
     }
@@ -537,6 +600,62 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
 
         elements.extend(active_elements);
+
+        if fullscreen_id.is_none() && !self.options.layout.tab_bar.off {
+            let tab_bar_infos = self.tree.tab_bar_layouts();
+            let mut cache = self.tab_bar_cache.borrow_mut();
+            let mut next_cache = HashMap::new();
+            let gles = renderer.as_gles_renderer();
+            for info in tab_bar_infos {
+                let state =
+                    tab_bar_state_from_info(&info, &self.options.layout.tab_bar, scrolling_focus_ring, self.scale);
+                let buffer = match cache.get(&info.path) {
+                    Some(entry) if entry.state == state => entry.buffer.clone(),
+                    _ => match render_tab_bar(
+                        gles,
+                        &self.options.layout.tab_bar,
+                        info.layout,
+                        info.rect,
+                        info.row_height,
+                        &info.tabs,
+                        scrolling_focus_ring,
+                        self.scale,
+                    ) {
+                        Ok(buffer) => buffer,
+                        Err(err) => {
+                            warn!("tab bar render failed: {err}");
+                            continue;
+                        }
+                    },
+                };
+
+                let mut location = info.rect.loc;
+                location = location.to_physical_precise_round(scale).to_logical(scale);
+                let elem = TextureRenderElement::from_texture_buffer(
+                    buffer.clone(),
+                    location,
+                    1.0,
+                    None,
+                    None,
+                    Kind::Unspecified,
+                );
+                elements.push(TilingSpaceRenderElement::TabBar(
+                    PrimaryGpuTextureRenderElement(elem),
+                ));
+
+                next_cache.insert(
+                    info.path,
+                    TabBarCacheEntry {
+                        state,
+                        buffer,
+                    },
+                );
+            }
+            *cache = next_cache;
+        } else {
+            self.tab_bar_cache.borrow_mut().clear();
+        }
+
         elements
     }
 

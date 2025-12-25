@@ -598,6 +598,10 @@ impl LayoutElement for Mapped {
         &self.window
     }
 
+    fn title(&self) -> Option<String> {
+        with_toplevel_role(self.toplevel(), |role| role.title.clone())
+    }
+
     fn size(&self) -> Size<i32, Logical> {
         self.window.geometry().size
     }
