@@ -4334,6 +4334,45 @@ fn move_left_swaps_in_tabbed_layout() {
 }
 
 #[test]
+fn split_inside_tabbed_creates_nested_split() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    assert!(harness.tree.focus_window_by_id(&1));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitH));
+    harness.add_window(3);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"Tabbed
+  SplitH
+    Window 1
+    Window 3 *
+  Window 2
+"
+    );
+}
+
+#[test]
+fn toggle_split_layout_switches_orientation() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.toggle_split_layout());
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  Window 1
+  Window 2 *
+"
+    );
+}
+
+#[test]
 fn move_down_swaps_in_stacked_layout() {
     let mut harness = TreeHarness::new();
     harness.add_window(1);

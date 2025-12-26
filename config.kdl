@@ -583,7 +583,7 @@ binds {
     Mod+V { split-vertical; }
 
     // i3-style layout mode commands
-    Mod+E { set-layout-split-h; }
+    Mod+E { toggle-split-layout; }
     Mod+S { set-layout-stacked; }
     Mod+W { set-layout-tabbed; }
 

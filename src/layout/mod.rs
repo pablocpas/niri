@@ -3044,6 +3044,12 @@ impl<W: LayoutElement> Layout<W> {
         }
     }
 
+    pub fn toggle_split_layout(&mut self) {
+        if let Some(workspace) = self.active_workspace_mut() {
+            workspace.toggle_split_layout();
+        }
+    }
+
     pub fn set_column_width(&mut self, change: SizeChange) {
         let Some(workspace) = self.active_workspace_mut() else {
             return;

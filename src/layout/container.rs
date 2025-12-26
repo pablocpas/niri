@@ -1993,6 +1993,30 @@ impl<W: LayoutElement> ContainerTree<W> {
         false
     }
 
+    /// Toggle between horizontal and vertical split for the focused container.
+    pub fn toggle_split_layout(&mut self) -> bool {
+        if self.root.is_none() {
+            let next = match self.pending_layout.unwrap_or(Layout::SplitH) {
+                Layout::SplitH => Layout::SplitV,
+                _ => Layout::SplitH,
+            };
+            self.pending_layout = Some(next);
+            return true;
+        }
+
+        let Some(current) = self.focused_layout() else {
+            return false;
+        };
+
+        let next = match current {
+            Layout::SplitH => Layout::SplitV,
+            Layout::SplitV => Layout::SplitH,
+            Layout::Tabbed | Layout::Stacked => Layout::SplitH,
+        };
+
+        self.set_focused_layout(next)
+    }
+
     /// Layout of the container that currently owns the focused leaf (if any).
     pub fn focused_layout(&self) -> Option<Layout> {
         let focus_path = self.focus_path();

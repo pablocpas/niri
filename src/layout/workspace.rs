@@ -1302,6 +1302,13 @@ impl<W: LayoutElement> Workspace<W> {
         self.scrolling.set_layout_mode(layout);
     }
 
+    pub fn toggle_split_layout(&mut self) {
+        if self.floating_is_active.get() {
+            return;
+        }
+        self.scrolling.toggle_split_layout();
+    }
+
     pub fn set_fullscreen(&mut self, window: &W::Id, is_fullscreen: bool) {
         let mut restore_to_floating = false;
         if self.floating.has_window(window) {
