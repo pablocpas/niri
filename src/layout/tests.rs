@@ -4517,6 +4517,32 @@ fn split_on_single_window_persists_after_close() {
     );
 }
 
+#[test]
+fn move_left_from_single_child_container_removes_empty_parent() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.add_window(3);
+
+    assert!(harness.tree.focus_root_child(0));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(4);
+    let _ = harness.tree.remove_window(&4);
+
+    assert!(harness.tree.focus_root_child(0));
+    assert!(harness.tree.move_in_direction(Direction::Left));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitH
+  Window 1 *
+  Window 2
+  Window 3
+"
+    );
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: if std::env::var_os("RUN_SLOW_TESTS").is_none() {

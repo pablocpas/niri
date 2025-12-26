@@ -2875,7 +2875,13 @@ impl<W: LayoutElement> ContainerTree<W> {
             return false;
         }
 
-        self.cleanup_containers(leaf_parent_path.to_vec());
+        let mut cleanup_path = leaf_parent_path.to_vec();
+        if let Some(last_idx) = cleanup_path.last_mut() {
+            if insert_at <= parent_idx {
+                *last_idx = last_idx.saturating_add(1);
+            }
+        }
+        self.cleanup_containers(cleanup_path);
 
         if let Some(path) = self.find_window(&window_id) {
             self.focus_path = path;
