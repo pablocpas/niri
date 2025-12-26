@@ -95,7 +95,8 @@ pub struct DetachedContainer<W: LayoutElement> {
     layout: Layout,
     children: Vec<DetachedNode<W>>,
     child_percents: Vec<f64>,
-    focused_idx: usize,
+    focus_stack: Vec<usize>,
+    preserve_on_single: bool,
 }
 
 /// Container data stored in slotmap
@@ -105,10 +106,12 @@ pub struct ContainerData {
     layout: Layout,
     /// Child node keys (indices into the tree's SlotMap)
     children: Vec<NodeKey>,
+    /// Focus history (most recently used first)
+    focus_stack: Vec<NodeKey>,
+    /// Preserve container even if it has a single child (explicit split).
+    preserve_on_single: bool,
     /// Relative sizes of children (sum normalized to 1.0 for split layouts)
     child_percents: Vec<f64>,
-    /// Index of focused child
-    focused_idx: usize,
     /// Cached geometry for rendering
     geometry: Rectangle<f64, Logical>,
 }
@@ -133,12 +136,8 @@ pub struct ContainerTree<W: LayoutElement> {
     root: Option<NodeKey>,
     /// Layout to apply when the tree is empty (i3 workspace_layout equivalent).
     pending_layout: Option<Layout>,
-    /// Path to currently focused node (indices from root to leaf)
-    focus_path: Vec<usize>,
     /// Focused leaf node key (source of truth for focus).
     focused_key: Option<NodeKey>,
-    /// Stack of focus paths for parent/child navigation
-    focus_parent_stack: Vec<Vec<usize>>,
     /// Cached layout info for leaves
     leaf_layouts: Vec<LeafLayoutInfo>,
     /// View size (output size)
@@ -161,8 +160,9 @@ impl ContainerData {
         Self {
             layout,
             children: Vec::new(),
+            focus_stack: Vec::new(),
+            preserve_on_single: false,
             child_percents: Vec::new(),
-            focused_idx: 0,
             geometry: Rectangle::from_size(Size::from((0.0, 0.0))),
         }
     }
@@ -177,6 +177,19 @@ impl ContainerData {
         self.layout = layout;
     }
 
+    pub fn set_layout_explicit(&mut self, layout: Layout) {
+        self.layout = layout;
+        self.preserve_on_single = true;
+    }
+
+    pub fn preserve_on_single(&self) -> bool {
+        self.preserve_on_single
+    }
+
+    pub fn mark_preserve_on_single(&mut self) {
+        self.preserve_on_single = true;
+    }
+
     /// Get children keys
     pub fn children(&self) -> &[NodeKey] {
         &self.children
@@ -187,21 +200,35 @@ impl ContainerData {
         self.children.len()
     }
 
-    /// Get focused child index
-    pub fn focused_idx(&self) -> usize {
-        self.focused_idx
-    }
-
-    /// Set focused child index
-    pub fn set_focused_idx(&mut self, idx: usize) {
-        if idx < self.children.len() {
-            self.focused_idx = idx;
-        }
-    }
-
     /// Get focused child key
     pub fn focused_child_key(&self) -> Option<NodeKey> {
-        self.children.get(self.focused_idx).copied()
+        self.focus_stack
+            .first()
+            .copied()
+            .or_else(|| self.children.first().copied())
+    }
+
+    pub fn focused_child_index(&self) -> Option<usize> {
+        let key = self.focused_child_key()?;
+        self.children.iter().position(|child| *child == key)
+    }
+
+    pub fn bubble_focus(&mut self, node_key: NodeKey) {
+        self.ensure_focus_stack();
+        if let Some(pos) = self.focus_stack.iter().position(|key| *key == node_key) {
+            self.focus_stack.remove(pos);
+        }
+        self.focus_stack.insert(0, node_key);
+    }
+
+    fn ensure_focus_stack(&mut self) {
+        self.focus_stack
+            .retain(|key| self.children.contains(key));
+        for child in &self.children {
+            if !self.focus_stack.contains(child) {
+                self.focus_stack.push(*child);
+            }
+        }
     }
 
     /// Add a child node by key
@@ -217,24 +244,22 @@ impl ContainerData {
         }
 
         let key = self.children.remove(idx);
+        self.focus_stack.retain(|child| *child != key);
         let removed_percent = if self.child_percents.len() == self.children.len() + 1 {
             self.child_percents.remove(idx)
         } else {
             0.0
         };
 
-        // Adjust focused index if needed
-        if self.focused_idx >= self.children.len() && self.focused_idx > 0 {
-            self.focused_idx = self.children.len() - 1;
-        }
-
         if self.children.is_empty() {
             self.child_percents.clear();
+            self.focus_stack.clear();
             return Some(key);
         }
 
         if self.child_percents.len() != self.children.len() {
             self.recalculate_percentages();
+            self.ensure_focus_stack();
             return Some(key);
         }
 
@@ -249,6 +274,7 @@ impl ContainerData {
             self.recalculate_percentages();
         }
 
+        self.ensure_focus_stack();
         Some(key)
     }
 
@@ -263,6 +289,7 @@ impl ContainerData {
 
         if old_len == 0 {
             self.children.insert(idx, node_key);
+            self.focus_stack.push(node_key);
             self.child_percents.clear();
             self.child_percents.push(1.0);
             return;
@@ -285,6 +312,9 @@ impl ContainerData {
         self.children.insert(idx, node_key);
         self.child_percents.insert(idx, new_share);
         self.normalize_child_percents();
+        if !self.focus_stack.contains(&node_key) {
+            self.focus_stack.push(node_key);
+        }
     }
 
     pub fn recalculate_percentages(&mut self) {
@@ -456,8 +486,10 @@ impl<W: LayoutElement> DetachedContainer<W> {
             layout,
             children,
             child_percents: Vec::new(),
-            focused_idx: 0,
+            focus_stack: Vec::new(),
+            preserve_on_single: false,
         };
+        container.ensure_focus_stack();
         container.recalculate_percentages();
         container
     }
@@ -466,18 +498,18 @@ impl<W: LayoutElement> DetachedContainer<W> {
         layout: Layout,
         children: Vec<DetachedNode<W>>,
         child_percents: Vec<f64>,
-        focused_idx: usize,
+        focus_stack: Vec<usize>,
+        preserve_on_single: bool,
     ) -> Self {
         let mut container = Self {
             layout,
             children,
             child_percents,
-            focused_idx,
+            focus_stack,
+            preserve_on_single,
         };
         container.normalize_child_percents();
-        if container.focused_idx >= container.children.len() {
-            container.focused_idx = container.children.len().saturating_sub(1);
-        }
+        container.ensure_focus_stack();
         container
     }
 
@@ -516,6 +548,25 @@ impl<W: LayoutElement> DetachedContainer<W> {
             *percent /= sum;
         }
     }
+
+    fn ensure_focus_stack(&mut self) {
+        self.focus_stack
+            .retain(|idx| *idx < self.children.len());
+        let mut seen = vec![false; self.children.len()];
+        self.focus_stack.retain(|idx| {
+            if seen[*idx] {
+                false
+            } else {
+                seen[*idx] = true;
+                true
+            }
+        });
+        for idx in 0..self.children.len() {
+            if !seen[idx] {
+                self.focus_stack.push(idx);
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -535,9 +586,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             parents: SecondaryMap::new(),
             root: None,
             pending_layout: None,
-            focus_path: Vec::new(),
             focused_key: None,
-            focus_parent_stack: Vec::new(),
             leaf_layouts: Vec::new(),
             view_size,
             working_area,
@@ -651,8 +700,8 @@ impl<W: LayoutElement> ContainerTree<W> {
             let tile_key = self.insert_node(NodeData::Leaf(tile));
             if let Some(layout) = self.pending_layout.take() {
                 let mut container = ContainerData::new(layout);
+                container.mark_preserve_on_single();
                 container.add_child(tile_key);
-                container.set_focused_idx(0);
                 let container_key = self.insert_node(NodeData::Container(container));
                 self.set_parent(tile_key, Some(container_key));
                 self.set_parent(container_key, None);
@@ -667,22 +716,19 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         // Ensure the root is a container so we can insert siblings easily
         let root_key = self.root.unwrap();
-        let focus_path = if matches!(self.get_node(root_key), Some(NodeData::Leaf(_))) {
+        if matches!(self.get_node(root_key), Some(NodeData::Leaf(_))) {
             // Convert the root leaf into a container
             let old_root_key = self.root.take().unwrap();
             let mut container = ContainerData::new(Layout::SplitH);
             container.add_child(old_root_key);
-            container.set_focused_idx(0);
 
             let container_key = self.insert_node(NodeData::Container(container));
             self.set_parent(old_root_key, Some(container_key));
             self.set_parent(container_key, None);
             self.root = Some(container_key);
             self.focus_node_key(old_root_key);
-            self.focus_path.clone()
-        } else {
-            self.focus_path.clone()
-        };
+        }
+        let focus_path = self.focus_path();
 
         // Insert as sibling in the parent container
         if focus_path.is_empty() {
@@ -693,7 +739,6 @@ impl<W: LayoutElement> ContainerTree<W> {
                 if let Some(NodeData::Container(container)) = self.get_node_mut(root_key) {
                     let insert_idx = container.children.len();
                     container.insert_child(insert_idx, tile_key);
-                    container.set_focused_idx(insert_idx);
                     inserted = true;
                 }
                 if inserted {
@@ -714,7 +759,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             if let Some(NodeData::Container(parent_container)) = self.get_node_mut(parent_key) {
                 let insert_idx = current_idx + 1;
                 parent_container.insert_child(insert_idx, tile_key);
-                parent_container.set_focused_idx(insert_idx);
 
                 inserted = true;
             }
@@ -731,7 +775,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             if let Some(NodeData::Container(container)) = self.get_node_mut(root_key) {
                 let insert_idx = container.children.len();
                 container.insert_child(insert_idx, tile_key);
-                container.set_focused_idx(insert_idx);
                 inserted = true;
             }
             if inserted {
@@ -761,72 +804,42 @@ impl<W: LayoutElement> ContainerTree<W> {
         Some(current_key)
     }
 
-    fn sync_focused_key_from_path(&mut self) {
-        self.focused_key = self.get_node_key_at_path(&self.focus_path);
-        self.sync_container_focus_from_path();
-    }
-
-    fn sync_container_focus_from_path(&mut self) {
-        let mut current_key = self.root;
-        let focus_path = self.focus_path.clone();
-        for idx in focus_path {
-            let Some(key) = current_key else {
-                break;
-            };
-            let Some(container) = self.get_container_mut(key) else {
-                break;
-            };
-            container.set_focused_idx(idx);
-            current_key = container.child_key(idx);
-        }
-    }
-
-    fn refresh_focus_path_from_key(&mut self) {
-        if let Some(key) = self.focused_key {
-            if let Some(path) = self.find_node_path(key) {
-                self.focus_path = path;
-                self.sync_container_focus_from_path();
-                return;
+    fn sync_container_focus_from_key(&mut self, key: NodeKey) {
+        let mut current = key;
+        while let Some(parent_key) = self.parent_of(current) {
+            if let Some(container) = self.get_container_mut(parent_key) {
+                container.bubble_focus(current);
             }
-            self.focused_key = None;
+            current = parent_key;
         }
-        self.focus_path.clear();
+    }
+
+    fn leaf_under_key(&self, mut key: NodeKey) -> Option<NodeKey> {
+        loop {
+            match self.get_node(key)? {
+                NodeData::Leaf(_) => return Some(key),
+                NodeData::Container(container) => {
+                    if container.children.is_empty() {
+                        return None;
+                    }
+                    key = container.focused_child_key()?;
+                }
+            }
+        }
+    }
+
+    fn first_leaf_key(&self) -> Option<NodeKey> {
+        let root_key = self.root?;
+        self.leaf_under_key(root_key)
     }
 
     fn focus_node_key(&mut self, key: NodeKey) {
-        self.focused_key = Some(key);
-        self.refresh_focus_path_from_key();
-        self.focus_to_first_leaf_from_path();
-    }
-
-    /// Helper: navigate to first leaf from current focus_path
-    fn focus_to_first_leaf_from_path(&mut self) {
-        let mut current_path = self.focus_path.clone();
-
-        loop {
-            if let Some(key) = self.get_node_key_at_path(&current_path) {
-                match self.get_node(key) {
-                    Some(NodeData::Leaf(_)) => {
-                        // Reached a leaf
-                        self.focus_path = current_path;
-                        self.focused_key = Some(key);
-                        self.sync_container_focus_from_path();
-                        return;
-                    }
-                    Some(NodeData::Container(container)) => {
-                        if container.children.is_empty() {
-                            self.focused_key = None;
-                            return;
-                        }
-                        // Navigate to focused child
-                        current_path.push(container.focused_idx);
-                    }
-                    None => return,
-                }
-            } else {
-                return;
-            }
-        }
+        let Some(leaf_key) = self.leaf_under_key(key) else {
+            self.focused_key = None;
+            return;
+        };
+        self.focused_key = Some(leaf_key);
+        self.sync_container_focus_from_key(leaf_key);
     }
 
     /// Find a node by key and return path to it.
@@ -850,7 +863,7 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     fn clear_focus_history(&mut self) {
-        self.focus_parent_stack.clear();
+        // Focus history is tracked per-container via focus_stack.
     }
 
     /// Find a window by ID and return path to it
@@ -954,29 +967,30 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     /// Current focus path within the tree.
-    pub fn focus_path(&self) -> &[usize] {
-        &self.focus_path
+    pub fn focus_path(&self) -> Vec<usize> {
+        if let Some(key) = self.focused_key {
+            if let Some(path) = self.find_node_path(key) {
+                return path;
+            }
+        }
+        if let Some(key) = self.first_leaf_key() {
+            if let Some(path) = self.find_node_path(key) {
+                return path;
+            }
+        }
+        Vec::new()
     }
 
     /// Focused tile (if any).
     pub fn focused_tile(&self) -> Option<&Tile<W>> {
-        if let Some(key) = self.focused_key {
-            self.get_tile(key)
-        } else {
-            let key = self.get_node_key_at_path(self.focus_path())?;
-            self.get_tile(key)
-        }
+        let key = self.focused_key.or_else(|| self.first_leaf_key())?;
+        self.get_tile(key)
     }
 
     /// Focused tile (mutable) if any.
     pub fn focused_tile_mut(&mut self) -> Option<&mut Tile<W>> {
-        if let Some(key) = self.focused_key {
-            self.get_tile_mut(key)
-        } else {
-            let path = self.focus_path.clone();
-            let key = self.get_node_key_at_path(&path)?;
-            self.get_tile_mut(key)
-        }
+        let key = self.focused_key.or_else(|| self.first_leaf_key())?;
+        self.get_tile_mut(key)
     }
 
     /// Calculate and apply layout to the tree
@@ -1054,7 +1068,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     container.layout,
                     container.children.clone(),
                     container.child_percents.clone(),
-                    container.focused_idx,
+                    container.focused_child_index(),
                 )
             }
             None => return,
@@ -1186,7 +1200,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     child_rect.size.h = (child_rect.size.h - total_bar_height).max(0.0);
                 }
 
-                let focused_idx = focused_idx.min(children.len().saturating_sub(1));
+                let focused_idx = focused_idx.unwrap_or(0).min(children.len().saturating_sub(1));
 
                 for (idx, &child_key) in children.iter().enumerate() {
                     path.push(idx);
@@ -1332,13 +1346,14 @@ impl<W: LayoutElement> ContainerTree<W> {
             if let Some((rect, row_height)) =
                 self.tab_bar_rect(container.layout, container.geometry, container.children.len())
             {
+                let focused_idx = container.focused_child_index().unwrap_or(0);
                 let tabs = container
                     .children
                     .iter()
                     .enumerate()
                     .map(|(idx, &child_key)| TabBarTab {
                         title: self.focused_title_in_subtree(child_key),
-                        is_focused: idx == container.focused_idx,
+                        is_focused: idx == focused_idx,
                         is_urgent: self.subtree_has_urgent(child_key),
                     })
                     .collect();
@@ -1353,10 +1368,11 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
         }
 
+        let focused_idx = container.focused_child_index().unwrap_or(0);
         for (idx, &child_key) in container.children.iter().enumerate() {
             path.push(idx);
             let child_visible = match container.layout {
-                Layout::Tabbed | Layout::Stacked => idx == container.focused_idx,
+                Layout::Tabbed | Layout::Stacked => idx == focused_idx,
                 _ => true,
             };
             self.collect_tab_bar_layouts(child_key, path, out, visible && child_visible);
@@ -1383,10 +1399,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 .filter(|title| !title.trim().is_empty())
                 .unwrap_or_else(|| String::from("untitled")),
             Some(NodeData::Container(container)) => {
-                let focused_idx = container
-                    .focused_idx
-                    .min(container.children.len().saturating_sub(1));
-                let Some(child_key) = container.child_key(focused_idx) else {
+                let Some(child_key) = container.focused_child_key() else {
                     return String::from("untitled");
                 };
                 self.focused_title_in_subtree(child_key)
@@ -1399,10 +1412,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         match self.get_node(node_key) {
             Some(NodeData::Leaf(tile)) => Some(tile.window()),
             Some(NodeData::Container(container)) => {
-                let focused_idx = container
-                    .focused_idx
-                    .min(container.children.len().saturating_sub(1));
-                let child_key = container.child_key(focused_idx)?;
+                let child_key = container.focused_child_key()?;
                 self.focused_window_in_subtree(child_key)
             }
             None => None,
@@ -1487,17 +1497,17 @@ impl<W: LayoutElement> ContainerTree<W> {
             return false;
         }
 
-        if self.focused_key.is_some() {
-            self.refresh_focus_path_from_key();
+        if let Some(key) = self.focused_key {
+            self.sync_container_focus_from_key(key);
         }
 
-        let focus_path_clone = self.focus_path.clone();
+        let focus_path = self.focus_path();
 
         // Navigate up the focus path to find appropriate container
-        for depth in (0..focus_path_clone.len()).rev() {
-            let parent_path = &focus_path_clone[..depth];
-            let current_idx = if depth < focus_path_clone.len() {
-                focus_path_clone[depth]
+        for depth in (0..focus_path.len()).rev() {
+            let parent_path = &focus_path[..depth];
+            let current_idx = if depth < focus_path.len() {
+                focus_path[depth]
             } else {
                 continue;
             };
@@ -1572,27 +1582,32 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     pub fn focus_parent(&mut self) -> bool {
-        if self.focus_path.is_empty() {
+        self.clear_focus_history();
+        let Some(focused_key) = self.focused_key else {
             return false;
-        }
-        self.focus_parent_stack.push(self.focus_path.clone());
-        self.focus_path.pop();
-        self.focus_to_first_leaf_from_path();
+        };
+        let Some(parent_key) = self.parent_of(focused_key) else {
+            return false;
+        };
+        self.focus_node_key(parent_key);
         true
     }
 
     pub fn focus_child(&mut self) -> bool {
-        let Some(path) = self.focus_parent_stack.pop() else {
+        self.clear_focus_history();
+        let Some(focused_key) = self.focused_key else {
             return false;
         };
-
-        if self.get_node_key_at_path(&path).is_none() {
-            self.focus_parent_stack.clear();
+        let Some(parent_key) = self.parent_of(focused_key) else {
             return false;
-        }
-
-        self.focus_path = path;
-        self.focus_to_first_leaf_from_path();
+        };
+        let Some(parent) = self.get_container(parent_key) else {
+            return false;
+        };
+        let Some(child_key) = parent.focused_child_key() else {
+            return false;
+        };
+        self.focus_node_key(child_key);
         true
     }
 
@@ -1635,13 +1650,14 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.cleanup_containers(cleanup_key);
 
         if self.root.is_none() {
-            self.focus_path.clear();
             self.focused_key = None;
         } else if was_focused {
             self.focused_key = None;
             self.focus_first_leaf();
+        } else if let Some(key) = self.focused_key {
+            self.sync_container_focus_from_key(key);
         } else {
-            self.refresh_focus_path_from_key();
+            self.focus_first_leaf();
         }
 
         self.layout();
@@ -1656,11 +1672,11 @@ impl<W: LayoutElement> ContainerTree<W> {
             return false;
         }
 
-        if self.focused_key.is_some() {
-            self.refresh_focus_path_from_key();
+        if let Some(key) = self.focused_key {
+            self.sync_container_focus_from_key(key);
         }
 
-        let mut move_path = self.focus_path.clone();
+        let mut move_path = self.focus_path();
         if move_path.is_empty() {
             return false;
         }
@@ -1749,7 +1765,20 @@ impl<W: LayoutElement> ContainerTree<W> {
             };
 
             let Some(target_idx) = target_idx else {
-                return false;
+                // At edge: escape to grandparent if possible.
+                if node_parent_path.is_empty() {
+                    return false;
+                }
+                let grandparent_path = &node_parent_path[..node_parent_path.len() - 1];
+                let parent_idx = *node_parent_path.last().unwrap();
+                return self.move_node_to_grandparent(
+                    node_key,
+                    node_parent_path,
+                    node_idx,
+                    grandparent_path,
+                    parent_idx,
+                    direction,
+                );
             };
 
             let target_key = match self.get_container(parent_key).and_then(|c| c.child_key(target_idx)) {
@@ -1759,14 +1788,16 @@ impl<W: LayoutElement> ContainerTree<W> {
 
             if matches!(parent_layout, Layout::SplitH | Layout::SplitV) {
                 if let Some(target_container) = self.get_container(target_key) {
-                    if target_container.layout() != parent_layout {
+                    let should_enter = target_container.layout() != parent_layout
+                        || target_container.preserve_on_single();
+                    if should_enter {
                         return self.move_node_into_container(
                             node_key,
                             node_parent_path,
                             node_idx,
                             target_key,
                             direction,
-                            target_container.focused_idx(),
+                            target_container.focused_child_index().unwrap_or(0),
                         );
                     }
                 }
@@ -1806,7 +1837,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             return true;
         }
 
-        let focus_path = self.focus_path.clone();
+        let focus_path = self.focus_path();
 
         // Special case: if root is a leaf, wrap it in a container
         if focus_path.is_empty() {
@@ -1814,6 +1845,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 if matches!(self.get_node(root_key), Some(NodeData::Leaf(_))) {
                     let old_root_key = self.root.take().unwrap();
                     let mut container = ContainerData::new(layout);
+                    container.mark_preserve_on_single();
                     container.add_child(old_root_key);
                     let container_key = self.insert_node(NodeData::Container(container));
                     self.set_parent(old_root_key, Some(container_key));
@@ -1867,7 +1899,7 @@ impl<W: LayoutElement> ContainerTree<W> {
 
             if let Some(container) = self.get_container_mut(parent_key) {
                 if container.child_count() == 1 {
-                    container.set_layout(layout);
+                    container.set_layout_explicit(layout);
                     return true;
                 }
             }
@@ -1880,6 +1912,7 @@ impl<W: LayoutElement> ContainerTree<W> {
 
             // Create new container with the leaf
             let mut new_container = ContainerData::new(layout);
+            new_container.mark_preserve_on_single();
             new_container.add_child(focused_child_key);
             let new_container_key = self.insert_node(NodeData::Container(new_container));
             self.set_parent(focused_child_key, Some(new_container_key));
@@ -1904,15 +1937,15 @@ impl<W: LayoutElement> ContainerTree<W> {
             return true;
         }
 
-        let focus_path = self.focus_path.clone();
+        let focus_path = self.focus_path();
 
         if focus_path.is_empty() {
             if let Some(root_key) = self.root {
                 if matches!(self.get_node(root_key), Some(NodeData::Leaf(_))) {
                     let old_root_key = self.root.take().unwrap();
                     let mut container = ContainerData::new(layout);
+                    container.mark_preserve_on_single();
                     container.add_child(old_root_key);
-                    container.set_focused_idx(0);
                     let container_key = self.insert_node(NodeData::Container(container));
                     self.set_parent(old_root_key, Some(container_key));
                     self.set_parent(container_key, None);
@@ -1945,13 +1978,13 @@ impl<W: LayoutElement> ContainerTree<W> {
                 };
 
                 if let Some(container) = self.get_container_mut(parent_key) {
-                    container.set_layout(layout);
+                    container.set_layout_explicit(layout);
                     return true;
                 }
             } else {
                 // It's already a container, change its layout
                 if let Some(container) = self.get_container_mut(node_key) {
-                    container.set_layout(layout);
+                    container.set_layout_explicit(layout);
                     return true;
                 }
             }
@@ -1962,11 +1995,12 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Layout of the container that currently owns the focused leaf (if any).
     pub fn focused_layout(&self) -> Option<Layout> {
-        if self.focus_path.is_empty() {
+        let focus_path = self.focus_path();
+        if focus_path.is_empty() {
             let root_key = self.root?;
             self.get_container(root_key).map(|c| c.layout())
         } else {
-            let parent_path = &self.focus_path[..self.focus_path.len() - 1];
+            let parent_path = &focus_path[..focus_path.len() - 1];
             let parent_key = if parent_path.is_empty() {
                 self.root?
             } else {
@@ -2166,14 +2200,11 @@ impl<W: LayoutElement> ContainerTree<W> {
         match self.get_node(root_key) {
             Some(NodeData::Leaf(_)) => Some(0),
             Some(NodeData::Container(container)) => {
-                if self.focus_path.is_empty() {
-                    Some(
-                        container
-                            .focused_idx
-                            .min(container.children.len().saturating_sub(1)),
-                    )
+                let focus_path = self.focus_path();
+                if focus_path.is_empty() {
+                    container.focused_child_index()
                 } else {
-                    Some(self.focus_path[0])
+                    Some(focus_path[0])
                 }
             }
             None => None,
@@ -2236,8 +2267,8 @@ impl<W: LayoutElement> ContainerTree<W> {
         container.child_percents.insert(to, percent);
         container.normalize_child_percents();
 
-        if self.focused_key.is_some() {
-            self.refresh_focus_path_from_key();
+        if let Some(key) = self.focused_key {
+            self.sync_container_focus_from_key(key);
         } else {
             self.focus_first_leaf();
         }
@@ -2255,15 +2286,26 @@ impl<W: LayoutElement> ContainerTree<W> {
         match node_data {
             NodeData::Leaf(tile) => DetachedNode::Leaf(tile),
             NodeData::Container(container) => {
+                let child_keys = container.children.clone();
                 let mut children = Vec::new();
                 for child_key in container.children {
                     children.push(self.extract_subtree(child_key));
                 }
+                let mut index_by_key = HashMap::new();
+                for (idx, key) in child_keys.iter().enumerate() {
+                    index_by_key.insert(*key, idx);
+                }
+                let focus_stack = container
+                    .focus_stack
+                    .iter()
+                    .filter_map(|key| index_by_key.get(key).copied())
+                    .collect();
                 DetachedNode::Container(DetachedContainer::from_parts(
                     container.layout,
                     children,
                     container.child_percents,
-                    container.focused_idx,
+                    focus_stack,
+                    container.preserve_on_single,
                 ))
             }
         }
@@ -2287,14 +2329,18 @@ impl<W: LayoutElement> ContainerTree<W> {
                 if let Some(node) = self.get_container_mut(container_key) {
                     node.children = child_keys;
                     node.child_percents = container.child_percents;
+                    node.focus_stack = container
+                        .focus_stack
+                        .iter()
+                        .filter_map(|idx| node.children.get(*idx).copied())
+                        .collect();
+                    node.preserve_on_single = container.preserve_on_single;
                     if node.child_percents.len() != node.children.len() {
                         node.recalculate_percentages();
                     } else {
                         node.normalize_child_percents();
                     }
-                    node.focused_idx = container
-                        .focused_idx
-                        .min(node.children.len().saturating_sub(1));
+                    node.ensure_focus_stack();
                 }
 
                 container_key
@@ -2337,7 +2383,6 @@ impl<W: LayoutElement> ContainerTree<W> {
         match self.get_node(root_key) {
             Some(NodeData::Leaf(_)) => {
                 if idx == 0 {
-                    self.focus_path.clear();
                     self.focused_key = None;
                     let subtree = self.extract_subtree(root_key);
                     self.root = None;
@@ -2505,7 +2550,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             container.add_child(tile_key);
             tile_keys.push(tile_key);
         }
-        container.set_focused_idx(0);
 
         let container_key = self.insert_node(NodeData::Container(container));
         for tile_key in tile_keys {
@@ -2527,17 +2571,10 @@ impl<W: LayoutElement> ContainerTree<W> {
         let insert_idx = {
             let container_key = self.ensure_root_container();
             let container = self.get_container(container_key).unwrap();
-            let prev_focus_idx = container.focused_idx();
             let idx = index.min(container.children.len());
 
             if let Some(container) = self.get_container_mut(container_key) {
                 container.insert_child(idx, node_key);
-
-                if focus {
-                    container.set_focused_idx(idx);
-                } else if idx <= prev_focus_idx && container.children.len() > 1 {
-                    container.set_focused_idx(prev_focus_idx + 1);
-                };
 
                 idx
             } else {
@@ -2554,8 +2591,8 @@ impl<W: LayoutElement> ContainerTree<W> {
         if focus {
             self.focus_node_key(node_key);
         } else {
-            if self.focused_key.is_some() {
-                self.refresh_focus_path_from_key();
+            if let Some(key) = self.focused_key {
+                self.sync_container_focus_from_key(key);
             } else {
                 self.focus_first_leaf();
             }
@@ -2586,33 +2623,24 @@ impl<W: LayoutElement> ContainerTree<W> {
         };
 
         if let Some(parent_key) = parent_key {
-            if let Some(parent) = self.get_container(parent_key) {
-                let insert_idx = current_idx + 1;
-                let prev_focus_idx = parent.focused_idx();
+            let insert_idx = current_idx + 1;
+            let tile_key = self.insert_node(NodeData::Leaf(tile));
 
-                let tile_key = self.insert_node(NodeData::Leaf(tile));
-
-                let mut inserted = false;
-                if let Some(parent) = self.get_container_mut(parent_key) {
-                    parent.insert_child(insert_idx, tile_key);
-
-                    if focus {
-                        parent.set_focused_idx(insert_idx);
-                    } else if prev_focus_idx >= insert_idx {
-                        parent.set_focused_idx(prev_focus_idx + 1);
-                    }
-
-                    inserted = true;
+            let mut inserted = false;
+            if let Some(parent) = self.get_container_mut(parent_key) {
+                parent.insert_child(insert_idx, tile_key);
+                inserted = true;
+            }
+            if inserted {
+                self.set_parent(tile_key, Some(parent_key));
+                if focus {
+                    self.focus_node_key(tile_key);
+                } else if let Some(key) = self.focused_key {
+                    self.sync_container_focus_from_key(key);
+                } else {
+                    self.focus_first_leaf();
                 }
-                if inserted {
-                    self.set_parent(tile_key, Some(parent_key));
-                    if focus {
-                        self.focus_node_key(tile_key);
-                    } else {
-                        self.refresh_focus_path_from_key();
-                    }
-                    return true;
-                }
+                return true;
             }
         }
 
@@ -2642,11 +2670,16 @@ impl<W: LayoutElement> ContainerTree<W> {
         // Check if column is a leaf, if so convert to container
         if matches!(self.get_node(column_key), Some(NodeData::Leaf(_))) {
             // Get the existing data first
-            let (existing_key, existing_percent) =
+            let (existing_key, existing_percent, focus_pos) =
                 if let Some(container) = self.get_container_mut(root_key) {
                     let existing_key = container.children.remove(column_idx);
                     let existing_percent = container.child_percents.remove(column_idx);
-                    (existing_key, existing_percent)
+                    let focus_pos = container
+                        .focus_stack
+                        .iter()
+                        .position(|key| *key == existing_key);
+                    container.focus_stack.retain(|key| *key != existing_key);
+                    (existing_key, existing_percent, focus_pos)
                 } else {
                     return false;
                 };
@@ -2654,7 +2687,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             // Create new column container
             let mut column_container = ContainerData::new(Layout::SplitV);
             column_container.add_child(existing_key);
-            column_container.set_focused_idx(0);
             let column_container_key = self.insert_node(NodeData::Container(column_container));
             self.set_parent(existing_key, Some(column_container_key));
 
@@ -2664,6 +2696,12 @@ impl<W: LayoutElement> ContainerTree<W> {
                 container
                     .child_percents
                     .insert(column_idx, existing_percent);
+                if let Some(pos) = focus_pos {
+                    container.focus_stack.insert(pos, column_container_key);
+                } else if !container.focus_stack.contains(&column_container_key) {
+                    container.focus_stack.push(column_container_key);
+                }
+                container.ensure_focus_stack();
                 container.normalize_child_percents();
             }
             self.set_parent(column_container_key, Some(root_key));
@@ -2690,21 +2728,12 @@ impl<W: LayoutElement> ContainerTree<W> {
         if let Some(column_container) = self.get_container_mut(column_key) {
             column_container.insert_child(insert_at, tile_key);
 
-            let focus_path = if focus {
-                column_container.set_focused_idx(insert_at);
-                Some(vec![column_idx, insert_at])
-            } else {
-                None
-            };
-
-            if let Some(root_container) = self.get_container_mut(root_key) {
-                root_container.set_focused_idx(column_idx);
-            }
-
-            if focus_path.is_some() {
+            if focus {
                 self.focus_node_key(tile_key);
+            } else if let Some(key) = self.focused_key {
+                self.sync_container_focus_from_key(key);
             } else {
-                self.refresh_focus_path_from_key();
+                self.focus_first_leaf();
             }
         }
         self.set_parent(tile_key, Some(column_key));
@@ -2732,8 +2761,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             };
 
             let parent_key = self.parent_of(container_key);
-            let parent_layout = parent_key.and_then(|key| self.get_container(key).map(|p| p.layout()));
-
             let Some(container) = self.get_container(container_key) else {
                 key = parent_key;
                 continue;
@@ -2741,18 +2768,20 @@ impl<W: LayoutElement> ContainerTree<W> {
 
             let mut remove_container = false;
             let mut replace_with_child = None;
-            let mut flatten_container = false;
+            let container_layout = container.layout();
+            let child_count = container.children.len();
+            let can_replace_with_child = !container.preserve_on_single()
+                && parent_key
+                    .and_then(|parent_key| {
+                        self.get_container(parent_key)
+                            .map(|parent| parent.layout() == container_layout)
+                    })
+                    .unwrap_or(false);
 
-            if container.children.is_empty() {
+            if child_count == 0 {
                 remove_container = true;
-            } else if container.children.len() == 1 {
-                if parent_layout.map_or(true, |layout| layout == container.layout()) {
-                    replace_with_child = container.child_key(0);
-                }
-            } else if parent_layout.is_some_and(|layout| layout == container.layout())
-                && matches!(container.layout(), Layout::SplitH | Layout::SplitV)
-            {
-                flatten_container = true;
+            } else if child_count == 1 && can_replace_with_child {
+                replace_with_child = container.child_key(0);
             }
 
             if let Some(parent_key) = parent_key {
@@ -2764,15 +2793,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     }
                 };
 
-                if flatten_container {
-                    let parent_path = self.find_node_path(parent_key).unwrap_or_default();
-                    self.flatten_container_into_parent(
-                        parent_key,
-                        parent_path.as_slice(),
-                        parent_idx,
-                        container_key,
-                    );
-                } else if remove_container {
+                if remove_container {
                     if let Some(parent) = self.get_container_mut(parent_key) {
                         parent.remove_child(parent_idx);
                     }
@@ -2781,6 +2802,16 @@ impl<W: LayoutElement> ContainerTree<W> {
                 } else if let Some(child_key) = replace_with_child {
                     if let Some(parent) = self.get_container_mut(parent_key) {
                         parent.children[parent_idx] = child_key;
+                        if let Some(pos) = parent
+                            .focus_stack
+                            .iter()
+                            .position(|key| *key == container_key)
+                        {
+                            parent.focus_stack[pos] = child_key;
+                        } else if !parent.focus_stack.contains(&child_key) {
+                            parent.focus_stack.push(child_key);
+                        }
+                        parent.ensure_focus_stack();
                     }
                     self.set_parent(child_key, Some(parent_key));
                     self.nodes.remove(container_key);
@@ -2790,167 +2821,37 @@ impl<W: LayoutElement> ContainerTree<W> {
                 self.pending_layout = Some(container.layout());
                 self.remove_node_recursive(container_key);
                 self.root = None;
+            } else if let Some(child_key) = replace_with_child {
+                self.set_parent(child_key, None);
+                self.nodes.remove(container_key);
+                self.parents.remove(container_key);
+                self.root = Some(child_key);
             }
 
             key = parent_key;
         }
     }
 
-    fn flatten_container_into_parent(
-        &mut self,
-        parent_key: NodeKey,
-        parent_path: &[usize],
-        child_idx: usize,
-        container_key: NodeKey,
-    ) {
-        let Some(NodeData::Container(container)) = self.nodes.remove(container_key) else {
-            return;
-        };
-        self.parents.remove(container_key);
-
-        let child_count = container.children.len();
-        if child_count == 0 {
-            return;
-        }
-
-        let mut child_percents = container.child_percents;
-        normalize_percents(&mut child_percents, child_count);
-
-        let container_focus_idx = container.focused_idx;
-        let mut inserted_children = Vec::new();
-        if let Some(parent) = self.get_container_mut(parent_key) {
-            if parent.child_percents.len() != parent.children.len() {
-                parent.recalculate_percentages();
-            } else {
-                parent.normalize_child_percents();
-            }
-
-            let parent_focus_idx = parent.focused_idx;
-            let parent_percent = parent
-                .child_percents
-                .get(child_idx)
-                .copied()
-                .unwrap_or_else(|| 1.0 / parent.children.len().max(1) as f64);
-
-            parent.children.remove(child_idx);
-            if parent.child_percents.len() == parent.children.len() + 1 {
-                parent.child_percents.remove(child_idx);
-            }
-
-            for (offset, child_key) in container.children.into_iter().enumerate() {
-                let insert_idx = child_idx + offset;
-                parent.children.insert(insert_idx, child_key);
-                inserted_children.push(child_key);
-                let child_percent = child_percents
-                    .get(offset)
-                    .copied()
-                    .unwrap_or_else(|| 1.0 / child_count as f64);
-                parent
-                    .child_percents
-                    .insert(insert_idx, parent_percent * child_percent);
-            }
-
-            let mut new_focus_idx = parent_focus_idx;
-            if parent_focus_idx > child_idx {
-                new_focus_idx = parent_focus_idx + child_count - 1;
-            } else if parent_focus_idx == child_idx {
-                new_focus_idx = child_idx + container_focus_idx.min(child_count - 1);
-            }
-            parent.set_focused_idx(new_focus_idx);
-
-            parent.normalize_child_percents();
-        }
-        for child_key in inserted_children {
-            self.set_parent(child_key, Some(parent_key));
-        }
-
-        self.adjust_focus_after_flatten(parent_path, child_idx, child_count, parent_key);
-    }
-
-    fn adjust_focus_after_flatten(
-        &mut self,
-        parent_path: &[usize],
-        child_idx: usize,
-        child_count: usize,
-        parent_key: NodeKey,
-    ) {
-        self.focus_parent_stack.clear();
-        if !self.focus_path.starts_with(parent_path) {
-            return;
-        }
-
-        let depth = parent_path.len();
-        if self.focus_path.len() <= depth {
-            return;
-        }
-
-        let current_idx = self.focus_path[depth];
-        if current_idx > child_idx {
-            self.focus_path[depth] = current_idx + child_count - 1;
-        } else if current_idx == child_idx {
-            if let Some(inner_idx) = self.focus_path.get(depth + 1).copied() {
-                self.focus_path.remove(depth + 1);
-                self.focus_path[depth] = child_idx + inner_idx;
-            }
-        }
-
-        let focus_idx = self.focus_path.get(depth).copied();
-        if let Some(container) = self.get_container_mut(parent_key) {
-            if let Some(idx) = focus_idx {
-                container.set_focused_idx(idx);
-            }
-        }
-        self.sync_focused_key_from_path();
-    }
 
     fn focus_first_leaf(&mut self) {
-        let mut path = Vec::new();
-        let mut current_key = match self.root {
-            Some(key) => key,
-            None => {
-                self.focus_path.clear();
-                self.focused_key = None;
-                return;
-            }
-        };
-
-        loop {
-            match self.get_node(current_key) {
-                Some(NodeData::Leaf(_)) => {
-                    self.focus_path = path;
-                    self.focused_key = Some(current_key);
-                    self.sync_container_focus_from_path();
-                    return;
-                }
-                Some(NodeData::Container(container)) => {
-                    if container.children.is_empty() {
-                        self.focus_path = path;
-                        self.focused_key = None;
-                        return;
-                    }
-                    let idx = container
-                        .focused_idx
-                        .min(container.children.len().saturating_sub(1));
-                    path.push(idx);
-                    current_key = container.child_key(idx).unwrap();
-                }
-                None => {
-                    self.focus_path.clear();
-                    self.focused_key = None;
-                    return;
-                }
-            }
+        if let Some(key) = self.first_leaf_key() {
+            self.focus_node_key(key);
+        } else {
+            self.focused_key = None;
         }
     }
 
     fn ensure_root_container(&mut self) -> NodeKey {
         if self.root.is_none() {
+            let explicit_layout = self.pending_layout.is_some();
             let layout = self.pending_layout.take().unwrap_or(Layout::SplitH);
-            let container = ContainerData::new(layout);
+            let mut container = ContainerData::new(layout);
+            if explicit_layout {
+                container.mark_preserve_on_single();
+            }
             let container_key = self.insert_node(NodeData::Container(container));
             self.set_parent(container_key, None);
             self.root = Some(container_key);
-            self.focus_path = Vec::new();
             self.focused_key = None;
             return container_key;
         }
@@ -2962,7 +2863,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             let old_root_key = self.root.take().unwrap();
             let mut container = ContainerData::new(Layout::SplitH);
             container.add_child(old_root_key);
-            container.set_focused_idx(0);
             let container_key = self.insert_node(NodeData::Container(container));
             self.set_parent(old_root_key, Some(container_key));
             self.set_parent(container_key, None);
@@ -3021,7 +2921,6 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         if let Some(container) = self.get_container_mut(grandparent_key) {
             container.insert_child(insert_at, node_key);
-            container.set_focused_idx(insert_at);
         } else {
             return false;
         }
@@ -3069,7 +2968,6 @@ impl<W: LayoutElement> ContainerTree<W> {
         if let Some(container) = self.get_container_mut(target_key) {
             let idx = insert_idx.min(container.child_count());
             container.insert_child(idx, node_key);
-            container.set_focused_idx(idx);
         } else {
             return false;
         }
@@ -3094,7 +2992,8 @@ impl<W: LayoutElement> ContainerTree<W> {
         };
 
         let mut path = Vec::new();
-        self.debug_tree_node(root_key, &mut path, &mut out);
+        let focused_path = self.focus_path();
+        self.debug_tree_node(root_key, &mut path, &mut out, &focused_path);
         out
     }
 
@@ -3104,6 +3003,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         node_key: NodeKey,
         path: &mut Vec<usize>,
         out: &mut String,
+        focused_path: &[usize],
     ) where
         W::Id: std::fmt::Display,
     {
@@ -3112,7 +3012,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         let indent = "  ".repeat(path.len());
         match self.get_node(node_key) {
             Some(NodeData::Leaf(tile)) => {
-                let focused = if *path == self.focus_path { " *" } else { "" };
+                let focused = if *path == focused_path { " *" } else { "" };
                 let _ = writeln!(
                     out,
                     "{indent}Window {}{focused}",
@@ -3124,7 +3024,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 let _ = writeln!(out, "{indent}{label}");
                 for (idx, child_key) in container.children.iter().enumerate() {
                     path.push(idx);
-                    self.debug_tree_node(*child_key, path, out);
+                    self.debug_tree_node(*child_key, path, out, focused_path);
                     path.pop();
                 }
             }
@@ -3138,9 +3038,7 @@ impl<W: LayoutElement> ContainerTree<W> {
 impl ContainerTree<Mapped> {
     pub fn layout_tree(&self) -> Option<LayoutTreeNode> {
         let root_key = self.root?;
-        let focused_key = self
-            .focused_key
-            .or_else(|| self.get_node_key_at_path(&self.focus_path));
+        let focused_key = self.focused_key.or_else(|| self.first_leaf_key());
         Some(self.build_layout_tree_node(root_key, focused_key))
     }
 
@@ -3224,39 +3122,5 @@ fn layout_label(layout: Layout) -> &'static str {
         Layout::SplitV => "SplitV",
         Layout::Tabbed => "Tabbed",
         Layout::Stacked => "Stacked",
-    }
-}
-
-fn normalize_percents(percents: &mut Vec<f64>, count: usize) {
-    if count == 0 {
-        percents.clear();
-        return;
-    }
-
-    if percents.len() != count {
-        let value = 1.0 / count as f64;
-        percents.clear();
-        percents.resize(count, value);
-        return;
-    }
-
-    let mut sum = 0.0;
-    for percent in percents.iter() {
-        if !percent.is_finite() || *percent < 0.0 {
-            sum = 0.0;
-            break;
-        }
-        sum += *percent;
-    }
-
-    if sum <= f64::EPSILON {
-        let value = 1.0 / count as f64;
-        percents.clear();
-        percents.resize(count, value);
-        return;
-    }
-
-    for percent in percents.iter_mut() {
-        *percent /= sum;
     }
 }
