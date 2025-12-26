@@ -4518,7 +4518,7 @@ fn split_on_single_window_persists_after_close() {
 }
 
 #[test]
-fn move_left_from_single_child_container_removes_empty_parent() {
+fn move_right_from_single_child_container_is_atomic() {
     let mut harness = TreeHarness::new();
     harness.add_window(1);
     harness.add_window(2);
@@ -4530,14 +4530,42 @@ fn move_left_from_single_child_container_removes_empty_parent() {
     let _ = harness.tree.remove_window(&4);
 
     assert!(harness.tree.focus_root_child(0));
+    assert!(harness.tree.move_in_direction(Direction::Right));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitH
+  Window 2
+  SplitV
+    Window 1 *
+  Window 3
+"
+    );
+}
+
+#[test]
+fn move_left_swaps_single_child_container_immediately() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.add_window(3);
+
+    assert!(harness.tree.focus_root_child(1));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(4);
+    let _ = harness.tree.remove_window(&4);
+    assert!(harness.tree.focus_window_by_id(&2));
+
     assert!(harness.tree.move_in_direction(Direction::Left));
 
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
         @"SplitH
-  Window 1 *
-  Window 2
+  SplitV
+    Window 2 *
+  Window 1
   Window 3
 "
     );
