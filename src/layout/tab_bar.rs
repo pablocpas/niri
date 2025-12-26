@@ -84,23 +84,67 @@ pub fn render_tab_bar(
             .collect();
         let total: i32 = widths.iter().sum();
         let min_width = (padding_x_px * 2).max(1);
+        let tab_count_i32 = tab_count as i32;
 
-        if total < width_px {
+        if total <= width_px {
             if let Some(last) = widths.last_mut() {
                 *last += width_px - total;
             }
-        } else if total > width_px {
+            widths
+        } else if min_width.saturating_mul(tab_count_i32) > width_px {
+            let base = width_px / tab_count_i32;
+            let mut widths = vec![base; tab_count];
+            let mut remainder = width_px - base * tab_count_i32;
+            let mut idx = 0;
+            while remainder > 0 {
+                widths[idx] += 1;
+                remainder -= 1;
+                idx = (idx + 1) % tab_count;
+            }
+            widths
+        } else {
             let scale = width_px as f64 / total as f64;
             widths = widths
                 .iter()
                 .map(|w| ((*w as f64 * scale).floor() as i32).max(min_width))
                 .collect();
+
             let scaled_total: i32 = widths.iter().sum();
-            if let Some(last) = widths.last_mut() {
-                *last += width_px - scaled_total;
+            if scaled_total < width_px {
+                if let Some(last) = widths.last_mut() {
+                    *last += width_px - scaled_total;
+                }
+                widths
+            } else if scaled_total > width_px {
+                let mut deficit = scaled_total - width_px;
+                for width in widths.iter_mut().rev() {
+                    if deficit == 0 {
+                        break;
+                    }
+                    let slack = (*width - min_width).max(0);
+                    if slack == 0 {
+                        continue;
+                    }
+                    let take = slack.min(deficit);
+                    *width -= take;
+                    deficit -= take;
+                }
+
+                if deficit > 0 {
+                    let base = width_px / tab_count_i32;
+                    let mut widths = vec![base; tab_count];
+                    let remainder = width_px - base * tab_count_i32;
+                    for idx in 0..remainder as usize {
+                        widths[idx] += 1;
+                    }
+                    widths
+                } else {
+                    widths
+                }
+            } else {
+                widths
             }
         }
-        widths
     } else {
         vec![width_px; tab_count]
     };

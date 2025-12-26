@@ -8,6 +8,7 @@
 //!
 //! Uses slotmap for efficient memory management and O(1) access to nodes.
 
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use slotmap::{new_key_type, SlotMap};
@@ -115,6 +116,7 @@ pub struct ContainerData {
 /// Cached layout information for a leaf tile.
 #[derive(Debug, Clone)]
 pub struct LeafLayoutInfo {
+    pub key: NodeKey,
     pub path: Vec<usize>,
     pub rect: Rectangle<f64, Logical>,
     pub visible: bool,
@@ -127,6 +129,8 @@ pub struct ContainerTree<W: LayoutElement> {
     nodes: SlotMap<NodeKey, NodeData<W>>,
     /// Root node key
     root: Option<NodeKey>,
+    /// Layout to apply when the tree is empty (i3 workspace_layout equivalent).
+    pending_layout: Option<Layout>,
     /// Path to currently focused node (indices from root to leaf)
     focus_path: Vec<usize>,
     /// Stack of focus paths for parent/child navigation
@@ -525,6 +529,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         Self {
             nodes: SlotMap::with_key(),
             root: None,
+            pending_layout: None,
             focus_path: Vec::new(),
             focus_parent_stack: Vec::new(),
             leaf_layouts: Vec::new(),
@@ -615,9 +620,18 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         if self.root.is_none() {
             // First window becomes the root leaf
-            let key = self.insert_node(NodeData::Leaf(tile));
-            self.root = Some(key);
-            self.focus_path.clear();
+            let tile_key = self.insert_node(NodeData::Leaf(tile));
+            if let Some(layout) = self.pending_layout.take() {
+                let mut container = ContainerData::new(layout);
+                container.add_child(tile_key);
+                container.set_focused_idx(0);
+                let container_key = self.insert_node(NodeData::Container(container));
+                self.root = Some(container_key);
+                self.focus_path = vec![0];
+            } else {
+                self.root = Some(tile_key);
+                self.focus_path.clear();
+            }
             return;
         }
 
@@ -855,12 +869,10 @@ impl<W: LayoutElement> ContainerTree<W> {
     /// Calculate and apply layout to the tree
     pub fn layout(&mut self) {
         let animate = !self.options.animations.off;
-        let mut prev_positions = Vec::new();
+        let mut prev_positions = HashMap::new();
         if animate {
             for info in &self.leaf_layouts {
-                if let Some(tile) = self.tile_at_path(&info.path) {
-                    prev_positions.push((tile.window().id().clone(), info.rect.loc));
-                }
+                prev_positions.insert(info.key, info.rect.loc);
             }
         }
 
@@ -882,11 +894,8 @@ impl<W: LayoutElement> ContainerTree<W> {
         if animate {
             let layouts = self.leaf_layouts.clone();
             for info in layouts {
-                if let Some(tile) = self.tile_at_path_mut(&info.path) {
-                    if let Some((_, prev_loc)) = prev_positions
-                        .iter()
-                        .find(|(id, _)| id == tile.window().id())
-                    {
+                if let Some(tile) = self.get_tile_mut(info.key) {
+                    if let Some(prev_loc) = prev_positions.get(&info.key) {
                         let delta = *prev_loc - info.rect.loc;
                         if delta.x.abs() > MOVE_ANIMATION_THRESHOLD
                             || delta.y.abs() > MOVE_ANIMATION_THRESHOLD
@@ -918,6 +927,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     let size = Size::from((rect.size.w, rect.size.h));
                     tile.request_tile_size(size, animate, None);
                     self.leaf_layouts.push(LeafLayoutInfo {
+                        key: node_key,
                         path: path.clone(),
                         rect,
                         visible,
@@ -1656,7 +1666,8 @@ impl<W: LayoutElement> ContainerTree<W> {
     pub fn split_focused(&mut self, layout: Layout) -> bool {
         self.clear_focus_history();
         if self.root.is_none() {
-            return false;
+            self.pending_layout = Some(layout);
+            return true;
         }
 
         let focus_path = self.focus_path.clone();
@@ -1716,6 +1727,13 @@ impl<W: LayoutElement> ContainerTree<W> {
                 return true;
             }
 
+            if let Some(container) = self.get_container_mut(parent_key) {
+                if container.child_count() == 1 {
+                    container.set_layout(layout);
+                    return true;
+                }
+            }
+
             // Remove child from parent
             if let Some(container) = self.get_container_mut(parent_key) {
                 container.remove_child(child_idx);
@@ -1741,6 +1759,11 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Change layout of focused container
     pub fn set_focused_layout(&mut self, layout: Layout) -> bool {
+        if self.root.is_none() {
+            self.pending_layout = Some(layout);
+            return true;
+        }
+
         let focus_path = self.focus_path.clone();
 
         if focus_path.is_empty() {
@@ -2552,6 +2575,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 if let Some(root_key) = self.root {
                     if let Some(container) = self.get_container(root_key) {
                         if container.children.is_empty() {
+                            self.pending_layout = Some(container.layout());
                             self.remove_node_recursive(root_key);
                             self.root = None;
                         }
@@ -2767,7 +2791,8 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     fn ensure_root_container(&mut self) -> NodeKey {
         if self.root.is_none() {
-            let container = ContainerData::new(Layout::SplitH);
+            let layout = self.pending_layout.take().unwrap_or(Layout::SplitH);
+            let container = ContainerData::new(layout);
             let container_key = self.insert_node(NodeData::Container(container));
             self.root = Some(container_key);
             self.focus_path = Vec::new();
