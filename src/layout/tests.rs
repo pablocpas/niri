@@ -4033,6 +4033,18 @@ impl TreeHarness {
         );
         self.tree.insert_window(tile);
     }
+
+    fn append_window(&mut self, id: usize) {
+        let window = TestWindow::new(TestWindowParams::new(id));
+        let tile = Tile::new(
+            window,
+            self.view_size,
+            self.scale,
+            self.clock.clone(),
+            self.options.clone(),
+        );
+        self.tree.append_leaf(tile, true);
+    }
 }
 
 #[test]
@@ -4420,6 +4432,87 @@ fn move_up_at_edge_is_noop() {
         @"SplitV
   Window 1 *
   Window 2
+"
+    );
+}
+
+#[test]
+fn split_on_empty_workspace_applies_to_next_window() {
+    let mut harness = TreeHarness::new();
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(1);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  Window 1 *
+"
+    );
+}
+
+#[test]
+fn split_on_empty_workspace_applies_to_next_window_via_append() {
+    let mut harness = TreeHarness::new();
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.append_window(1);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  Window 1 *
+"
+    );
+}
+
+#[test]
+fn layout_persists_after_last_window_closed() {
+    let mut harness = TreeHarness::new();
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(1);
+    let _ = harness.tree.remove_window(&1);
+    harness.add_window(2);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  Window 2 *
+"
+    );
+}
+
+#[test]
+fn layout_persists_after_last_window_closed_via_append() {
+    let mut harness = TreeHarness::new();
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.append_window(1);
+    let _ = harness.tree.remove_window(&1);
+    harness.append_window(2);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  Window 2 *
+"
+    );
+}
+
+#[test]
+fn split_on_single_window_persists_after_close() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    let _ = harness.tree.remove_window(&1);
+    harness.add_window(2);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"SplitV
+  Window 2 *
 "
     );
 }
