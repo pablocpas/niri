@@ -428,13 +428,16 @@ impl<W: LayoutElement> TilingSpace<W> {
     fn window_path(&self, window: Option<&W::Id>) -> Option<Vec<usize>> {
         if let Some(id) = window {
             self.tree.find_window(id)
-        } else if self.tree.focus_path().is_empty() {
-            self.tree
-                .focused_window()
-                .is_some()
-                .then(|| self.tree.focus_path().to_vec())
         } else {
-            Some(self.tree.focus_path().to_vec())
+            let focus_path = self.tree.focus_path();
+            if focus_path.is_empty() {
+                self.tree
+                    .focused_window()
+                    .is_some()
+                    .then(|| focus_path)
+            } else {
+                Some(focus_path)
+            }
         }
     }
 
@@ -749,7 +752,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     pub fn update_render_elements(&mut self, is_active: bool) {
         let layouts = self.tree.leaf_layouts_cloned();
         let workspace_view = Rectangle::from_size(self.view_size);
-        let focus_path = self.tree.focus_path().to_vec();
+        let focus_path = self.tree.focus_path();
         let scale = Scale::from(self.scale);
         let fullscreen_id = self.fullscreen_window.as_ref();
 
@@ -1877,7 +1880,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn refresh(&mut self, is_active: bool, is_focused: bool) {
         let layouts = self.tree.leaf_layouts_cloned();
-        let focus_path = self.tree.focus_path().to_vec();
+        let focus_path = self.tree.focus_path();
         let fullscreen_id = self.fullscreen_window.as_ref();
 
         for info in layouts {

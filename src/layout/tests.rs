@@ -4537,8 +4537,7 @@ fn move_right_from_single_child_container_is_atomic() {
         tree.as_str(),
         @"SplitH
   Window 2
-  SplitV
-    Window 1 *
+  Window 1 *
   Window 3
 "
     );
