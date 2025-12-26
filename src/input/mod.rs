@@ -2029,6 +2029,9 @@ impl State {
             Action::SetLayoutSplitV => {
                 self.niri.layout.set_layout_mode(ContainerLayout::SplitV);
             }
+            Action::ToggleSplitLayout => {
+                self.niri.layout.toggle_split_layout();
+            }
             Action::SetLayoutStacked => {
                 self.niri.layout.set_layout_mode(ContainerLayout::Stacked);
             }

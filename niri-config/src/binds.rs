@@ -296,6 +296,7 @@ pub enum Action {
     SplitVertical,
     SetLayoutSplitH,
     SetLayoutSplitV,
+    ToggleSplitLayout,
     SetLayoutStacked,
     SetLayoutTabbed,
     SetWindowWidth(#[knuffel(argument, str)] SizeChange),

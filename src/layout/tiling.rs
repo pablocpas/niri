@@ -935,6 +935,13 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.layout();
     }
 
+    /// Toggle between horizontal and vertical split for the focused container.
+    pub fn toggle_split_layout(&mut self) {
+        if self.tree.toggle_split_layout() {
+            self.tree.layout();
+        }
+    }
+
     /// Set the width of the currently focused root-level column
     pub fn set_column_width(&mut self, change: SizeChange) {
         let Some(idx) = self.tree.focused_root_index() else {
