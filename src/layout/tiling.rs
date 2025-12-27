@@ -554,6 +554,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         );
         // Insert into container tree
         self.tree.insert_window(tile);
+        self.sync_fullscreen_window();
         // Recalculate layout
         self.tree.layout();
     }
@@ -1340,6 +1341,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                 self.tree.append_leaf(tile, activate);
             }
         }
+        self.sync_fullscreen_window();
         self.tree.layout();
     }
 
@@ -1352,6 +1354,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         _is_full_width: bool,
     ) {
         self.tree.insert_leaf_after(next_to, tile, activate);
+        self.sync_fullscreen_window();
         self.tree.layout();
     }
 
@@ -1366,6 +1369,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             .tree
             .insert_leaf_in_column(col_idx, tile_idx, tile, activate)
         {
+            self.sync_fullscreen_window();
             self.tree.layout();
         }
     }
@@ -1399,6 +1403,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         let idx = _col_idx.unwrap_or_else(|| self.tree.root_children_len());
         let subtree = column.into_subtree();
         self.tree.insert_subtree_at_root(idx, subtree, activate);
+        self.sync_fullscreen_window();
         self.tree.layout();
     }
     pub fn remove_tile(&mut self, window: &W::Id, _transaction: Transaction) -> RemovedTile<W> {
@@ -1784,36 +1789,58 @@ impl<W: LayoutElement> TilingSpace<W> {
             self.tree.layout();
             true
         } else {
-            if self
+            let Some(path) = self.tree.find_window(window) else {
+                return false;
+            };
+            let Some(tile) = self.tree.tile_at_path_mut(&path) else {
+                return false;
+            };
+            let is_window_fullscreen = tile.window().pending_sizing_mode().is_fullscreen();
+            let fullscreen_matches = self
                 .fullscreen_window
                 .as_ref()
-                .is_some_and(|id| id == window)
-            {
-                if let Some(path) = self.tree.find_window(window) {
-                    if let Some(tile) = self.tree.tile_at_path_mut(&path) {
-                        if tile.pending_maximized {
-                            tile.request_maximized(
-                                self.working_area.size,
-                                !self.options.animations.off,
-                                None,
-                            );
-                        } else {
-                            tile.request_tile_size(
-                                self.working_area.size,
-                                !self.options.animations.off,
-                                None,
-                            );
-                        }
-                    }
-                }
-
-                self.fullscreen_window = None;
-                self.tree.layout();
-                true
-            } else {
-                false
+                .is_some_and(|id| id == window);
+            if !is_window_fullscreen && !fullscreen_matches {
+                return false;
             }
+
+            if tile.pending_maximized {
+                tile.request_maximized(
+                    self.working_area.size,
+                    !self.options.animations.off,
+                    None,
+                );
+            } else {
+                tile.request_tile_size(
+                    self.working_area.size,
+                    !self.options.animations.off,
+                    None,
+                );
+            }
+
+            self.fullscreen_window = None;
+            self.tree.layout();
+            true
         }
+    }
+
+    fn sync_fullscreen_window(&mut self) {
+        let keep_existing = self.fullscreen_window.as_ref().and_then(|id| {
+            self.tree
+                .find_window(id)
+                .and_then(|path| self.tree.tile_at_path(&path))
+                .filter(|tile| tile.window().pending_sizing_mode().is_fullscreen())
+                .map(|_| id.clone())
+        });
+        if keep_existing.is_some() {
+            return;
+        }
+
+        let next_fullscreen = self
+            .tiles()
+            .find(|tile| tile.window().pending_sizing_mode().is_fullscreen())
+            .map(|tile| tile.window().id().clone());
+        self.fullscreen_window = next_fullscreen;
     }
 
     pub fn set_maximized(&mut self, window: &W::Id, maximize: bool) -> bool {

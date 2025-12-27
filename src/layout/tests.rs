@@ -3750,12 +3750,7 @@ fn move_window_to_workspace_maximize_and_fullscreen() {
     let (_, win) = layout.windows().next().unwrap();
 
     // Unfullscreening should return to maximized because the window was maximized before.
-    //
-    // FIXME: it currently doesn't because windows themselves can only be either fullscreen or
-    // maximized. So when a window is fullscreen, whether it is also maximized or not is stored in
-    // the column. MoveWindowToWorkspace removes the window from the column and this information is
-    // forgotten.
-    assert_eq!(win.pending_sizing_mode(), SizingMode::Normal);
+    assert_eq!(win.pending_sizing_mode(), SizingMode::Maximized);
 }
 
 #[test]
@@ -4574,7 +4569,8 @@ fn move_right_from_single_child_container_is_atomic() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitH
+        @"
+SplitH
   Window 2
   Window 1 *
   Window 3
@@ -4600,9 +4596,9 @@ fn move_left_swaps_single_child_container_immediately() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitH
-  SplitV
-    Window 2 *
+        @"
+SplitH
+  Window 2 *
   Window 1
   Window 3
 "
