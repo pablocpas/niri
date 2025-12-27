@@ -60,6 +60,9 @@ pub struct Tile<W: LayoutElement> {
     /// Whether the tile should float upon unfullscreening.
     pub(super) restore_to_floating: bool,
 
+    /// Whether the tile should return to maximized once it exits fullscreen.
+    pub(super) pending_maximized: bool,
+
     /// The size that the window should assume when going floating.
     ///
     /// This is generally the last size the window had when it was floating. It can be unknown if
@@ -179,6 +182,7 @@ impl<W: LayoutElement> Tile<W> {
         clock: Clock,
         options: Rc<Options>,
     ) -> Self {
+        let pending_maximized = window.pending_sizing_mode().is_maximized();
         let rules = window.rules();
         let border_config = options.layout.border.merged_with(&rules.border);
         let focus_ring_config = options.layout.focus_ring.merged_with(&rules.focus_ring);
@@ -193,6 +197,7 @@ impl<W: LayoutElement> Tile<W> {
             sizing_mode,
             fullscreen_backdrop: SolidColorBuffer::new((0., 0.), [0., 0., 0., 1.]),
             restore_to_floating: false,
+            pending_maximized,
             floating_window_size: None,
             floating_pos: None,
             floating_preset_width_idx: None,
