@@ -1279,6 +1279,10 @@ impl<W: LayoutElement> FloatingSpace<W> {
     }
 
     pub fn stored_or_default_tile_pos(&self, tile: &Tile<W>) -> Option<Point<f64, Logical>> {
+        if tile.is_scratchpad() && tile.floating_pos.is_none() {
+            return None;
+        }
+
         let pos = tile.floating_pos.map(|pos| self.scale_by_working_area(pos));
         pos.or_else(|| {
             tile.window().rules().default_floating_position.map(|pos| {
