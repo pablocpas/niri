@@ -16,7 +16,7 @@ use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use super::tile::Tile;
 use super::{LayoutElement, Options};
-use crate::utils::round_logical_in_physical_max1;
+use super::tab_bar::tab_bar_row_height;
 use crate::window::Mapped;
 use niri_ipc::{LayoutTreeLayout, LayoutTreeNode};
 
@@ -1015,7 +1015,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 area.size.w = (area.size.w - gap * 2.0).max(0.0);
                 area.size.h = (area.size.h - gap * 2.0).max(0.0);
             }
-            self.layout_node(root_key, area, &mut path, true, animate);
+            self.layout_node(root_key, area, &mut path, true, animate, 0.0);
         }
 
         if animate {
@@ -1045,12 +1045,19 @@ impl<W: LayoutElement> ContainerTree<W> {
         path: &mut Vec<usize>,
         visible: bool,
         animate: bool,
+        tab_bar_offset: f64,
     ) {
         // We need to work around borrow checker by getting info first
         let node_info = match self.get_node(node_key) {
             Some(NodeData::Leaf(_)) => {
                 // Handle leaf
                 if let Some(NodeData::Leaf(tile)) = self.get_node_mut(node_key) {
+                    let offset = if tile.window().pending_sizing_mode().is_fullscreen() {
+                        0.0
+                    } else {
+                        tab_bar_offset
+                    };
+                    tile.set_tab_bar_offset(offset);
                     let size = Size::from((rect.size.w, rect.size.h));
                     if tile.window().pending_sizing_mode().is_fullscreen() {
                         tile.request_fullscreen(animate, None);
@@ -1128,7 +1135,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     );
 
                     path.push(idx);
-                    self.layout_node(child_key, child_rect, path, visible, animate);
+                    self.layout_node(child_key, child_rect, path, visible, animate, 0.0);
                     path.pop();
 
                     used_width += width;
@@ -1171,7 +1178,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     );
 
                     path.push(idx);
-                    self.layout_node(child_key, child_rect, path, visible, animate);
+                    self.layout_node(child_key, child_rect, path, visible, animate, 0.0);
                     path.pop();
 
                     used_height += height;
@@ -1191,8 +1198,9 @@ impl<W: LayoutElement> ContainerTree<W> {
                     inner_rect.size.h = (inner_rect.size.h - gap * 2.0).max(0.0);
                 }
 
-                let mut child_rect = inner_rect;
+                let child_rect = inner_rect;
                 let bar_row_height = self.tab_bar_row_height();
+                let mut tab_offset = 0.0;
                 if bar_row_height > 0.0 && child_count > 0 {
                     let bar_height = match layout {
                         Layout::Tabbed => bar_row_height,
@@ -1202,8 +1210,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     let total_bar_height = (bar_height + self.tab_bar_spacing())
                         .min(inner_rect.size.h)
                         .max(0.0);
-                    child_rect.loc.y += total_bar_height;
-                    child_rect.size.h = (child_rect.size.h - total_bar_height).max(0.0);
+                    tab_offset = total_bar_height;
                 }
 
                 let focused_idx = focused_idx.unwrap_or(0).min(children.len().saturating_sub(1));
@@ -1211,7 +1218,14 @@ impl<W: LayoutElement> ContainerTree<W> {
                 for (idx, &child_key) in children.iter().enumerate() {
                     path.push(idx);
                     let child_visible = visible && idx == focused_idx;
-                    self.layout_node(child_key, child_rect, path, child_visible, animate);
+                    self.layout_node(
+                        child_key,
+                        child_rect,
+                        path,
+                        child_visible,
+                        animate,
+                        tab_offset,
+                    );
                     path.pop();
                 }
             }
@@ -1222,15 +1236,11 @@ impl<W: LayoutElement> ContainerTree<W> {
         if self.options.layout.tab_bar.off {
             return 0.0;
         }
-        round_logical_in_physical_max1(self.scale, self.options.layout.tab_bar.height)
+        tab_bar_row_height(&self.options.layout.tab_bar, self.scale)
     }
 
     fn tab_bar_spacing(&self) -> f64 {
-        let focus_ring = self.options.layout.focus_ring;
-        let border = self.options.layout.border;
-        let focus_width = if focus_ring.off { 0.0 } else { focus_ring.width };
-        let border_width = if border.off { 0.0 } else { border.width };
-        round_logical_in_physical_max1(self.scale, focus_width.max(border_width))
+        0.0
     }
 
     fn tab_bar_rect(

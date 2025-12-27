@@ -272,6 +272,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
             let mut tile_view_rect = view_rect;
             tile_view_rect.loc -= offset + tile.render_offset();
+            tile.set_tab_bar_offset(0.0);
             tile.update_render_elements(is_active, tile_view_rect);
         }
     }

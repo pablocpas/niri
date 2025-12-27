@@ -8,7 +8,29 @@ use smithay::utils::{Logical, Rectangle, Transform};
 
 use super::container::{Layout, TabBarTab};
 use crate::render_helpers::texture::TextureBuffer;
-use crate::utils::to_physical_precise_round;
+use crate::utils::{round_logical_in_physical_max1, to_physical_precise_round};
+
+pub fn tab_bar_row_height(config: &TabBar, scale: f64) -> f64 {
+    let mut height = config.height;
+    if height <= 0.0 {
+        let mut font = FontDescription::from_string(&config.font);
+        font.set_absolute_size(to_physical_precise_round::<f64>(scale, font.size()));
+
+        if let Ok(surface) = ImageSurface::create(cairo::Format::ARgb32, 1, 1) {
+            if let Ok(cr) = cairo::Context::new(&surface) {
+                let layout = pangocairo::functions::create_layout(&cr);
+                layout.context().set_round_glyph_positions(false);
+                layout.set_font_description(Some(&font));
+                layout.set_text("Ag");
+                let (_w, h_px) = layout.pixel_size();
+                let font_height = (h_px as f64) / scale;
+                height = font_height + config.padding_y * 2.0;
+            }
+        }
+    }
+
+    round_logical_in_physical_max1(scale, height)
+}
 
 fn set_source_color(cr: &cairo::Context, color: Color) {
     let [r, g, b, a] = color.to_array_unpremul();
@@ -56,95 +78,15 @@ pub fn render_tab_bar(
     let mut font = FontDescription::from_string(&config.font);
     font.set_absolute_size(to_physical_precise_round::<f64>(scale, font.size()));
 
-    let measure_surface = ImageSurface::create(cairo::Format::ARgb32, 0, 0)?;
-    let measure_cr = cairo::Context::new(&measure_surface)?;
-    let measure_layout = pangocairo::functions::create_layout(&measure_cr);
-    measure_layout.context().set_round_glyph_positions(false);
-    measure_layout.set_font_description(Some(&font));
-    measure_layout.set_ellipsize(EllipsizeMode::End);
-    measure_layout.set_alignment(Alignment::Left);
-
-    let mut text_widths = Vec::with_capacity(tab_count);
-    for tab in tabs {
-        let title = if tab.title.trim().is_empty() {
-            "untitled"
-        } else {
-            tab.title.as_str()
-        };
-        measure_layout.set_width(-1);
-        measure_layout.set_text(title);
-        let (w, _h) = measure_layout.pixel_size();
-        text_widths.push(w);
-    }
-
     let tab_widths = if layout == Layout::Tabbed {
-        let mut widths: Vec<i32> = text_widths
-            .iter()
-            .map(|w| w.saturating_add(padding_x_px * 2))
-            .collect();
-        let total: i32 = widths.iter().sum();
-        let min_width = (padding_x_px * 2).max(1);
         let tab_count_i32 = tab_count as i32;
-
-        if total <= width_px {
-            if let Some(last) = widths.last_mut() {
-                *last += width_px - total;
-            }
-            widths
-        } else if min_width.saturating_mul(tab_count_i32) > width_px {
-            let base = width_px / tab_count_i32;
-            let mut widths = vec![base; tab_count];
-            let mut remainder = width_px - base * tab_count_i32;
-            let mut idx = 0;
-            while remainder > 0 {
-                widths[idx] += 1;
-                remainder -= 1;
-                idx = (idx + 1) % tab_count;
-            }
-            widths
-        } else {
-            let scale = width_px as f64 / total as f64;
-            widths = widths
-                .iter()
-                .map(|w| ((*w as f64 * scale).floor() as i32).max(min_width))
-                .collect();
-
-            let scaled_total: i32 = widths.iter().sum();
-            if scaled_total < width_px {
-                if let Some(last) = widths.last_mut() {
-                    *last += width_px - scaled_total;
-                }
-                widths
-            } else if scaled_total > width_px {
-                let mut deficit = scaled_total - width_px;
-                for width in widths.iter_mut().rev() {
-                    if deficit == 0 {
-                        break;
-                    }
-                    let slack = (*width - min_width).max(0);
-                    if slack == 0 {
-                        continue;
-                    }
-                    let take = slack.min(deficit);
-                    *width -= take;
-                    deficit -= take;
-                }
-
-                if deficit > 0 {
-                    let base = width_px / tab_count_i32;
-                    let mut widths = vec![base; tab_count];
-                    let remainder = width_px - base * tab_count_i32;
-                    for idx in 0..remainder as usize {
-                        widths[idx] += 1;
-                    }
-                    widths
-                } else {
-                    widths
-                }
-            } else {
-                widths
-            }
+        let base = width_px / tab_count_i32;
+        let mut widths = vec![base.max(1); tab_count];
+        let remainder = width_px - base * tab_count_i32;
+        for idx in 0..remainder as usize {
+            widths[idx] += 1;
         }
+        widths
     } else {
         vec![width_px; tab_count]
     };
