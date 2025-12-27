@@ -175,6 +175,9 @@ layout {
         // where you can see its inactive-color is on other monitors.
         inactive-color "#505050"
 
+        // Color of the ring around windows that request your attention.
+        urgent-color "#9b0000"
+
         // You can also use gradients. They take precedence over solid colors.
         // Gradients are rendered the same as CSS linear-gradient(angle, from, to).
         // The angle is the same as in linear-gradient, and is optional,
@@ -190,6 +193,41 @@ layout {
         //
         // inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view"
     }
+
+    // Tab bar for tabbed/stacked layouts (matches focus ring by default).
+    tab-bar {
+        height 20
+        padding-x 6
+        padding-y 2
+        separator-width 1
+        font "sans 10px"
+
+        active-bg "#7fc8ff"
+        inactive-bg "#505050"
+        urgent-bg "#9b0000"
+        active-fg "#ffffff"
+        inactive-fg "#888888"
+        urgent-fg "#ffffff"
+        separator-color "#505050"
+    }
+
+    // i3/sway-style tab bar preset (optional).
+    // tab-bar {
+    //     // height 0 means auto (font height + padding-y * 2)
+    //     height 0
+    //     padding-x 5
+    //     padding-y 4
+    //     separator-width 1
+    //     font "monospace 10"
+    //
+    //     active-bg "#285577"
+    //     inactive-bg "#222222"
+    //     urgent-bg "#900000"
+    //     active-fg "#ffffff"
+    //     inactive-fg "#888888"
+    //     urgent-fg "#ffffff"
+    //     separator-color "#000000"
+    // }
 
     // You can also add a border. It's similar to the focus ring, but always visible.
     border {

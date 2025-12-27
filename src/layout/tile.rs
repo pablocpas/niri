@@ -116,6 +116,8 @@ pub struct Tile<W: LayoutElement> {
     ///
     /// Used as the fullscreen target size.
     view_size: Size<f64, Logical>,
+    /// Extra vertical offset for tabbed/stacked layouts (tab bar height).
+    tab_bar_offset: f64,
 
     /// Scale of the output the tile is on (and rounds its sizes to).
     scale: f64,
@@ -222,6 +224,7 @@ impl<W: LayoutElement> Tile<W> {
             scale,
             clock,
             options,
+            tab_bar_offset: 0.0,
         }
     }
 
@@ -263,6 +266,10 @@ impl<W: LayoutElement> Tile<W> {
         self.shadow.update_config(shadow_config);
     }
 
+    pub(super) fn set_tab_bar_offset(&mut self, offset: f64) {
+        self.tab_bar_offset = offset.max(0.0);
+    }
+
     pub fn update_shaders(&mut self) {
         self.border.update_shaders();
         self.focus_ring.update_shaders();
@@ -297,6 +304,9 @@ impl<W: LayoutElement> Tile<W> {
                     let width = self.border.width();
                     tile_size.w += width * 2.;
                     tile_size.h += width * 2.;
+                }
+                if prev_sizing_mode.is_normal() && self.tab_bar_offset > 0.0 {
+                    tile_size.h += self.tab_bar_offset;
                 }
 
                 tile_size.w = tile_size_from.w + (tile_size.w - tile_size_from.w) * val;
@@ -336,6 +346,9 @@ impl<W: LayoutElement> Tile<W> {
                     let width = self.border.width();
                     tile_size.w += width * 2.;
                     tile_size.h += width * 2.;
+                }
+                if prev_sizing_mode.is_normal() && self.tab_bar_offset > 0.0 {
+                    tile_size.h += self.tab_bar_offset;
                 }
 
                 let fullscreen_from = if prev_sizing_mode.is_fullscreen() {
@@ -521,11 +534,14 @@ impl<W: LayoutElement> Tile<W> {
             1. - expanded_progress as f32,
         );
 
-        let draw_focus_ring_with_background = if self.border.is_off() {
+        let mut draw_focus_ring_with_background = if self.border.is_off() {
             draw_border_with_background
         } else {
             false
         };
+        if self.tab_bar_offset > 0.0 {
+            draw_focus_ring_with_background = false;
+        }
         let radius = radius.expanded_by(self.focus_ring.width() as f32);
         self.focus_ring.update_render_elements(
             animated_tile_size,
@@ -779,6 +795,7 @@ impl<W: LayoutElement> Tile<W> {
 
         let window_size = self.animated_window_size();
         let target_size = self.animated_tile_size();
+        let available_height = (target_size.h - self.tab_bar_offset).max(0.0);
 
         // Center the window within its tile.
         //
@@ -789,7 +806,7 @@ impl<W: LayoutElement> Tile<W> {
         // - During animations, the window remains centered within the tile; this is important for
         //   the to/from fullscreen animation.
         loc.x += (target_size.w - window_size.w) / 2.;
-        loc.y += (target_size.h - window_size.h) / 2.;
+        loc.y += self.tab_bar_offset + (available_height - window_size.h) / 2.;
 
         // Round to physical pixels.
         loc = loc
@@ -814,6 +831,9 @@ impl<W: LayoutElement> Tile<W> {
             size.w += width * 2.;
             size.h += width * 2.;
         }
+        if self.tab_bar_offset > 0.0 {
+            size.h += self.tab_bar_offset;
+        }
 
         size
     }
@@ -832,6 +852,9 @@ impl<W: LayoutElement> Tile<W> {
         if let Some(width) = self.effective_border_width() {
             size.w += width * 2.;
             size.h += width * 2.;
+        }
+        if self.tab_bar_offset > 0.0 {
+            size.h += self.tab_bar_offset;
         }
 
         size
@@ -946,6 +969,9 @@ impl<W: LayoutElement> Tile<W> {
             size.w = f64::max(1., size.w - width * 2.);
             size.h = f64::max(1., size.h - width * 2.);
         }
+        if self.tab_bar_offset > 0.0 {
+            size.h = f64::max(1., size.h - self.tab_bar_offset);
+        }
 
         // The size request has to be i32 unfortunately, due to Wayland. We floor here instead of
         // round to avoid situations where proportionally-sized columns don't fit on the screen
@@ -967,11 +993,11 @@ impl<W: LayoutElement> Tile<W> {
     }
 
     pub fn tile_height_for_window_height(&self, size: f64) -> f64 {
-        if self.border.is_off() {
-            size
-        } else {
-            size + self.border.width() * 2.
+        let mut size = size;
+        if !self.border.is_off() {
+            size += self.border.width() * 2.;
         }
+        size + self.tab_bar_offset
     }
 
     pub fn window_width_for_tile_width(&self, size: f64) -> f64 {
@@ -983,6 +1009,7 @@ impl<W: LayoutElement> Tile<W> {
     }
 
     pub fn window_height_for_tile_height(&self, size: f64) -> f64 {
+        let size = size - self.tab_bar_offset;
         if self.border.is_off() {
             size
         } else {
@@ -1026,6 +1053,9 @@ impl<W: LayoutElement> Tile<W> {
             size.w += width * 2.;
             size.h += width * 2.;
         }
+        if self.tab_bar_offset > 0.0 {
+            size.h += self.tab_bar_offset;
+        }
 
         size
     }
@@ -1043,6 +1073,9 @@ impl<W: LayoutElement> Tile<W> {
             if size.h > 0. {
                 size.h += width * 2.;
             }
+        }
+        if self.tab_bar_offset > 0.0 && size.h > 0.0 {
+            size.h += self.tab_bar_offset;
         }
 
         size

@@ -318,25 +318,7 @@ impl<'a, W: LayoutElement> Iterator for TileRenderPositionsMut<'a, W> {
 
 impl<W: LayoutElement> TilingSpace<W> {
     fn effective_tab_bar_config(&self) -> TabBar {
-        let mut config = self.options.layout.tab_bar.clone();
-        let defaults = TabBar::default();
-        let focus = self.options.layout.focus_ring;
-        let border = self.options.layout.border;
-        let (active, inactive, urgent) = if !border.off {
-            (border.active_color, border.inactive_color, border.urgent_color)
-        } else {
-            (focus.active_color, focus.inactive_color, focus.urgent_color)
-        };
-        if config.active_bg == defaults.active_bg {
-            config.active_bg = active;
-        }
-        if config.inactive_bg == defaults.inactive_bg {
-            config.inactive_bg = inactive;
-        }
-        if config.urgent_bg == defaults.urgent_bg {
-            config.urgent_bg = urgent;
-        }
-        config
+        self.options.layout.tab_bar.clone()
     }
 
     fn available_span(&self, total: f64, child_count: usize) -> f64 {
