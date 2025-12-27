@@ -1706,7 +1706,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 None => break,
             };
 
-            if parent_container.child_count() == 1 {
+            if parent_container.child_count() == 1 && !parent_container.preserve_on_single() {
                 move_path = parent_path.to_vec();
                 continue;
             }
@@ -2925,6 +2925,12 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
         };
 
+        let parent_child_count = self
+            .get_container(node_parent_key)
+            .map(|container| container.child_count())
+            .unwrap_or(0);
+        let parent_will_be_removed = parent_child_count == 1;
+
         if let Some(container) = self.get_container_mut(node_parent_key) {
             let _ = container.remove_child(node_idx);
         } else {
@@ -2945,8 +2951,20 @@ impl<W: LayoutElement> ContainerTree<W> {
         };
 
         let insert_at = match direction {
-            Direction::Left | Direction::Up => parent_idx,
-            Direction::Right | Direction::Down => parent_idx + 1,
+            Direction::Left | Direction::Up => {
+                if parent_will_be_removed {
+                    parent_idx.saturating_sub(1)
+                } else {
+                    parent_idx
+                }
+            }
+            Direction::Right | Direction::Down => {
+                if parent_will_be_removed {
+                    parent_idx + 2
+                } else {
+                    parent_idx + 1
+                }
+            }
         };
 
         if let Some(container) = self.get_container_mut(grandparent_key) {

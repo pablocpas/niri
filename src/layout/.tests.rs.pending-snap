@@ -1,4 +1,0 @@
-{"run_id":"1766762899-62906614","line":4337,"new":{"module_name":"niri__layout__tests","snapshot_name":"move_right_from_single_child_container_is_atomic","metadata":{"source":"src/layout/tests.rs","assertion_line":4337,"expression":"tree.as_str()"},"snapshot":"SplitH\n  Window 2\n  Window 1 *\n  Window 3"},"old":{"module_name":"niri__layout__tests","metadata":{},"snapshot":"SplitH\n  Window 2\n  SplitV\n    Window 1 *\n  Window 3"}}
-{"run_id":"1766762979-703132029","line":4337,"new":null,"old":null}
-{"run_id":"1766765420-219355808","line":4148,"new":null,"old":null}
-{"run_id":"1766765424-386465903","line":4167,"new":null,"old":null}
