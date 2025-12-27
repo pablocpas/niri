@@ -35,8 +35,8 @@ use crate::render_helpers::RenderTarget;
 use crate::utils::id::IdCounter;
 use crate::utils::transaction::{Transaction, TransactionBlocker};
 use crate::utils::{
-    ensure_min_max_size, ensure_min_max_size_maybe_zero, output_size, send_scale_transform,
-    ResizeEdge,
+    center_preferring_top_left_in_area, ensure_min_max_size, ensure_min_max_size_maybe_zero,
+    output_size, send_scale_transform, ResizeEdge,
 };
 use crate::window::ResolvedWindowRules;
 
@@ -1548,6 +1548,10 @@ impl<W: LayoutElement> Workspace<W> {
                 size.h = ensure_min_max_size(size.h, min_size.h, max_size.h);
 
                 tile.floating_window_size = Some(size);
+
+                let size_f = Size::from((size.w as f64, size.h as f64));
+                let pos = center_preferring_top_left_in_area(self.floating.working_area(), size_f);
+                tile.floating_pos = Some(self.floating.logical_to_size_frac(pos));
             }
         }
 
