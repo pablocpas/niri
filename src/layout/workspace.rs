@@ -18,7 +18,7 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use super::container::Layout;
-use super::floating::{FloatingSpace, FloatingSpaceRenderElement};
+use super::floating::{compute_toplevel_bounds, FloatingSpace, FloatingSpaceRenderElement};
 use super::shadow::Shadow;
 use super::tile::{Tile, TileRenderSnapshot};
 use super::tiling::{Column, ColumnWidth, ScrollDirection, TilingSpace, TilingSpaceRenderElement};
@@ -1530,6 +1530,7 @@ impl<W: LayoutElement> Workspace<W> {
 
         if !removed.is_floating {
             tile.stop_move_animations();
+            tile.clear_resize_animation();
             tile.pending_maximized = false;
             // Always center scratchpad windows when first shown.
             tile.floating_pos = None;
@@ -1552,6 +1553,14 @@ impl<W: LayoutElement> Workspace<W> {
                 let size_f = Size::from((size.w as f64, size.h as f64));
                 let pos = center_preferring_top_left_in_area(self.floating.working_area(), size_f);
                 tile.floating_pos = Some(self.floating.logical_to_size_frac(pos));
+
+                let border_config = self.options.layout.border.merged_with(&tile.window().rules().border);
+                let bounds = compute_toplevel_bounds(border_config, working_size);
+                let win = tile.window_mut();
+                win.set_bounds(bounds);
+                win.request_size_once(size, false);
+                win.send_pending_configure();
+                win.refresh();
             }
         }
 

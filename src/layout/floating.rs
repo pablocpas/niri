@@ -1399,7 +1399,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
     }
 }
 
-fn compute_toplevel_bounds(
+pub(super) fn compute_toplevel_bounds(
     border_config: niri_config::Border,
     working_area_size: Size<f64, Logical>,
 ) -> Size<i32, Logical> {

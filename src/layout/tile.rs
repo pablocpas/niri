@@ -273,7 +273,10 @@ impl<W: LayoutElement> Tile<W> {
         let prev_sizing_mode = self.sizing_mode;
         self.sizing_mode = self.window.sizing_mode();
 
-        if let Some(animate_from) = self.window.take_animation_snapshot() {
+        let animation_snapshot = self.window.take_animation_snapshot();
+        if self.is_scratchpad {
+            self.resize_animation = None;
+        } else if let Some(animate_from) = animation_snapshot {
             let params = if let Some(resize) = self.resize_animation.take() {
                 // Compute like in animated_window_size(), but using the snapshot geometry (since
                 // the current one is already overwritten).
@@ -569,6 +572,10 @@ impl<W: LayoutElement> Tile<W> {
 
     pub fn resize_animation(&self) -> Option<&Animation> {
         self.resize_animation.as_ref().map(|resize| &resize.anim)
+    }
+
+    pub(super) fn clear_resize_animation(&mut self) {
+        self.resize_animation = None;
     }
 
     pub fn animate_move_from(&mut self, from: Point<f64, Logical>) {
