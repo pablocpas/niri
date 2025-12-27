@@ -1198,7 +1198,6 @@ impl<W: LayoutElement> ContainerTree<W> {
                     inner_rect.size.h = (inner_rect.size.h - gap * 2.0).max(0.0);
                 }
 
-                let child_rect = inner_rect;
                 let bar_row_height = self.tab_bar_row_height();
                 let mut tab_offset = 0.0;
                 if bar_row_height > 0.0 && child_count > 0 {
@@ -1218,13 +1217,24 @@ impl<W: LayoutElement> ContainerTree<W> {
                 for (idx, &child_key) in children.iter().enumerate() {
                     path.push(idx);
                     let child_visible = visible && idx == focused_idx;
+                    let is_leaf = matches!(self.get_node(child_key), Some(NodeData::Leaf(_)));
+                    let (child_rect, child_offset) = if is_leaf {
+                        (inner_rect, tab_offset)
+                    } else {
+                        let mut content_rect = inner_rect;
+                        if tab_offset > 0.0 {
+                            content_rect.loc.y += tab_offset;
+                            content_rect.size.h = (content_rect.size.h - tab_offset).max(0.0);
+                        }
+                        (content_rect, 0.0)
+                    };
                     self.layout_node(
                         child_key,
                         child_rect,
                         path,
                         child_visible,
                         animate,
-                        tab_offset,
+                        child_offset,
                     );
                     path.pop();
                 }
@@ -1914,7 +1924,8 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
 
             if let Some(container) = self.get_container_mut(parent_key) {
-                if container.child_count() == 1 {
+                if container.child_count() == 1 && matches!(parent_layout, Layout::SplitH | Layout::SplitV)
+                {
                     container.set_layout_explicit(layout);
                     return true;
                 }
@@ -2020,8 +2031,30 @@ impl<W: LayoutElement> ContainerTree<W> {
             return true;
         }
 
-        let Some(current) = self.focused_layout() else {
-            return false;
+        let focus_path = self.focus_path();
+        let target_key = if focus_path.is_empty() {
+            match self.root {
+                Some(key) => key,
+                None => return false,
+            }
+        } else {
+            let parent_path = &focus_path[..focus_path.len() - 1];
+            if parent_path.is_empty() {
+                match self.root {
+                    Some(key) => key,
+                    None => return false,
+                }
+            } else {
+                match self.get_node_key_at_path(parent_path) {
+                    Some(key) => key,
+                    None => return false,
+                }
+            }
+        };
+
+        let current = match self.get_container(target_key) {
+            Some(container) => container.layout(),
+            None => return false,
         };
 
         let next = match current {
@@ -2029,6 +2062,14 @@ impl<W: LayoutElement> ContainerTree<W> {
             Layout::SplitV => Layout::SplitH,
             Layout::Tabbed | Layout::Stacked => Layout::SplitH,
         };
+
+        if matches!(current, Layout::Tabbed | Layout::Stacked) {
+            if let Some(container) = self.get_container_mut(target_key) {
+                container.set_layout_explicit(next);
+                return true;
+            }
+            return false;
+        }
 
         self.set_focused_layout(next)
     }
