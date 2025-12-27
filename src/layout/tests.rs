@@ -1667,6 +1667,17 @@ fn approx_eq(actual: f64, expected: f64, tolerance: f64) {
     );
 }
 
+fn marks_for(layout: &Layout<TestWindow>, id: usize) -> Vec<String> {
+    layout
+        .workspaces()
+        .find_map(|(_, _, ws)| {
+            ws.tiles()
+                .find(|tile| *tile.window().id() == id)
+                .map(|tile| tile.marks().to_vec())
+        })
+        .unwrap_or_default()
+}
+
 #[test]
 fn auto_insertion_respects_split_containers() {
     let options = Options::from_config(&Config::default());
@@ -1755,6 +1766,143 @@ fn auto_insertion_respects_split_containers() {
     approx_eq(loc3.y, origin.y + size2.h, 1.0);
     approx_eq(size3.w, size2.w, 0.5);
     approx_eq(size3.h, size2.h, 1.0);
+}
+
+#[test]
+fn scratchpad_show_hides_focused_window() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    let params1 = TestWindowParams::new(1);
+    let id1 = params1.id;
+    layout.add_window(
+        TestWindow::new(params1),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let params2 = TestWindowParams::new(2);
+    let id2 = params2.id;
+    layout.add_window(
+        TestWindow::new(params2),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    layout.move_window_to_scratchpad(None);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.has_window(&id1));
+    assert!(!workspace.has_window(&id2));
+
+    layout.scratchpad_show();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.has_window(&id2));
+    assert!(workspace.is_floating(&id2));
+    assert_eq!(workspace.active_window().unwrap().id(), &id2);
+
+    layout.scratchpad_show();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.has_window(&id2));
+}
+
+#[test]
+fn scratchpad_show_moves_visible_between_outputs() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output_a = make_test_output("output-a");
+    let output_b = make_test_output("output-b");
+    layout.add_output(output_a.clone(), None);
+    layout.add_output(output_b.clone(), None);
+
+    let params1 = TestWindowParams::new(1);
+    let id1 = params1.id;
+    layout.add_window(
+        TestWindow::new(params1),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    layout.move_window_to_scratchpad(None);
+    layout.scratchpad_show();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.has_window(&id1));
+    assert!(workspace.is_floating(&id1));
+
+    layout.focus_output(&output_b);
+    layout.scratchpad_show();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.has_window(&id1));
+    assert!(workspace.is_floating(&id1));
+}
+
+#[test]
+fn marks_replace_add_toggle() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    let params1 = TestWindowParams::new(1);
+    let id1 = params1.id;
+    layout.add_window(
+        TestWindow::new(params1),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let params2 = TestWindowParams::new(2);
+    let id2 = params2.id;
+    layout.add_window(
+        TestWindow::new(params2),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let workspace = layout.active_workspace_mut().expect("active workspace");
+    assert!(workspace.focus_window_by_id(&id1));
+
+    layout.mark_focused(String::from("one"), MarkMode::Replace);
+    assert_eq!(marks_for(&layout, id1), vec![String::from("one")]);
+
+    let workspace = layout.active_workspace_mut().expect("active workspace");
+    assert!(workspace.focus_window_by_id(&id2));
+
+    layout.mark_focused(String::from("one"), MarkMode::Add);
+    assert!(marks_for(&layout, id1).is_empty());
+    assert_eq!(marks_for(&layout, id2), vec![String::from("one")]);
+
+    layout.mark_focused(String::from("one"), MarkMode::Toggle);
+    assert!(marks_for(&layout, id2).is_empty());
 }
 
 #[track_caller]

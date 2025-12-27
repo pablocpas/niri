@@ -605,6 +605,7 @@ impl<W: LayoutElement> Workspace<W> {
         is_full_width: bool,
         is_floating: bool,
     ) {
+        tile.set_scratchpad(false);
         self.enter_output_for_window(tile.window());
         tile.restore_to_floating = is_floating;
 
@@ -694,9 +695,10 @@ impl<W: LayoutElement> Workspace<W> {
         &mut self,
         col_idx: usize,
         tile_idx: Option<usize>,
-        tile: Tile<W>,
+        mut tile: Tile<W>,
         activate: bool,
     ) {
+        tile.set_scratchpad(false);
         self.enter_output_for_window(tile.window());
         self.scrolling
             .add_tile_to_column(col_idx, tile_idx, tile, activate);
@@ -1035,6 +1037,22 @@ impl<W: LayoutElement> Workspace<W> {
         if !self.focus_up() {
             self.focus_window_bottom();
         }
+    }
+
+    pub fn focus_window_by_id(&mut self, id: &W::Id) -> bool {
+        if self.floating.has_window(id) {
+            if self.floating.focus_window_by_id(id) {
+                self.floating_is_active = FloatingActive::Yes;
+                return true;
+            }
+        }
+
+        if self.scrolling.activate_window(id) {
+            self.floating_is_active = FloatingActive::No;
+            return true;
+        }
+
+        false
     }
 
     pub fn move_left(&mut self) -> bool {
@@ -1446,10 +1464,12 @@ impl<W: LayoutElement> Workspace<W> {
 
         if self.floating.has_window(&id) {
             let removed = self.floating.remove_tile(&id);
+            let mut tile = removed.tile;
+            tile.set_scratchpad(false);
             // FIXME: compute closest pos?
             self.scrolling.add_tile(
                 None,
-                removed.tile,
+                tile,
                 target_is_active,
                 removed.width,
                 removed.is_full_width,
@@ -1491,6 +1511,58 @@ impl<W: LayoutElement> Workspace<W> {
             .unwrap();
 
         tile.animate_move_from(render_pos - new_render_pos);
+    }
+
+    pub fn scratchpad_window_id(&self) -> Option<W::Id> {
+        self.floating
+            .tiles()
+            .find(|tile| tile.is_scratchpad())
+            .map(|tile| tile.window().id().clone())
+    }
+
+    pub fn take_tile_for_scratchpad(&mut self, id: &W::Id) -> Option<Tile<W>> {
+        let (_, render_pos, _) = self
+            .tiles_with_render_positions()
+            .find(|(tile, _, _)| tile.window().id() == id)?;
+
+        let removed = self.remove_tile(id, Transaction::new());
+        let mut tile = removed.tile;
+        tile.set_scratchpad(true);
+        tile.window_mut().set_floating(true);
+
+        if !removed.is_floating {
+            tile.stop_move_animations();
+            tile.pending_maximized = false;
+
+            let stored_or_default = self.floating.stored_or_default_tile_pos(&tile);
+            if stored_or_default.is_none() {
+                let offset = if self.options.layout.center_focused_column
+                    == CenterFocusedColumn::Always
+                {
+                    Point::from((0., 0.))
+                } else {
+                    Point::from((50., 50.))
+                };
+                let pos = render_pos + offset;
+                let size = tile.tile_size();
+                let pos = self.floating.clamp_within_working_area(pos, size);
+                let pos = self.floating.logical_to_size_frac(pos);
+                tile.floating_pos = Some(pos);
+            }
+        }
+
+        Some(tile)
+    }
+
+    pub fn add_scratchpad_tile(&mut self, mut tile: Tile<W>, activate: bool) {
+        tile.set_scratchpad(true);
+        tile.window_mut().set_floating(true);
+        self.enter_output_for_window(tile.window());
+        self.floating.add_tile(tile, activate);
+
+        if activate || self.scrolling.is_empty() {
+            self.floating_is_active = FloatingActive::Yes;
+        }
     }
 
     pub fn set_window_floating(&mut self, id: Option<&W::Id>, floating: bool) {

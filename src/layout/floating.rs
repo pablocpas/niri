@@ -861,6 +861,15 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.focus_directional(|focus, other| focus.x - other.x)
     }
 
+    pub fn focus_window_by_id(&mut self, id: &W::Id) -> bool {
+        if !self.has_window(id) {
+            return false;
+        }
+
+        self.active_window_id = Some(id.clone());
+        true
+    }
+
     pub fn focus_right(&mut self) -> bool {
         self.focus_directional(|focus, other| other.x - focus.x)
     }

@@ -351,6 +351,38 @@ pub enum Action {
         #[cfg_attr(feature = "clap", arg(long))]
         id: Option<u64>,
     },
+    /// Move a window to scratchpad.
+    #[cfg_attr(
+        feature = "clap",
+        clap(about = "Move the focused window to scratchpad")
+    )]
+    MoveWindowToScratchpad {
+        /// Id of the window to move to scratchpad.
+        ///
+        /// If `None`, uses the focused window.
+        #[cfg_attr(feature = "clap", arg(long))]
+        id: Option<u64>,
+    },
+    /// Show the scratchpad window (toggle if already visible).
+    ScratchpadShow {},
+    /// Mark the focused window.
+    Mark {
+        /// Mark name.
+        #[cfg_attr(feature = "clap", arg())]
+        name: String,
+        /// Marking mode.
+        #[serde(default)]
+        #[cfg_attr(feature = "clap", arg(long, default_value_t = MarkMode::Replace))]
+        mode: MarkMode,
+    },
+    /// Remove marks.
+    Unmark {
+        /// Mark name to remove.
+        ///
+        /// If `None`, removes all marks from the focused window.
+        #[cfg_attr(feature = "clap", arg())]
+        name: Option<String>,
+    },
     /// Focus a window by id.
     FocusWindow {
         /// Id of the window to focus.
@@ -1022,6 +1054,36 @@ pub enum ColumnDisplay {
     Normal,
     /// Windows are in tabs.
     Tabbed,
+}
+
+/// Marking mode for the focused window.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub enum MarkMode {
+    /// Replace marks on the focused window with the provided mark.
+    Replace,
+    /// Add the mark to the focused window without clearing other marks.
+    Add,
+    /// Toggle the mark on the focused window.
+    Toggle,
+}
+
+impl Default for MarkMode {
+    fn default() -> Self {
+        MarkMode::Replace
+    }
+}
+
+impl std::fmt::Display for MarkMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            MarkMode::Replace => "replace",
+            MarkMode::Add => "add",
+            MarkMode::Toggle => "toggle",
+        };
+        f.write_str(name)
+    }
 }
 
 /// Output actions that niri can perform.
