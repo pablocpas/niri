@@ -844,6 +844,59 @@ impl State {
                     self.niri.queue_redraw_all();
                 }
             }
+            Action::MoveWindowToScratchpad => {
+                self.niri.layout.move_window_to_scratchpad(None);
+                // FIXME: granular
+                self.niri.queue_redraw_all();
+            }
+            Action::MoveWindowToScratchpadById(id) => {
+                let window = self.niri.layout.windows().find(|(_, m)| m.id().get() == id);
+                let window = window.map(|(_, m)| m.window.clone());
+                if let Some(window) = window {
+                    self.niri.layout.move_window_to_scratchpad(Some(&window));
+                    // FIXME: granular
+                    self.niri.queue_redraw_all();
+                }
+            }
+            Action::ScratchpadShow => {
+                self.niri.layout.scratchpad_show();
+                self.maybe_warp_cursor_to_focus();
+                // FIXME: granular
+                self.niri.queue_redraw_all();
+            }
+            Action::Mark(mark) => {
+                self.niri
+                    .layout
+                    .mark_focused(mark, crate::layout::MarkMode::Replace);
+                // FIXME: granular
+                self.niri.queue_redraw_all();
+            }
+            Action::MarkAdd(mark) => {
+                self.niri
+                    .layout
+                    .mark_focused(mark, crate::layout::MarkMode::Add);
+                // FIXME: granular
+                self.niri.queue_redraw_all();
+            }
+            Action::MarkToggle(mark) => {
+                self.niri
+                    .layout
+                    .mark_focused(mark, crate::layout::MarkMode::Toggle);
+                // FIXME: granular
+                self.niri.queue_redraw_all();
+            }
+            Action::MarkReplace(mark) => {
+                self.niri
+                    .layout
+                    .mark_focused(mark, crate::layout::MarkMode::Replace);
+                // FIXME: granular
+                self.niri.queue_redraw_all();
+            }
+            Action::Unmark(mark) => {
+                self.niri.layout.unmark(mark.as_deref());
+                // FIXME: granular
+                self.niri.queue_redraw_all();
+            }
             Action::FocusWindow(id) => {
                 let window = self.niri.layout.windows().find(|(_, m)| m.id().get() == id);
                 let window = window.map(|(_, m)| m.window.clone());

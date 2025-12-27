@@ -399,6 +399,10 @@ binds {
 
     Mod+Shift+Q repeat=false { close-window; }
 
+    // Scratchpad (i3-style)
+    Mod+Shift+Minus { move-window-to-scratchpad; }
+    Mod+Minus { scratchpad-show; }
+
     Mod+Left  { focus-column-left; }
     Mod+Down  { focus-window-down; }
     Mod+Up    { focus-window-up; }

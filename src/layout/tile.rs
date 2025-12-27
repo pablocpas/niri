@@ -60,6 +60,12 @@ pub struct Tile<W: LayoutElement> {
     /// Whether the tile should float upon unfullscreening.
     pub(super) restore_to_floating: bool,
 
+    /// Whether this tile is in the scratchpad.
+    pub(super) is_scratchpad: bool,
+
+    /// Marks assigned to this tile.
+    marks: Vec<String>,
+
     /// Whether the tile should return to maximized once it exits fullscreen.
     pub(super) pending_maximized: bool,
 
@@ -197,6 +203,8 @@ impl<W: LayoutElement> Tile<W> {
             sizing_mode,
             fullscreen_backdrop: SolidColorBuffer::new((0., 0.), [0., 0., 0., 1.]),
             restore_to_floating: false,
+            is_scratchpad: false,
+            marks: Vec::new(),
             pending_maximized,
             floating_window_size: None,
             floating_pos: None,
@@ -661,6 +669,37 @@ impl<W: LayoutElement> Tile<W> {
 
     pub fn window_mut(&mut self) -> &mut W {
         &mut self.window
+    }
+
+    pub(super) fn is_scratchpad(&self) -> bool {
+        self.is_scratchpad
+    }
+
+    pub(super) fn set_scratchpad(&mut self, scratchpad: bool) {
+        self.is_scratchpad = scratchpad;
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn marks(&self) -> &[String] {
+        &self.marks
+    }
+
+    pub(super) fn has_mark(&self, mark: &str) -> bool {
+        self.marks.iter().any(|m| m == mark)
+    }
+
+    pub(super) fn add_mark(&mut self, mark: String) {
+        if !self.has_mark(&mark) {
+            self.marks.push(mark);
+        }
+    }
+
+    pub(super) fn remove_mark(&mut self, mark: &str) {
+        self.marks.retain(|m| m != mark);
+    }
+
+    pub(super) fn clear_marks(&mut self) {
+        self.marks.clear();
     }
 
     pub fn sizing_mode(&self) -> SizingMode {

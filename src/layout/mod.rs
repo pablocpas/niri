@@ -331,6 +331,8 @@ pub struct Layout<W: LayoutElement> {
     overview_open: bool,
     /// The overview zoom progress.
     overview_progress: Option<OverviewProgress>,
+    /// Hidden scratchpad windows (LIFO).
+    scratchpad: Vec<Tile<W>>,
     /// Configurable properties of the layout.
     options: Rc<Options>,
 }
@@ -452,6 +454,13 @@ pub enum ConfigureIntent {
     /// Should send the configure regardless of external throttling (something other than size
     /// changed).
     ShouldSend,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MarkMode {
+    Replace,
+    Add,
+    Toggle,
 }
 
 /// Tile that was just removed from the layout.
@@ -668,6 +677,7 @@ impl<W: LayoutElement> Layout<W> {
             update_render_elements_time: Duration::ZERO,
             overview_open: false,
             overview_progress: None,
+            scratchpad: Vec::new(),
             options: Rc::new(options),
         }
     }
@@ -693,6 +703,7 @@ impl<W: LayoutElement> Layout<W> {
             update_render_elements_time: Duration::ZERO,
             overview_open: false,
             overview_progress: None,
+            scratchpad: Vec::new(),
             options: opts,
         }
     }
@@ -1114,6 +1125,20 @@ impl<W: LayoutElement> Layout<W> {
             }
         }
 
+        if let Some(idx) = self
+            .scratchpad
+            .iter()
+            .position(|tile| tile.window().id() == window)
+        {
+            let tile = self.scratchpad.remove(idx);
+            return Some(RemovedTile {
+                width: ColumnWidth::Fixed(tile.tile_expected_or_current_size().w as i32),
+                tile,
+                is_full_width: false,
+                is_floating: true,
+            });
+        }
+
         match &mut self.monitor_set {
             MonitorSet::Normal { monitors, .. } => {
                 for mon in monitors {
@@ -1190,6 +1215,18 @@ impl<W: LayoutElement> Layout<W> {
                 move_.tile.update_window();
                 return;
             }
+        }
+
+        if let Some(tile) = self
+            .scratchpad
+            .iter_mut()
+            .find(|tile| tile.window().id() == window)
+        {
+            if let Some(serial) = serial {
+                tile.window_mut().on_commit(serial);
+            }
+            tile.update_window();
+            return;
         }
 
         match &mut self.monitor_set {
@@ -1640,6 +1677,11 @@ impl<W: LayoutElement> Layout<W> {
             f(move_.tile.window(), Some(&move_.output), None, layout);
         }
 
+        for tile in &self.scratchpad {
+            let layout = tile.ipc_layout_template();
+            f(tile.window(), None, None, layout);
+        }
+
         match &self.monitor_set {
             MonitorSet::Normal { monitors, .. } => {
                 for mon in monitors {
@@ -1663,6 +1705,10 @@ impl<W: LayoutElement> Layout<W> {
     pub fn with_windows_mut(&mut self, mut f: impl FnMut(&mut W, Option<&Output>)) {
         if let Some(InteractiveMoveState::Moving(move_)) = &mut self.interactive_move {
             f(move_.tile.window_mut(), Some(&move_.output));
+        }
+
+        for tile in &mut self.scratchpad {
+            f(tile.window_mut(), None);
         }
 
         match &mut self.monitor_set {
@@ -3241,6 +3287,140 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.switch_focus_floating_tiling();
+    }
+
+    pub fn move_window_to_scratchpad(&mut self, window: Option<&W::Id>) {
+        if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
+            if window.is_none() || window == Some(move_.tile.window().id()) {
+                return;
+            }
+        }
+
+        let target = match window {
+            Some(id) => id.clone(),
+            None => match self.focus() {
+                Some(win) => win.id().clone(),
+                None => return,
+            },
+        };
+
+        if self
+            .scratchpad
+            .iter()
+            .any(|tile| tile.window().id() == &target)
+        {
+            return;
+        }
+
+        let tile = {
+            let Some(workspace) = self.workspaces_mut().find(|ws| ws.has_window(&target)) else {
+                return;
+            };
+            workspace.take_tile_for_scratchpad(&target)
+        };
+
+        let Some(tile) = tile else {
+            return;
+        };
+        self.scratchpad.push(tile);
+    }
+
+    pub fn scratchpad_show(&mut self) {
+        let (active_ws_id, active_visible) = {
+            let Some(workspace) = self.active_workspace() else {
+                return;
+            };
+            let id = workspace.id();
+            let visible = workspace.scratchpad_window_id().map(|visible_id| {
+                let is_focused =
+                    workspace.active_window().map(|win| win.id()) == Some(&visible_id);
+                (id, visible_id, is_focused)
+            });
+            (id, visible)
+        };
+
+        let visible_elsewhere = active_visible.or_else(|| {
+            self.workspaces().find_map(|(_, _, ws)| {
+                if ws.id() == active_ws_id {
+                    return None;
+                }
+                let id = ws.scratchpad_window_id()?;
+                let is_focused = ws.active_window().map(|win| win.id()) == Some(&id);
+                Some((ws.id(), id, is_focused))
+            })
+        });
+
+        let mut scratchpad = mem::take(&mut self.scratchpad);
+
+        if let Some((ws_id, visible_id, is_focused)) = visible_elsewhere {
+            if ws_id == active_ws_id {
+                if is_focused {
+                    let next = scratchpad.pop();
+
+                    if let Some(workspace) = self.active_workspace_mut() {
+                        if let Some(tile) = workspace.take_tile_for_scratchpad(&visible_id) {
+                            scratchpad.push(tile);
+                        }
+                        if let Some(tile) = next {
+                            workspace.add_scratchpad_tile(tile, true);
+                        }
+                    }
+                } else if let Some(workspace) = self.active_workspace_mut() {
+                    workspace.focus_window_by_id(&visible_id);
+                }
+
+                self.scratchpad = scratchpad;
+                return;
+            }
+
+            let tile = self
+                .workspaces_mut()
+                .find(|ws| ws.id() == ws_id)
+                .and_then(|ws| ws.take_tile_for_scratchpad(&visible_id));
+
+            if let (Some(tile), Some(workspace)) = (tile, self.active_workspace_mut()) {
+                workspace.add_scratchpad_tile(tile, true);
+            }
+
+            self.scratchpad = scratchpad;
+            return;
+        }
+
+        let next = scratchpad.pop();
+        if let (Some(tile), Some(workspace)) = (next, self.active_workspace_mut()) {
+            workspace.add_scratchpad_tile(tile, true);
+        }
+        self.scratchpad = scratchpad;
+    }
+
+    pub fn mark_focused(&mut self, mark: String, mode: MarkMode) {
+        let Some(focused) = self.focus().map(|win| win.id().clone()) else {
+            return;
+        };
+
+        let has_mark = self.tile_has_mark(&focused, &mark);
+        if matches!(mode, MarkMode::Toggle) && has_mark {
+            self.remove_mark_from_tile(&focused, &mark);
+            return;
+        }
+
+        if matches!(mode, MarkMode::Replace) {
+            self.clear_marks_on_tile(&focused);
+        }
+
+        self.remove_mark_everywhere(&mark);
+        self.add_mark_to_tile(&focused, mark);
+    }
+
+    pub fn unmark(&mut self, mark: Option<&str>) {
+        let Some(focused) = self.focus().map(|win| win.id().clone()) else {
+            return;
+        };
+
+        match mark {
+            Some(mark) => self.remove_mark_everywhere(mark),
+            None => self.clear_marks_on_tile(&focused),
+        }
     }
 
     pub fn move_floating_window(
@@ -4963,7 +5143,76 @@ impl<W: LayoutElement> Layout<W> {
             .workspaces()
             .flat_map(|(mon, _, ws)| ws.windows().map(move |win| (mon, win)));
 
-        moving_window.chain(rest)
+        let scratchpad = self
+            .scratchpad
+            .iter()
+            .map(|tile| (None, tile.window()));
+
+        moving_window.chain(rest).chain(scratchpad)
+    }
+
+    fn tile_has_mark(&self, id: &W::Id, mark: &str) -> bool {
+        if self
+            .scratchpad
+            .iter()
+            .any(|tile| tile.window().id() == id && tile.has_mark(mark))
+        {
+            return true;
+        }
+
+        self.workspaces().any(|(_, _, ws)| {
+            ws.tiles()
+                .any(|tile| tile.window().id() == id && tile.has_mark(mark))
+        })
+    }
+
+    fn with_tile_mut_by_id<F>(&mut self, id: &W::Id, f: F) -> bool
+    where
+        F: FnOnce(&mut Tile<W>),
+    {
+        let mut f = Some(f);
+
+        if let Some(tile) = self
+            .scratchpad
+            .iter_mut()
+            .find(|tile| tile.window().id() == id)
+        {
+            f.take().unwrap()(tile);
+            return true;
+        }
+
+        for ws in self.workspaces_mut() {
+            if let Some(tile) = ws.tiles_mut().find(|tile| tile.window().id() == id) {
+                f.take().unwrap()(tile);
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn add_mark_to_tile(&mut self, id: &W::Id, mark: String) {
+        let _ = self.with_tile_mut_by_id(id, |tile| tile.add_mark(mark));
+    }
+
+    fn remove_mark_from_tile(&mut self, id: &W::Id, mark: &str) {
+        let _ = self.with_tile_mut_by_id(id, |tile| tile.remove_mark(mark));
+    }
+
+    fn clear_marks_on_tile(&mut self, id: &W::Id) {
+        let _ = self.with_tile_mut_by_id(id, |tile| tile.clear_marks());
+    }
+
+    fn remove_mark_everywhere(&mut self, mark: &str) {
+        for tile in &mut self.scratchpad {
+            tile.remove_mark(mark);
+        }
+
+        for ws in self.workspaces_mut() {
+            for tile in ws.tiles_mut() {
+                tile.remove_mark(mark);
+            }
+        }
     }
 
     pub fn has_window(&self, window: &W::Id) -> bool {

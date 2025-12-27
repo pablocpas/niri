@@ -152,6 +152,15 @@ pub enum Action {
     ToggleWindowedFullscreen,
     #[knuffel(skip)]
     ToggleWindowedFullscreenById(u64),
+    MoveWindowToScratchpad,
+    #[knuffel(skip)]
+    MoveWindowToScratchpadById(u64),
+    ScratchpadShow,
+    Mark(#[knuffel(argument)] String),
+    MarkAdd(#[knuffel(argument)] String),
+    MarkToggle(#[knuffel(argument)] String),
+    MarkReplace(#[knuffel(argument)] String),
+    Unmark(#[knuffel(argument)] Option<String>),
     #[knuffel(skip)]
     FocusWindow(u64),
     FocusWindowInColumn(#[knuffel(argument)] u8),
@@ -445,6 +454,17 @@ impl From<niri_ipc::Action> for Action {
             niri_ipc::Action::ToggleWindowedFullscreen { id: Some(id) } => {
                 Self::ToggleWindowedFullscreenById(id)
             }
+            niri_ipc::Action::MoveWindowToScratchpad { id: None } => Self::MoveWindowToScratchpad,
+            niri_ipc::Action::MoveWindowToScratchpad { id: Some(id) } => {
+                Self::MoveWindowToScratchpadById(id)
+            }
+            niri_ipc::Action::ScratchpadShow {} => Self::ScratchpadShow,
+            niri_ipc::Action::Mark { name, mode } => match mode {
+                niri_ipc::MarkMode::Replace => Self::Mark(name),
+                niri_ipc::MarkMode::Add => Self::MarkAdd(name),
+                niri_ipc::MarkMode::Toggle => Self::MarkToggle(name),
+            },
+            niri_ipc::Action::Unmark { name } => Self::Unmark(name),
             niri_ipc::Action::FocusWindow { id } => Self::FocusWindow(id),
             niri_ipc::Action::FocusWindowInColumn { index } => Self::FocusWindowInColumn(index),
             niri_ipc::Action::FocusWindowPrevious {} => Self::FocusWindowPrevious,
