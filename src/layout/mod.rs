@@ -31,7 +31,7 @@
 //! workspace just like any other. Then they come back, reconnect the second monitor, and now we
 //! don't want an unassuming workspace to end up on it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::mem;
 use std::rc::Rc;
 use std::time::Duration;
@@ -331,8 +331,8 @@ pub struct Layout<W: LayoutElement> {
     overview_open: bool,
     /// The overview zoom progress.
     overview_progress: Option<OverviewProgress>,
-    /// Hidden scratchpad windows (LIFO).
-    scratchpad: Vec<Tile<W>>,
+    /// Hidden scratchpad windows (round-robin queue).
+    scratchpad: VecDeque<Tile<W>>,
     /// Configurable properties of the layout.
     options: Rc<Options>,
 }
@@ -677,7 +677,7 @@ impl<W: LayoutElement> Layout<W> {
             update_render_elements_time: Duration::ZERO,
             overview_open: false,
             overview_progress: None,
-            scratchpad: Vec::new(),
+            scratchpad: VecDeque::new(),
             options: Rc::new(options),
         }
     }
@@ -703,7 +703,7 @@ impl<W: LayoutElement> Layout<W> {
             update_render_elements_time: Duration::ZERO,
             overview_open: false,
             overview_progress: None,
-            scratchpad: Vec::new(),
+            scratchpad: VecDeque::new(),
             options: opts,
         }
     }
@@ -1130,7 +1130,10 @@ impl<W: LayoutElement> Layout<W> {
             .iter()
             .position(|tile| tile.window().id() == window)
         {
-            let tile = self.scratchpad.remove(idx);
+            let tile = self
+                .scratchpad
+                .remove(idx)
+                .expect("scratchpad index should be valid");
             return Some(RemovedTile {
                 width: ColumnWidth::Fixed(tile.tile_expected_or_current_size().w as i32),
                 tile,
@@ -3322,7 +3325,7 @@ impl<W: LayoutElement> Layout<W> {
         let Some(tile) = tile else {
             return;
         };
-        self.scratchpad.push(tile);
+        self.scratchpad.push_back(tile);
     }
 
     pub fn scratchpad_show(&mut self) {
@@ -3331,11 +3334,9 @@ impl<W: LayoutElement> Layout<W> {
                 return;
             };
             let id = workspace.id();
-            let visible = workspace.scratchpad_window_id().map(|visible_id| {
-                let is_focused =
-                    workspace.active_window().map(|win| win.id()) == Some(&visible_id);
-                (id, visible_id, is_focused)
-            });
+            let visible = workspace
+                .scratchpad_window_id()
+                .map(|visible_id| (id, visible_id));
             (id, visible)
         };
 
@@ -3345,28 +3346,18 @@ impl<W: LayoutElement> Layout<W> {
                     return None;
                 }
                 let id = ws.scratchpad_window_id()?;
-                let is_focused = ws.active_window().map(|win| win.id()) == Some(&id);
-                Some((ws.id(), id, is_focused))
+                Some((ws.id(), id))
             })
         });
 
         let mut scratchpad = mem::take(&mut self.scratchpad);
 
-        if let Some((ws_id, visible_id, is_focused)) = visible_elsewhere {
+        if let Some((ws_id, visible_id)) = visible_elsewhere {
             if ws_id == active_ws_id {
-                if is_focused {
-                    let next = scratchpad.pop();
-
-                    if let Some(workspace) = self.active_workspace_mut() {
-                        if let Some(tile) = workspace.take_tile_for_scratchpad(&visible_id) {
-                            scratchpad.push(tile);
-                        }
-                        if let Some(tile) = next {
-                            workspace.add_scratchpad_tile(tile, true);
-                        }
+                if let Some(workspace) = self.active_workspace_mut() {
+                    if let Some(tile) = workspace.take_tile_for_scratchpad(&visible_id) {
+                        scratchpad.push_back(tile);
                     }
-                } else if let Some(workspace) = self.active_workspace_mut() {
-                    workspace.focus_window_by_id(&visible_id);
                 }
 
                 self.scratchpad = scratchpad;
@@ -3386,7 +3377,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         }
 
-        let next = scratchpad.pop();
+        let next = scratchpad.pop_front();
         if let (Some(tile), Some(workspace)) = (next, self.active_workspace_mut()) {
             workspace.add_scratchpad_tile(tile, true);
         }
