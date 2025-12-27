@@ -605,7 +605,9 @@ impl<W: LayoutElement> Workspace<W> {
         is_full_width: bool,
         is_floating: bool,
     ) {
-        tile.set_scratchpad(false);
+        if !is_floating {
+            tile.set_scratchpad(false);
+        }
         self.enter_output_for_window(tile.window());
         tile.restore_to_floating = is_floating;
 
@@ -1521,10 +1523,6 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn take_tile_for_scratchpad(&mut self, id: &W::Id) -> Option<Tile<W>> {
-        let (_, render_pos, _) = self
-            .tiles_with_render_positions()
-            .find(|(tile, _, _)| tile.window().id() == id)?;
-
         let removed = self.remove_tile(id, Transaction::new());
         let mut tile = removed.tile;
         tile.set_scratchpad(true);
@@ -1533,21 +1531,23 @@ impl<W: LayoutElement> Workspace<W> {
         if !removed.is_floating {
             tile.stop_move_animations();
             tile.pending_maximized = false;
+            // Always center scratchpad windows when first shown.
+            tile.floating_pos = None;
 
-            let stored_or_default = self.floating.stored_or_default_tile_pos(&tile);
-            if stored_or_default.is_none() {
-                let offset = if self.options.layout.center_focused_column
-                    == CenterFocusedColumn::Always
-                {
-                    Point::from((0., 0.))
-                } else {
-                    Point::from((50., 50.))
-                };
-                let pos = render_pos + offset;
-                let size = tile.tile_size();
-                let pos = self.floating.clamp_within_working_area(pos, size);
-                let pos = self.floating.logical_to_size_frac(pos);
-                tile.floating_pos = Some(pos);
+            if tile.floating_window_size.is_none() {
+                let working_size = self.floating.working_area().size;
+                let mut size = Size::from((
+                    working_size.w * 0.5,
+                    working_size.h * 0.75,
+                ))
+                .to_i32_floor();
+
+                let min_size = tile.window().min_size();
+                let max_size = tile.window().max_size();
+                size.w = ensure_min_max_size(size.w, min_size.w, max_size.w);
+                size.h = ensure_min_max_size(size.h, min_size.h, max_size.h);
+
+                tile.floating_window_size = Some(size);
             }
         }
 
