@@ -1052,7 +1052,13 @@ impl<W: LayoutElement> ContainerTree<W> {
                 // Handle leaf
                 if let Some(NodeData::Leaf(tile)) = self.get_node_mut(node_key) {
                     let size = Size::from((rect.size.w, rect.size.h));
-                    tile.request_tile_size(size, animate, None);
+                    if tile.window().pending_sizing_mode().is_fullscreen() {
+                        tile.request_fullscreen(animate, None);
+                    } else if tile.pending_maximized {
+                        tile.request_maximized(size, animate, None);
+                    } else {
+                        tile.request_tile_size(size, animate, None);
+                    }
                     self.leaf_layouts.push(LeafLayoutInfo {
                         key: node_key,
                         path: path.clone(),

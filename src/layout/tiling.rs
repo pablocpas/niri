@@ -507,7 +507,10 @@ impl<W: LayoutElement> TilingSpace<W> {
     pub fn is_active_pending_fullscreen(&self) -> bool {
         self.tree
             .focused_tile()
-            .map_or(false, |tile| tile.window().is_pending_fullscreen())
+            .map_or(false, |tile| {
+                tile.window().pending_sizing_mode().is_fullscreen()
+                    || tile.window().is_pending_windowed_fullscreen()
+            })
     }
 
     pub fn view_size(&self) -> Size<f64, Logical> {
@@ -624,16 +627,14 @@ impl<W: LayoutElement> TilingSpace<W> {
                 }
 
                 let draw_focus = scrolling_focus_ring && info.path == focus_path;
-
-                let iter = tile
-                    .render(renderer, pos, draw_focus, target)
-                    .map(TilingSpaceRenderElement::from);
-
-                if info.path == focus_path {
-                    active_elements.extend(iter);
+                let target_elements = if info.path == focus_path {
+                    &mut active_elements
                 } else {
-                    elements.extend(iter);
-                }
+                    &mut elements
+                };
+                tile.render(renderer, pos, draw_focus, target, &mut |elem| {
+                    target_elements.push(TilingSpaceRenderElement::from(elem));
+                });
             }
         }
 
@@ -702,6 +703,18 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
 
         elements
+    }
+
+    pub fn render<R: NiriRenderer>(
+        &self,
+        renderer: &mut R,
+        target: RenderTarget,
+        scrolling_focus_ring: bool,
+        push: &mut dyn FnMut(TilingSpaceRenderElement<R>),
+    ) {
+        for elem in self.render_elements(renderer, target, scrolling_focus_ring) {
+            push(elem);
+        }
     }
 
     // Layout operations using ContainerTree
@@ -1760,6 +1773,13 @@ impl<W: LayoutElement> TilingSpace<W> {
                 return false;
             }
 
+            if let Some(path) = self.tree.find_window(window) {
+                if let Some(tile) = self.tree.tile_at_path_mut(&path) {
+                    tile.pending_maximized |= tile.window().pending_sizing_mode().is_maximized();
+                    tile.request_fullscreen(!self.options.animations.off, None);
+                }
+            }
+
             self.fullscreen_window = Some(window.clone());
             self.tree.layout();
             true
@@ -1769,6 +1789,24 @@ impl<W: LayoutElement> TilingSpace<W> {
                 .as_ref()
                 .is_some_and(|id| id == window)
             {
+                if let Some(path) = self.tree.find_window(window) {
+                    if let Some(tile) = self.tree.tile_at_path_mut(&path) {
+                        if tile.pending_maximized {
+                            tile.request_maximized(
+                                self.working_area.size,
+                                !self.options.animations.off,
+                                None,
+                            );
+                        } else {
+                            tile.request_tile_size(
+                                self.working_area.size,
+                                !self.options.animations.off,
+                                None,
+                            );
+                        }
+                    }
+                }
+
                 self.fullscreen_window = None;
                 self.tree.layout();
                 true
@@ -1776,6 +1814,19 @@ impl<W: LayoutElement> TilingSpace<W> {
                 false
             }
         }
+    }
+
+    pub fn set_maximized(&mut self, window: &W::Id, maximize: bool) -> bool {
+        let Some(path) = self.tree.find_window(window) else {
+            return false;
+        };
+        let Some(tile) = self.tree.tile_at_path_mut(&path) else {
+            return false;
+        };
+
+        tile.pending_maximized = maximize;
+        self.tree.layout();
+        true
     }
 
     pub fn center_column(&mut self) {}
