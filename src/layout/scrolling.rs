@@ -1,3 +1,5 @@
+// NOTE: Kept in sync with upstream to reduce rebase/merge conflicts.
+// This tiling fork uses `src/layout/tiling.rs` instead; this module is not wired into `mod.rs`.
 use std::cmp::{max, min};
 use std::iter::{self, zip};
 use std::rc::Rc;
