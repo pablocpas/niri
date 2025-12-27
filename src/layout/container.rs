@@ -2990,6 +2990,23 @@ impl<W: LayoutElement> ContainerTree<W> {
         direction: Direction,
         target_focus_idx: usize,
     ) -> bool {
+        let (insert_idx, child_count) = if let Some(container) = self.get_container(target_key) {
+            let child_count = container.child_count();
+            let insert_idx = match container.layout() {
+                Layout::SplitH | Layout::SplitV => match direction {
+                    Direction::Left | Direction::Up => child_count,
+                    Direction::Right | Direction::Down => 0,
+                },
+                Layout::Tabbed | Layout::Stacked => match direction {
+                    Direction::Left | Direction::Up => target_focus_idx,
+                    Direction::Right | Direction::Down => target_focus_idx + 1,
+                },
+            };
+            (insert_idx, child_count)
+        } else {
+            return false;
+        };
+
         let node_parent_key = if node_parent_path.is_empty() {
             match self.root {
                 Some(key) => key,
@@ -3008,13 +3025,8 @@ impl<W: LayoutElement> ContainerTree<W> {
             return false;
         }
 
-        let insert_idx = match direction {
-            Direction::Left | Direction::Up => target_focus_idx,
-            Direction::Right | Direction::Down => target_focus_idx + 1,
-        };
-
         if let Some(container) = self.get_container_mut(target_key) {
-            let idx = insert_idx.min(container.child_count());
+            let idx = insert_idx.min(child_count);
             container.insert_child(idx, node_key);
         } else {
             return false;
