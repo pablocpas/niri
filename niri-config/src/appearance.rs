@@ -533,6 +533,7 @@ pub struct TabBar {
     pub padding_x: f64,
     pub padding_y: f64,
     pub separator_width: f64,
+    pub border_width: f64,
     pub font: String,
     pub active_bg: Color,
     pub inactive_bg: Color,
@@ -541,6 +542,9 @@ pub struct TabBar {
     pub inactive_fg: Color,
     pub urgent_fg: Color,
     pub separator_color: Color,
+    pub active_border: Color,
+    pub inactive_border: Color,
+    pub urgent_border: Color,
 }
 
 impl Default for TabBar {
@@ -551,6 +555,7 @@ impl Default for TabBar {
             padding_x: 6.0,
             padding_y: 2.0,
             separator_width: 1.0,
+            border_width: 0.0,
             font: String::from("sans 10px"),
             active_bg: Color::from_rgba8_unpremul(0x4c, 0x78, 0x99, 0xff),
             inactive_bg: Color::from_rgba8_unpremul(0x33, 0x33, 0x33, 0xff),
@@ -559,6 +564,9 @@ impl Default for TabBar {
             inactive_fg: Color::from_rgba8_unpremul(0x88, 0x88, 0x88, 0xff),
             urgent_fg: Color::from_rgba8_unpremul(0xff, 0xff, 0xff, 0xff),
             separator_color: Color::from_rgba8_unpremul(0x22, 0x22, 0x22, 0xff),
+            active_border: Color::from_rgba8_unpremul(0x4c, 0x78, 0x99, 0xff),
+            inactive_border: Color::from_rgba8_unpremul(0x33, 0x33, 0x33, 0xff),
+            urgent_border: Color::from_rgba8_unpremul(0x90, 0x00, 0x00, 0xff),
         }
     }
 }
@@ -576,6 +584,7 @@ impl MergeWith<TabBarPart> for TabBar {
             padding_x,
             padding_y,
             separator_width,
+            border_width,
         );
         merge_clone!((self, part), font);
         merge_clone!(
@@ -587,6 +596,9 @@ impl MergeWith<TabBarPart> for TabBar {
             inactive_fg,
             urgent_fg,
             separator_color,
+            active_border,
+            inactive_border,
+            urgent_border,
         );
     }
 }
@@ -605,6 +617,8 @@ pub struct TabBarPart {
     pub padding_y: Option<FloatOrInt<0, 65535>>,
     #[knuffel(child, unwrap(argument))]
     pub separator_width: Option<FloatOrInt<0, 65535>>,
+    #[knuffel(child, unwrap(argument))]
+    pub border_width: Option<FloatOrInt<0, 65535>>,
     #[knuffel(child, unwrap(argument, str))]
     pub font: Option<String>,
     #[knuffel(child)]
@@ -621,6 +635,12 @@ pub struct TabBarPart {
     pub urgent_fg: Option<Color>,
     #[knuffel(child)]
     pub separator_color: Option<Color>,
+    #[knuffel(child)]
+    pub active_border: Option<Color>,
+    #[knuffel(child)]
+    pub inactive_border: Option<Color>,
+    #[knuffel(child)]
+    pub urgent_border: Option<Color>,
 }
 
 #[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]

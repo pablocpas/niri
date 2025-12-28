@@ -23,13 +23,40 @@ pub fn tab_bar_row_height(config: &TabBar, scale: f64) -> f64 {
                 layout.set_font_description(Some(&font));
                 layout.set_text("Ag");
                 let (_w, h_px) = layout.pixel_size();
-                let font_height = (h_px as f64) / scale;
-                height = font_height + config.padding_y * 2.0;
+                if h_px > 0 {
+                    let font_height = (h_px as f64) / scale;
+                    height = font_height + config.padding_y * 2.0;
+                }
             }
+        }
+        if height <= 0.0 {
+            let font_height = parse_font_size(&config.font).unwrap_or(12.0);
+            height = font_height + config.padding_y * 2.0;
         }
     }
 
     round_logical_in_physical_max1(scale, height)
+}
+
+fn parse_font_size(font: &str) -> Option<f64> {
+    let mut last = None;
+    let mut buf = String::new();
+    for ch in font.chars() {
+        if ch.is_ascii_digit() || ch == '.' {
+            buf.push(ch);
+        } else if !buf.is_empty() {
+            if let Ok(val) = buf.parse::<f64>() {
+                last = Some(val);
+            }
+            buf.clear();
+        }
+    }
+    if !buf.is_empty() {
+        if let Ok(val) = buf.parse::<f64>() {
+            last = Some(val);
+        }
+    }
+    last
 }
 
 fn set_source_color(cr: &cairo::Context, color: Color) {
@@ -37,13 +64,17 @@ fn set_source_color(cr: &cairo::Context, color: Color) {
     cr.set_source_rgba(f64::from(r), f64::from(g), f64::from(b), f64::from(a));
 }
 
-fn tab_colors(config: &TabBar, tab: &TabBarTab, is_active_workspace: bool) -> (Color, Color) {
+fn tab_colors(
+    config: &TabBar,
+    tab: &TabBarTab,
+    is_active_workspace: bool,
+) -> (Color, Color, Color) {
     if tab.is_urgent {
-        (config.urgent_bg, config.urgent_fg)
+        (config.urgent_bg, config.urgent_fg, config.urgent_border)
     } else if tab.is_focused && is_active_workspace {
-        (config.active_bg, config.active_fg)
+        (config.active_bg, config.active_fg, config.active_border)
     } else {
-        (config.inactive_bg, config.inactive_fg)
+        (config.inactive_bg, config.inactive_fg, config.inactive_border)
     }
 }
 
@@ -74,9 +105,17 @@ pub fn render_tab_bar(
     let padding_y_px: i32 = to_physical_precise_round::<i32>(scale, config.padding_y).max(0);
     let separator_width_px: i32 =
         to_physical_precise_round::<i32>(scale, config.separator_width).max(0);
+    let border_width_px: i32 = to_physical_precise_round::<i32>(scale, config.border_width).max(0);
 
     let mut font = FontDescription::from_string(&config.font);
-    font.set_absolute_size(to_physical_precise_round::<f64>(scale, font.size()));
+    let base_size = font.size() as f64;
+    let size = if base_size > 0.0 {
+        base_size
+    } else {
+        let fallback_px = parse_font_size(&config.font).unwrap_or(12.0);
+        fallback_px * pango::SCALE as f64
+    };
+    font.set_absolute_size(to_physical_precise_round::<f64>(scale, size));
 
     let tab_widths = if layout == Layout::Tabbed {
         let tab_count_i32 = tab_count as i32;
@@ -111,10 +150,32 @@ pub fn render_tab_bar(
             (0, idx as i32 * row_height_px, width_px, row_height_px)
         };
 
-        let (bg, fg) = tab_colors(config, tab, is_active_workspace);
+        let (bg, fg, border) = tab_colors(config, tab, is_active_workspace);
         set_source_color(&cr, bg);
         cr.rectangle(f64::from(x), f64::from(y), f64::from(w), f64::from(h));
         cr.fill()?;
+
+        if border_width_px > 0 {
+            let bw = border_width_px.min(w).min(h);
+            if bw > 0 {
+                set_source_color(&cr, border);
+                cr.rectangle(f64::from(x), f64::from(y), f64::from(w), f64::from(bw));
+                cr.rectangle(
+                    f64::from(x),
+                    f64::from(y + h - bw),
+                    f64::from(w),
+                    f64::from(bw),
+                );
+                cr.rectangle(f64::from(x), f64::from(y), f64::from(bw), f64::from(h));
+                cr.rectangle(
+                    f64::from(x + w - bw),
+                    f64::from(y),
+                    f64::from(bw),
+                    f64::from(h),
+                );
+                cr.fill()?;
+            }
+        }
 
         let title = if tab.title.trim().is_empty() {
             "untitled"
@@ -160,7 +221,7 @@ pub fn render_tab_bar(
     let extra_height = height_px - row_height_px.saturating_mul(row_count as i32);
     if extra_height > 0 {
         let focused = tabs.iter().find(|tab| tab.is_focused).unwrap_or(&tabs[0]);
-        let (bg, _fg) = tab_colors(config, focused, is_active_workspace);
+        let (bg, _fg, _border) = tab_colors(config, focused, is_active_workspace);
         set_source_color(&cr, bg);
         cr.rectangle(
             0.0,
