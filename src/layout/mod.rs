@@ -4894,6 +4894,9 @@ impl<W: LayoutElement> Layout<W> {
         blocker: TransactionBlocker,
     ) {
         let _span = tracy_client::span!("Layout::start_close_animation_for_window");
+        if self.options.animations.off && self.options.disable_transactions {
+            return;
+        }
 
         let zoom = self.overview_zoom();
 

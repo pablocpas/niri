@@ -270,6 +270,10 @@ impl<W: LayoutElement> Tile<W> {
         self.tab_bar_offset = offset.max(0.0);
     }
 
+    pub(super) fn tab_bar_offset(&self) -> f64 {
+        self.tab_bar_offset
+    }
+
     pub fn update_shaders(&mut self) {
         self.border.update_shaders();
         self.focus_ring.update_shaders();
@@ -861,6 +865,10 @@ impl<W: LayoutElement> Tile<W> {
     }
 
     pub fn window_size(&self) -> Size<f64, Logical> {
+        if self.options.animations.off {
+            return self.window_expected_or_current_size();
+        }
+
         let mut size = self.window.size().to_f64();
         size = size
             .to_physical_precise_round(self.scale)
@@ -982,6 +990,23 @@ impl<W: LayoutElement> Tile<W> {
             animate,
             transaction,
         );
+    }
+
+    pub(super) fn requested_window_size_for_tile(
+        &self,
+        mut size: Size<f64, Logical>,
+        tab_bar_offset: f64,
+    ) -> Size<i32, Logical> {
+        // Match request_tile_size() sizing logic without mutating state.
+        if !self.border.is_off() {
+            let width = self.border.width();
+            size.w = f64::max(1., size.w - width * 2.);
+            size.h = f64::max(1., size.h - width * 2.);
+        }
+        if tab_bar_offset > 0.0 {
+            size.h = f64::max(1., size.h - tab_bar_offset);
+        }
+        size.to_i32_floor()
     }
 
     pub fn tile_width_for_window_width(&self, size: f64) -> f64 {

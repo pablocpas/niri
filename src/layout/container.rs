@@ -8,16 +8,18 @@
 //!
 //! Uses slotmap for efficient memory management and O(1) access to nodes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use slotmap::{new_key_type, SecondaryMap, SlotMap};
 use smithay::utils::{Logical, Point, Rectangle, Size};
+use smithay::wayland::compositor::{Blocker, BlockerState};
 
 use super::tile::Tile;
 use super::{LayoutElement, Options};
 use super::tab_bar::tab_bar_row_height;
 use crate::window::Mapped;
+use crate::utils::transaction::{Transaction, TransactionBlocker};
 use niri_ipc::{LayoutTreeLayout, LayoutTreeNode};
 
 // ============================================================================
@@ -125,6 +127,32 @@ pub struct LeafLayoutInfo {
     pub visible: bool,
 }
 
+#[derive(Debug)]
+struct LayoutData {
+    leaf_layouts: Vec<LeafLayoutInfo>,
+    container_geometries: HashMap<NodeKey, Rectangle<f64, Logical>>,
+    tab_bar_offsets: HashMap<NodeKey, f64>,
+}
+
+#[derive(Debug)]
+struct PendingLayout {
+    data: LayoutData,
+    blocker: TransactionBlocker,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LayoutRequestMode {
+    Normal,
+    Maximized,
+    Fullscreen,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LayoutRequest {
+    mode: LayoutRequestMode,
+    size: Size<i32, Logical>,
+}
+
 /// Root container tree for a workspace
 #[derive(Debug)]
 pub struct ContainerTree<W: LayoutElement> {
@@ -140,6 +168,12 @@ pub struct ContainerTree<W: LayoutElement> {
     focused_key: Option<NodeKey>,
     /// Cached layout info for leaves
     leaf_layouts: Vec<LeafLayoutInfo>,
+    /// Pending layouts waiting for transactions to complete.
+    pending_layouts: Option<PendingLayout>,
+    /// Optional transaction to use for the next atomic layout.
+    pending_transaction: Option<Transaction>,
+    /// Whether a new layout is requested while a transaction is pending.
+    pending_relayout: bool,
     /// View size (output size)
     view_size: Size<f64, Logical>,
     /// Working area (view_size minus gaps/bars)
@@ -588,6 +622,9 @@ impl<W: LayoutElement> ContainerTree<W> {
             pending_layout: None,
             focused_key: None,
             leaf_layouts: Vec::new(),
+            pending_layouts: None,
+            pending_transaction: None,
+            pending_relayout: false,
             view_size,
             working_area,
             scale,
@@ -966,6 +1003,22 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.leaf_layouts.clone()
     }
 
+    pub fn pending_leaf_layouts(&self) -> Option<&[LeafLayoutInfo]> {
+        self.pending_layouts
+            .as_ref()
+            .map(|pending| pending.data.leaf_layouts.as_slice())
+    }
+
+    pub fn pending_leaf_layouts_cloned(&self) -> Option<Vec<LeafLayoutInfo>> {
+        self.pending_layouts
+            .as_ref()
+            .map(|pending| pending.data.leaf_layouts.clone())
+    }
+
+    pub fn set_pending_transaction(&mut self, transaction: Transaction) {
+        self.pending_transaction = Some(transaction);
+    }
+
     /// Current focus path within the tree.
     pub fn focus_path(&self) -> Vec<usize> {
         if let Some(key) = self.focused_key {
@@ -996,6 +1049,17 @@ impl<W: LayoutElement> ContainerTree<W> {
     /// Calculate and apply layout to the tree
     pub fn layout(&mut self) {
         let animate = !self.options.animations.off;
+        let animate_resize = true; // Keep resize snapshots even when animations are off.
+
+        if self.should_use_atomic_layout() {
+            self.layout_atomic(animate_resize);
+            return;
+        }
+
+        self.pending_layouts = None;
+        self.pending_transaction = None;
+        self.pending_relayout = false;
+
         let mut prev_positions = HashMap::new();
         if animate {
             for info in &self.leaf_layouts {
@@ -1007,15 +1071,8 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         if let Some(root_key) = self.root {
             let mut path = Vec::new();
-            let mut area = self.working_area;
-            let gap = self.options.layout.gaps;
-            if gap > 0.0 {
-                area.loc.x += gap;
-                area.loc.y += gap;
-                area.size.w = (area.size.w - gap * 2.0).max(0.0);
-                area.size.h = (area.size.h - gap * 2.0).max(0.0);
-            }
-            self.layout_node(root_key, area, &mut path, true, animate, 0.0);
+            let area = self.layout_area();
+            self.layout_node(root_key, area, &mut path, true, animate, animate_resize, 0.0);
         }
 
         if animate {
@@ -1037,6 +1094,369 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
     }
 
+    fn should_use_atomic_layout(&self) -> bool {
+        self.options.animations.off && !self.options.disable_transactions
+    }
+
+    fn layout_area(&self) -> Rectangle<f64, Logical> {
+        let mut area = self.working_area;
+        let gap = self.options.layout.gaps;
+        if gap > 0.0 {
+            area.loc.x += gap;
+            area.loc.y += gap;
+            area.size.w = (area.size.w - gap * 2.0).max(0.0);
+            area.size.h = (area.size.h - gap * 2.0).max(0.0);
+        }
+        area
+    }
+
+    fn layout_atomic(&mut self, animate_resize: bool) {
+        if self.pending_layouts.is_some() && !self.apply_pending_layouts_if_ready() {
+            self.pending_relayout = true;
+            return;
+        }
+        self.pending_relayout = false;
+
+        let Some(root_key) = self.root else {
+            self.leaf_layouts.clear();
+            self.pending_layouts = None;
+            self.pending_transaction = None;
+            self.pending_relayout = false;
+            return;
+        };
+
+        let data = self.collect_layout_data(root_key);
+        let changed = self.changed_layout_keys(&data);
+        if changed.is_empty() {
+            self.pending_layouts = None;
+            self.pending_transaction = None;
+            self.apply_layout_data(data);
+            return;
+        }
+
+        let transaction = self
+            .pending_transaction
+            .take()
+            .unwrap_or_else(Transaction::new);
+        self.request_sizes_for_layout(&data, &changed, &transaction, animate_resize);
+        self.pending_layouts = Some(PendingLayout {
+            data,
+            blocker: transaction.blocker(),
+        });
+    }
+
+    pub fn apply_pending_layouts_if_ready(&mut self) -> bool {
+        let Some(pending) = &self.pending_layouts else {
+            return false;
+        };
+        if pending.blocker.state() != BlockerState::Released {
+            return false;
+        }
+        let pending = self.pending_layouts.take().unwrap();
+        self.apply_layout_data(pending.data);
+        true
+    }
+
+    pub fn has_pending_layouts(&self) -> bool {
+        self.pending_layouts.is_some()
+    }
+
+    pub fn take_pending_relayout(&mut self) -> bool {
+        std::mem::take(&mut self.pending_relayout)
+    }
+
+    fn layout_request_for(
+        &self,
+        tile: &Tile<W>,
+        tile_size: Size<f64, Logical>,
+        tab_offset: f64,
+    ) -> LayoutRequest {
+        if tile.window().pending_sizing_mode().is_fullscreen() {
+            LayoutRequest {
+                mode: LayoutRequestMode::Fullscreen,
+                size: self.view_size.to_i32_round(),
+            }
+        } else if tile.pending_maximized {
+            LayoutRequest {
+                mode: LayoutRequestMode::Maximized,
+                size: tile_size.to_i32_round(),
+            }
+        } else {
+            LayoutRequest {
+                mode: LayoutRequestMode::Normal,
+                size: tile.requested_window_size_for_tile(tile_size, tab_offset),
+            }
+        }
+    }
+
+    fn collect_layout_data(&self, root_key: NodeKey) -> LayoutData {
+        let mut data = LayoutData {
+            leaf_layouts: Vec::new(),
+            container_geometries: HashMap::new(),
+            tab_bar_offsets: HashMap::new(),
+        };
+
+        let mut path = Vec::new();
+        let area = self.layout_area();
+        self.collect_layout_node(root_key, area, &mut path, true, 0.0, &mut data);
+        data
+    }
+
+    fn collect_layout_node(
+        &self,
+        node_key: NodeKey,
+        rect: Rectangle<f64, Logical>,
+        path: &mut Vec<usize>,
+        visible: bool,
+        tab_bar_offset: f64,
+        data: &mut LayoutData,
+    ) {
+        let node_info = match self.get_node(node_key) {
+            Some(NodeData::Leaf(tile)) => {
+                let offset = if tile.window().pending_sizing_mode().is_fullscreen() {
+                    0.0
+                } else {
+                    tab_bar_offset
+                };
+                data.tab_bar_offsets.insert(node_key, offset);
+                data.leaf_layouts.push(LeafLayoutInfo {
+                    key: node_key,
+                    path: path.clone(),
+                    rect,
+                    visible,
+                });
+                return;
+            }
+            Some(NodeData::Container(container)) => {
+                data.container_geometries.insert(node_key, rect);
+                (
+                    container.layout,
+                    container.children.clone(),
+                    container.child_percents.clone(),
+                    container.focused_child_index(),
+                )
+            }
+            None => return,
+        };
+
+        let (layout, children, child_percents, focused_idx) = node_info;
+        if children.is_empty() {
+            return;
+        }
+
+        let gap = self.options.layout.gaps;
+
+        match layout {
+            Layout::SplitH => {
+                let child_count = children.len();
+                let total_gap = if child_count > 1 {
+                    gap * (child_count as f64 - 1.0)
+                } else {
+                    0.0
+                };
+                let available_width = (rect.size.w - total_gap).max(0.0);
+
+                let total_percent: f64 = child_percents.iter().copied().sum();
+                let percents: Vec<f64> = if total_percent > f64::EPSILON {
+                    child_percents.iter().map(|p| p / total_percent).collect()
+                } else {
+                    vec![1.0 / child_count as f64; child_count]
+                };
+
+                let mut cursor_x = rect.loc.x;
+                let mut used_width = 0.0;
+
+                for (idx, &child_key) in children.iter().enumerate() {
+                    let percent = percents[idx];
+                    let width = if idx == child_count - 1 {
+                        (available_width - used_width).max(0.0)
+                    } else {
+                        (available_width * percent).max(0.0)
+                    };
+
+                    let child_rect = Rectangle::new(
+                        Point::from((cursor_x, rect.loc.y)),
+                        Size::from((width, rect.size.h)),
+                    );
+
+                    path.push(idx);
+                    self.collect_layout_node(child_key, child_rect, path, visible, 0.0, data);
+                    path.pop();
+
+                    used_width += width;
+                    if idx + 1 < child_count {
+                        cursor_x += width + gap;
+                    }
+                }
+            }
+            Layout::SplitV => {
+                let child_count = children.len();
+                let total_gap = if child_count > 1 {
+                    gap * (child_count as f64 - 1.0)
+                } else {
+                    0.0
+                };
+                let available_height = (rect.size.h - total_gap).max(0.0);
+
+                let total_percent: f64 = child_percents.iter().copied().sum();
+                let percents: Vec<f64> = if total_percent > f64::EPSILON {
+                    child_percents.iter().map(|p| p / total_percent).collect()
+                } else {
+                    vec![1.0 / child_count as f64; child_count]
+                };
+
+                let mut cursor_y = rect.loc.y;
+                let mut used_height = 0.0;
+
+                for (idx, &child_key) in children.iter().enumerate() {
+                    let percent = percents[idx];
+                    let height = if idx == child_count - 1 {
+                        (available_height - used_height).max(0.0)
+                    } else {
+                        (available_height * percent).max(0.0)
+                    };
+
+                    let child_rect = Rectangle::new(
+                        Point::from((rect.loc.x, cursor_y)),
+                        Size::from((rect.size.w, height)),
+                    );
+
+                    path.push(idx);
+                    self.collect_layout_node(child_key, child_rect, path, visible, 0.0, data);
+                    path.pop();
+
+                    used_height += height;
+                    if idx + 1 < child_count {
+                        cursor_y += height + gap;
+                    }
+                }
+            }
+            Layout::Tabbed | Layout::Stacked => {
+                let child_count = children.len();
+                let mut inner_rect = rect;
+                if gap > 0.0 {
+                    inner_rect.loc.x += gap;
+                    inner_rect.loc.y += gap;
+                    inner_rect.size.w = (inner_rect.size.w - gap * 2.0).max(0.0);
+                    inner_rect.size.h = (inner_rect.size.h - gap * 2.0).max(0.0);
+                }
+
+                let bar_row_height = self.tab_bar_row_height();
+                let mut tab_offset = 0.0;
+                if bar_row_height > 0.0 && child_count > 0 {
+                    let bar_height = match layout {
+                        Layout::Tabbed => bar_row_height,
+                        Layout::Stacked => bar_row_height * child_count as f64,
+                        _ => 0.0,
+                    };
+                    let total_bar_height = (bar_height + self.tab_bar_spacing())
+                        .min(inner_rect.size.h)
+                        .max(0.0);
+                    tab_offset = total_bar_height;
+                }
+
+                let focused_idx = focused_idx.unwrap_or(0).min(children.len().saturating_sub(1));
+
+                for (idx, &child_key) in children.iter().enumerate() {
+                    path.push(idx);
+                    let child_visible = visible && idx == focused_idx;
+                    let is_leaf = matches!(self.get_node(child_key), Some(NodeData::Leaf(_)));
+                    let (child_rect, child_offset) = if is_leaf {
+                        (inner_rect, tab_offset)
+                    } else {
+                        let mut content_rect = inner_rect;
+                        if tab_offset > 0.0 {
+                            content_rect.loc.y += tab_offset;
+                            content_rect.size.h = (content_rect.size.h - tab_offset).max(0.0);
+                        }
+                        (content_rect, 0.0)
+                    };
+                    self.collect_layout_node(
+                        child_key,
+                        child_rect,
+                        path,
+                        child_visible,
+                        child_offset,
+                        data,
+                    );
+                    path.pop();
+                }
+            }
+        }
+    }
+
+    fn changed_layout_keys(&self, data: &LayoutData) -> HashSet<NodeKey> {
+        let mut current = HashMap::new();
+        for info in &self.leaf_layouts {
+            let Some(tile) = self.get_tile(info.key) else {
+                continue;
+            };
+            let request =
+                self.layout_request_for(tile, info.rect.size, tile.tab_bar_offset());
+            current.insert(info.key, request);
+        }
+
+        let mut changed = HashSet::new();
+        for info in &data.leaf_layouts {
+            let offset = data.tab_bar_offsets.get(&info.key).copied().unwrap_or(0.0);
+            let Some(tile) = self.get_tile(info.key) else {
+                changed.insert(info.key);
+                continue;
+            };
+            let request = self.layout_request_for(tile, info.rect.size, offset);
+            if current.get(&info.key).map_or(true, |old| *old != request) {
+                changed.insert(info.key);
+            }
+        }
+
+        changed
+    }
+
+    fn request_sizes_for_layout(
+        &mut self,
+        data: &LayoutData,
+        changed: &HashSet<NodeKey>,
+        transaction: &Transaction,
+        animate_resize: bool,
+    ) {
+        for info in &data.leaf_layouts {
+            let Some(tile) = self.get_tile_mut(info.key) else {
+                continue;
+            };
+            let offset = data.tab_bar_offsets.get(&info.key).copied().unwrap_or(0.0);
+            let old_offset = tile.tab_bar_offset();
+            tile.set_tab_bar_offset(offset);
+
+            let tx = changed
+                .contains(&info.key)
+                .then(|| transaction.clone());
+            let size = Size::from((info.rect.size.w, info.rect.size.h));
+            if tile.window().pending_sizing_mode().is_fullscreen() {
+                tile.request_fullscreen(animate_resize, tx);
+            } else if tile.pending_maximized {
+                tile.request_maximized(size, animate_resize, tx);
+            } else {
+                tile.request_tile_size(size, animate_resize, tx);
+            }
+
+            tile.set_tab_bar_offset(old_offset);
+        }
+    }
+
+    fn apply_layout_data(&mut self, data: LayoutData) {
+        for (key, rect) in data.container_geometries {
+            if let Some(NodeData::Container(container)) = self.get_node_mut(key) {
+                container.set_geometry(rect);
+            }
+        }
+        for (key, offset) in data.tab_bar_offsets {
+            if let Some(tile) = self.get_tile_mut(key) {
+                tile.set_tab_bar_offset(offset);
+            }
+        }
+        self.leaf_layouts = data.leaf_layouts;
+    }
+
     /// Helper: recursively layout a node
     fn layout_node(
         &mut self,
@@ -1045,6 +1465,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         path: &mut Vec<usize>,
         visible: bool,
         animate: bool,
+        animate_resize: bool,
         tab_bar_offset: f64,
     ) {
         // We need to work around borrow checker by getting info first
@@ -1060,11 +1481,11 @@ impl<W: LayoutElement> ContainerTree<W> {
                     tile.set_tab_bar_offset(offset);
                     let size = Size::from((rect.size.w, rect.size.h));
                     if tile.window().pending_sizing_mode().is_fullscreen() {
-                        tile.request_fullscreen(animate, None);
+                        tile.request_fullscreen(animate_resize, None);
                     } else if tile.pending_maximized {
-                        tile.request_maximized(size, animate, None);
+                        tile.request_maximized(size, animate_resize, None);
                     } else {
-                        tile.request_tile_size(size, animate, None);
+                        tile.request_tile_size(size, animate_resize, None);
                     }
                     self.leaf_layouts.push(LeafLayoutInfo {
                         key: node_key,
@@ -1135,7 +1556,15 @@ impl<W: LayoutElement> ContainerTree<W> {
                     );
 
                     path.push(idx);
-                    self.layout_node(child_key, child_rect, path, visible, animate, 0.0);
+                    self.layout_node(
+                        child_key,
+                        child_rect,
+                        path,
+                        visible,
+                        animate,
+                        animate_resize,
+                        0.0,
+                    );
                     path.pop();
 
                     used_width += width;
@@ -1178,7 +1607,15 @@ impl<W: LayoutElement> ContainerTree<W> {
                     );
 
                     path.push(idx);
-                    self.layout_node(child_key, child_rect, path, visible, animate, 0.0);
+                    self.layout_node(
+                        child_key,
+                        child_rect,
+                        path,
+                        visible,
+                        animate,
+                        animate_resize,
+                        0.0,
+                    );
                     path.pop();
 
                     used_height += height;
@@ -1234,6 +1671,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                         path,
                         child_visible,
                         animate,
+                        animate_resize,
                         child_offset,
                     );
                     path.pop();

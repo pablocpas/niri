@@ -247,16 +247,15 @@ impl Animation {
     }
 
     pub fn value_at(&self, at: Duration) -> f64 {
+        if self.clock.should_complete_instantly() {
+            return self.to;
+        }
         if at <= self.start_time {
             // Return from when at == start_time so that when the animations are off, the behavior
             // within a single event loop cycle (i.e. no time had passed since the start of an
             // animation) matches the behavior when the animations are on.
             return self.from;
         } else if self.start_time + self.duration <= at {
-            return self.to;
-        }
-
-        if self.clock.should_complete_instantly() {
             return self.to;
         }
 

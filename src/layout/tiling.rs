@@ -231,8 +231,8 @@ impl<'a, W: LayoutElement> TileRenderPositions<'a, W> {
     fn new(space: &'a TilingSpace<W>) -> Self {
         let scale = Scale::from(space.scale);
         let mut entries = Vec::new();
-
-        for info in space.tree.leaf_layouts() {
+        let layouts = space.display_layouts();
+        for info in &layouts {
             if let Some(tile) = space.tree.tile_at_path(&info.path) {
                 let mut pos = info.rect.loc + tile.render_offset();
                 pos = pos.to_physical_precise_round(scale).to_logical(scale);
@@ -274,7 +274,7 @@ struct TileRenderPositionsMut<'a, W: LayoutElement> {
 
 impl<'a, W: LayoutElement> TileRenderPositionsMut<'a, W> {
     fn new(space: &'a mut TilingSpace<W>, round: bool) -> Self {
-        let layouts = space.tree.leaf_layouts_cloned();
+        let layouts = space.display_layouts();
         Self {
             space: space as *mut _,
             layouts,
@@ -317,6 +317,16 @@ impl<'a, W: LayoutElement> Iterator for TileRenderPositionsMut<'a, W> {
 // ============================================================================
 
 impl<W: LayoutElement> TilingSpace<W> {
+    fn display_layouts(&self) -> Vec<LeafLayoutInfo> {
+        if self.tree.leaf_layouts().is_empty() {
+            self.tree
+                .pending_leaf_layouts_cloned()
+                .unwrap_or_else(|| self.tree.leaf_layouts_cloned())
+        } else {
+            self.tree.leaf_layouts_cloned()
+        }
+    }
+
     fn effective_tab_bar_config(&self) -> TabBar {
         self.options.layout.tab_bar.clone()
     }
@@ -591,7 +601,8 @@ impl<W: LayoutElement> TilingSpace<W> {
             elements.push(TilingSpaceRenderElement::ClosingWindow(elem));
         }
 
-        for info in self.tree.leaf_layouts().iter().rev() {
+        let render_layouts = self.display_layouts();
+        for info in render_layouts.iter().rev() {
             if let Some(tile) = self.tree.tile_at_path(&info.path) {
                 let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
                 let show_tile = fullscreen_id.map_or(info.visible, |_| is_fullscreen_tile);
@@ -746,13 +757,42 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn update_render_elements(&mut self, is_active: bool) {
-        let layouts = self.tree.leaf_layouts_cloned();
+        let applied = self.tree.apply_pending_layouts_if_ready();
+        if applied && self.tree.take_pending_relayout() {
+            self.tree.layout();
+        }
+        let has_pending = self.tree.has_pending_layouts();
+        let state_layouts = if has_pending {
+            self.tree
+                .pending_leaf_layouts_cloned()
+                .unwrap_or_else(|| self.tree.leaf_layouts_cloned())
+        } else {
+            self.tree.leaf_layouts_cloned()
+        };
+        let render_layouts = self.display_layouts();
         let workspace_view = Rectangle::from_size(self.view_size);
         let focus_path = self.tree.focus_path();
         let scale = Scale::from(self.scale);
         let fullscreen_id = self.fullscreen_window.as_ref();
 
-        for info in layouts {
+        for info in state_layouts {
+            if let Some(tile) = self.tree.tile_at_path_mut(&info.path) {
+                Self::update_window_state(
+                    tile,
+                    &info,
+                    &focus_path,
+                    is_active,
+                    self.options.deactivate_unfocused_windows,
+                    !has_pending,
+                    self.working_area.size,
+                    &self.options,
+                    fullscreen_id,
+                    self.view_size,
+                );
+            }
+        }
+
+        for info in render_layouts {
             if let Some(tile) = self.tree.tile_at_path_mut(&info.path) {
                 let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
 
@@ -765,18 +805,6 @@ impl<W: LayoutElement> TilingSpace<W> {
                 if is_fullscreen_tile {
                     tile_view_rect = workspace_view;
                 }
-
-                Self::update_window_state(
-                    tile,
-                    &info,
-                    &focus_path,
-                    is_active,
-                    self.options.deactivate_unfocused_windows,
-                    self.working_area.size,
-                    &self.options,
-                    fullscreen_id,
-                    self.view_size,
-                );
 
                 let show_tile = fullscreen_id.map_or(info.visible, |_| is_fullscreen_tile);
                 if show_tile {
@@ -1159,7 +1187,8 @@ impl<W: LayoutElement> TilingSpace<W> {
             return Some(hit);
         }
 
-        for info in self.tree.leaf_layouts().iter().rev() {
+        let render_layouts = self.display_layouts();
+        for info in render_layouts.iter().rev() {
             if let Some(tile) = self.tree.tile_at_path(&info.path) {
                 let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
                 if fullscreen_id.is_some() && !is_fullscreen_tile {
@@ -1183,11 +1212,8 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn window_loc(&self, window: &W) -> Option<Point<f64, Logical>> {
         let path = self.tree.find_window(window.id())?;
-        let info = self
-            .tree
-            .leaf_layouts()
-            .iter()
-            .find(|layout| layout.path == path)?;
+        let layouts = self.display_layouts();
+        let info = layouts.iter().find(|layout| layout.path == path)?;
         let tile = self.tree.tile_at_path(&path)?;
         let scale = Scale::from(self.scale);
 
@@ -1388,7 +1414,10 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.sync_fullscreen_window();
         self.tree.layout();
     }
-    pub fn remove_tile(&mut self, window: &W::Id, _transaction: Transaction) -> RemovedTile<W> {
+    pub fn remove_tile(&mut self, window: &W::Id, transaction: Transaction) -> RemovedTile<W> {
+        if self.options.animations.off && !self.options.disable_transactions {
+            self.tree.set_pending_transaction(transaction.clone());
+        }
         let tile = self
             .tree
             .remove_window(window)
@@ -1946,7 +1975,18 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn refresh(&mut self, is_active: bool, is_focused: bool) {
-        let layouts = self.tree.leaf_layouts_cloned();
+        let applied = self.tree.apply_pending_layouts_if_ready();
+        if applied && self.tree.take_pending_relayout() {
+            self.tree.layout();
+        }
+        let has_pending = self.tree.has_pending_layouts();
+        let layouts = if has_pending {
+            self.tree
+                .pending_leaf_layouts_cloned()
+                .unwrap_or_else(|| self.tree.leaf_layouts_cloned())
+        } else {
+            self.tree.leaf_layouts_cloned()
+        };
         let focus_path = self.tree.focus_path();
         let fullscreen_id = self.fullscreen_window.as_ref();
 
@@ -1960,6 +2000,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                     &focus_path,
                     is_active,
                     deactivate_unfocused,
+                    !has_pending,
                     self.working_area.size,
                     &self.options,
                     fullscreen_id,
@@ -2013,6 +2054,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         focus_path: &[usize],
         workspace_active: bool,
         deactivate_unfocused: bool,
+        request_size: bool,
         working_area_size: Size<f64, Logical>,
         options: &Options,
         fullscreen_id: Option<&W::Id>,
@@ -2027,7 +2069,9 @@ impl<W: LayoutElement> TilingSpace<W> {
         } else {
             Size::from((info.rect.size.w, info.rect.size.h))
         };
-        tile.request_tile_size(target_size, false, None);
+        if request_size {
+            tile.request_tile_size(target_size, false, None);
+        }
 
         let window = tile.window_mut();
 
