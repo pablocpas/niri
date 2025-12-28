@@ -211,7 +211,21 @@ layout {
         separator-color "#505050"
     }
 
-    // i3/sway-style tab bar preset (optional).
+    // i3/sway-style preset (optional).
+    // This closely matches Sway's default titlebar sizing/colors.
+    //
+    // focus-ring {
+    //     off
+    // }
+    //
+    // border {
+    //     on
+    //     width 2
+    //     active-color "#4C7899"
+    //     inactive-color "#333333"
+    //     urgent-color "#2F343A"
+    // }
+    //
     // tab-bar {
     //     // height 0 means auto (font height + padding-y * 2)
     //     height 0
