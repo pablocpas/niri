@@ -273,6 +273,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             let mut tile_view_rect = view_rect;
             tile_view_rect.loc -= offset + tile.render_offset();
             tile.set_tab_bar_offset(0.0);
+            tile.set_draw_titlebar(false);
             tile.update_render_elements(is_active, tile_view_rect);
         }
     }
@@ -547,6 +548,10 @@ impl<W: LayoutElement> FloatingSpace<W> {
         id: &W::Id,
         blocker: TransactionBlocker,
     ) {
+        if self.options.animations.window_close.anim.off || self.clock.should_complete_instantly() {
+            return;
+        }
+
         let (tile, tile_pos) = self
             .tiles_with_render_positions_mut(false)
             .find(|(tile, _)| tile.window().id() == id)
@@ -1084,12 +1089,17 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
         let active = self.active_window_id.clone();
         for (tile, tile_pos) in self.tiles_with_render_positions() {
-            // For the active tile, draw the focus ring.
-            let focus_ring = focus_ring && Some(tile.window().id()) == active.as_ref();
+            let is_focused = Some(tile.window().id()) == active.as_ref();
+            let draw_focus = focus_ring && is_focused;
 
-            tile.render(renderer, tile_pos, focus_ring, target, &mut |elem| {
-                push(elem.into())
-            });
+            tile.render(
+                renderer,
+                tile_pos,
+                draw_focus,
+                is_focused,
+                target,
+                &mut |elem| push(elem.into()),
+            );
         }
     }
 

@@ -529,6 +529,7 @@ impl MergeWith<TabIndicatorPart> for TabIndicator {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TabBar {
     pub off: bool,
+    pub show_in_split: bool,
     pub height: f64,
     pub padding_x: f64,
     pub padding_y: f64,
@@ -551,6 +552,7 @@ impl Default for TabBar {
     fn default() -> Self {
         Self {
             off: false,
+            show_in_split: false,
             height: 20.0,
             padding_x: 6.0,
             padding_y: 2.0,
@@ -580,6 +582,7 @@ impl MergeWith<TabBarPart> for TabBar {
 
         merge!(
             (self, part),
+            show_in_split,
             height,
             padding_x,
             padding_y,
@@ -609,6 +612,8 @@ pub struct TabBarPart {
     pub off: bool,
     #[knuffel(child)]
     pub on: bool,
+    #[knuffel(child)]
+    pub show_in_split: Option<Flag>,
     #[knuffel(child, unwrap(argument))]
     pub height: Option<FloatOrInt<0, 65535>>,
     #[knuffel(child, unwrap(argument))]

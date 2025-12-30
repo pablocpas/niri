@@ -1452,6 +1452,10 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         window: &W::Id,
         blocker: TransactionBlocker,
     ) {
+        if self.options.animations.window_close.anim.off || self.clock.should_complete_instantly() {
+            return;
+        }
+
         let (tile, mut tile_pos) = self
             .tiles_with_render_positions_mut(false)
             .find(|(tile, _)| tile.window().id() == window)
@@ -2943,8 +2947,8 @@ impl<W: LayoutElement> ScrollingSpace<W> {
 
                 // And now the drawing logic.
 
-                // For the active tile (which comes first), draw the focus ring.
-                let focus_ring = focus_ring && first;
+                let is_focused = first;
+                let draw_focus = focus_ring && is_focused;
                 first = false;
 
                 // In the scrolling layout, we currently use visible only for hidden tabs in the
@@ -2957,9 +2961,14 @@ impl<W: LayoutElement> ScrollingSpace<W> {
                     continue;
                 }
 
-                tile.render(renderer, tile_pos, focus_ring, target, &mut |elem| {
-                    push(elem.into())
-                });
+                tile.render(
+                    renderer,
+                    tile_pos,
+                    draw_focus,
+                    is_focused,
+                    target,
+                    &mut |elem| push(elem.into()),
+                );
             }
         }
     }

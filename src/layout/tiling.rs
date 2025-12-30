@@ -62,6 +62,8 @@ pub struct TilingSpace<W: LayoutElement> {
     options: Rc<Options>,
     /// Cached tab bar textures keyed by container path.
     tab_bar_cache: RefCell<HashMap<Vec<usize>, TabBarCacheEntry>>,
+    /// Whether this workspace is active (for tab bar styling).
+    is_active: bool,
     /// Currently fullscreen window (if any)
     fullscreen_window: Option<W::Id>,
     /// Windows in the closing animation.
@@ -73,6 +75,7 @@ struct TabBarTabState {
     title: String,
     is_focused: bool,
     is_urgent: bool,
+    block_out: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -97,6 +100,7 @@ fn tab_bar_state_from_info(
     config: &TabBar,
     is_active: bool,
     scale: f64,
+    target: RenderTarget,
 ) -> TabBarState {
     let tabs = info
         .tabs
@@ -105,6 +109,7 @@ fn tab_bar_state_from_info(
             title: tab.title.clone(),
             is_focused: tab.is_focused && is_active,
             is_urgent: tab.is_urgent,
+            block_out: target.should_block_out(tab.block_out_from),
         })
         .collect();
 
@@ -474,6 +479,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             clock,
             options,
             tab_bar_cache: RefCell::new(HashMap::new()),
+            is_active: false,
             fullscreen_window: None,
             closing_windows: Vec::new(),
         }
@@ -620,13 +626,14 @@ impl<W: LayoutElement> TilingSpace<W> {
                     pos = Point::from((0.0, 0.0));
                 }
 
-                let draw_focus = scrolling_focus_ring && info.path == focus_path;
+                let is_focused = info.path == focus_path;
+                let draw_focus = scrolling_focus_ring && is_focused;
                 let target_elements = if info.path == focus_path {
                     &mut active_elements
                 } else {
                     &mut elements
                 };
-                tile.render(renderer, pos, draw_focus, target, &mut |elem| {
+                tile.render(renderer, pos, draw_focus, is_focused, target, &mut |elem| {
                     target_elements.push(TilingSpaceRenderElement::from(elem));
                 });
             }
@@ -640,9 +647,15 @@ impl<W: LayoutElement> TilingSpace<W> {
             let mut next_cache = HashMap::new();
             let gles = renderer.as_gles_renderer();
             let tab_bar_config = self.effective_tab_bar_config();
+            let is_active_workspace = self.is_active;
             for info in tab_bar_infos {
-                let state =
-                    tab_bar_state_from_info(&info, &tab_bar_config, scrolling_focus_ring, self.scale);
+                let state = tab_bar_state_from_info(
+                    &info,
+                    &tab_bar_config,
+                    is_active_workspace,
+                    self.scale,
+                    target,
+                );
                 let (buffer, tab_widths_px) = match cache.get(&info.path) {
                     Some(entry) if entry.state == state => {
                         (entry.buffer.clone(), entry.tab_widths_px.clone())
@@ -654,7 +667,8 @@ impl<W: LayoutElement> TilingSpace<W> {
                         info.rect,
                         info.row_height,
                         &info.tabs,
-                        scrolling_focus_ring,
+                        is_active_workspace,
+                        target,
                         self.scale,
                     ) {
                         Ok(TabBarRenderOutput {
@@ -757,6 +771,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn update_render_elements(&mut self, is_active: bool) {
+        self.is_active = is_active;
         let applied = self.tree.apply_pending_layouts_if_ready();
         if applied && self.tree.take_pending_relayout() {
             self.tree.layout();
@@ -1049,7 +1064,8 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
-    /// View offset (not used in i3-style layout, always 0)
+    /// View offset (not used in i3-style layout, always 0).
+    #[cfg(test)]
     pub(super) fn view_offset(&self) -> f64 {
         0.0
     }
@@ -1911,6 +1927,10 @@ impl<W: LayoutElement> TilingSpace<W> {
         window: &W::Id,
         blocker: crate::utils::transaction::TransactionBlocker,
     ) {
+        if self.options.animations.window_close.anim.off || self.clock.should_complete_instantly() {
+            return;
+        }
+
         let Some(path) = self.tree.find_window(window) else {
             return;
         };

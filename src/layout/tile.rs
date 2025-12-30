@@ -1,16 +1,19 @@
 use core::f64;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use niri_config::utils::MergeWith as _;
-use niri_config::{Color, CornerRadius, GradientInterpolation};
+use niri_config::{Color, CornerRadius, GradientInterpolation, TabBar};
 use niri_ipc::WindowLayout;
 use smithay::backend::renderer::element::{Element, Kind};
-use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 
+use super::container::{Layout, TabBarTab};
 use super::focus_ring::{FocusRing, FocusRingRenderElement};
 use super::opening_window::{OpenAnimation, OpeningWindowRenderElement};
 use super::shadow::Shadow;
+use super::tab_bar::{render_tab_bar, TabBarRenderOutput};
 use super::{
     HitType, LayoutElement, LayoutElementRenderElement, LayoutElementRenderSnapshot, Options,
     SizeFrac, RESIZE_ANIMATION_THRESHOLD,
@@ -22,11 +25,13 @@ use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::clipped_surface::{ClippedSurfaceRenderElement, RoundedCornerDamage};
 use crate::render_helpers::damage::ExtraDamage;
 use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenRenderElement};
+use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::resize::ResizeRenderElement;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::snapshot::RenderSnapshot;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
+use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::render_helpers::RenderTarget;
 use crate::utils::transaction::Transaction;
 use crate::utils::{
@@ -118,6 +123,12 @@ pub struct Tile<W: LayoutElement> {
     view_size: Size<f64, Logical>,
     /// Extra vertical offset for tabbed/stacked layouts (tab bar height).
     tab_bar_offset: f64,
+    /// Whether this tile draws its own title bar (split layouts).
+    draw_titlebar: bool,
+    /// Cached title bar render data.
+    titlebar_cache: RefCell<Option<TitleBarCacheEntry>>,
+    /// Whether this tile is on the active workspace (for titlebar styling).
+    render_active: bool,
 
     /// Scale of the output the tile is on (and rounds its sizes to).
     scale: f64,
@@ -139,6 +150,7 @@ niri_render_elements! {
         Border = BorderRenderElement,
         Shadow = ShadowRenderElement,
         ClippedSurface = ClippedSurfaceRenderElement<R>,
+        TitleBar = PrimaryGpuTextureRenderElement,
         Offscreen = OffscreenRenderElement,
         ExtraDamage = ExtraDamage,
     }
@@ -182,6 +194,25 @@ pub(super) struct AlphaAnimation {
     offscreen: OffscreenBuffer,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct TitleBarState {
+    size: Size<f64, Logical>,
+    row_height: f64,
+    scale: f64,
+    title: String,
+    is_focused: bool,
+    is_urgent: bool,
+    is_active: bool,
+    block_out: bool,
+    config: TabBar,
+}
+
+#[derive(Debug)]
+struct TitleBarCacheEntry {
+    state: TitleBarState,
+    buffer: TextureBuffer<GlesTexture>,
+}
+
 impl<W: LayoutElement> Tile<W> {
     pub fn new(
         window: W,
@@ -221,10 +252,13 @@ impl<W: LayoutElement> Tile<W> {
             unmap_snapshot: None,
             rounded_corner_damage: Default::default(),
             view_size,
+            tab_bar_offset: 0.0,
+            draw_titlebar: false,
+            titlebar_cache: RefCell::new(None),
+            render_active: false,
             scale,
             clock,
             options,
-            tab_bar_offset: 0.0,
         }
     }
 
@@ -272,6 +306,19 @@ impl<W: LayoutElement> Tile<W> {
 
     pub(super) fn tab_bar_offset(&self) -> f64 {
         self.tab_bar_offset
+    }
+
+    pub(super) fn set_draw_titlebar(&mut self, draw: bool) {
+        if self.draw_titlebar != draw {
+            self.draw_titlebar = draw;
+            if !draw {
+                self.titlebar_cache.borrow_mut().take();
+            }
+        }
+    }
+
+    pub(super) fn draw_titlebar(&self) -> bool {
+        self.draw_titlebar
     }
 
     pub fn update_shaders(&mut self) {
@@ -486,13 +533,17 @@ impl<W: LayoutElement> Tile<W> {
     }
 
     pub fn update_render_elements(&mut self, is_active: bool, view_rect: Rectangle<f64, Logical>) {
+        self.render_active = is_active;
         let rules = self.window.rules();
         let animated_tile_size = self.animated_tile_size();
         let expanded_progress = self.expanded_progress();
 
-        let draw_border_with_background = rules
+        let mut draw_border_with_background = rules
             .draw_border_with_background
             .unwrap_or_else(|| !self.window.has_ssd());
+        if self.tab_bar_offset > 0.0 {
+            draw_border_with_background = false;
+        }
         let border_width = self.visual_border_width().unwrap_or(0.);
 
         // Do the inverse of tile_size() in order to handle the unfullscreen animation for windows
@@ -546,6 +597,9 @@ impl<W: LayoutElement> Tile<W> {
         if self.tab_bar_offset > 0.0 {
             draw_focus_ring_with_background = false;
         }
+        if self.tab_bar_offset > 0.0 {
+            draw_focus_ring_with_background = false;
+        }
         let radius = radius.expanded_by(self.focus_ring.width() as f32);
         self.focus_ring.update_render_elements(
             animated_tile_size,
@@ -559,6 +613,100 @@ impl<W: LayoutElement> Tile<W> {
         );
 
         self.fullscreen_backdrop.resize(animated_tile_size);
+    }
+
+    fn render_titlebar<R: NiriRenderer>(
+        &self,
+        renderer: &mut R,
+        location: Point<f64, Logical>,
+        is_focused: bool,
+        target: RenderTarget,
+        push: &mut dyn FnMut(TileRenderElement<R>),
+    ) {
+        if !self.draw_titlebar || self.tab_bar_offset <= 0.0 {
+            return;
+        }
+
+        let border_width = self.visual_border_width().unwrap_or(0.0);
+        let tile_size = self.animated_tile_size();
+        let inner_width = (tile_size.w - border_width * 2.0).max(0.0);
+        let inner_height = (tile_size.h - border_width * 2.0).max(0.0);
+        let bar_height = self.tab_bar_offset.min(inner_height);
+
+        if inner_width <= 0.0 || bar_height <= 0.0 {
+            return;
+        }
+
+        let rect = Rectangle::from_size(Size::from((inner_width, bar_height)));
+        let title = self
+            .window
+            .title()
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| String::from("untitled"));
+        let is_urgent = self.window.is_urgent();
+        let is_active = self.render_active;
+        let block_out_from = self.window.rules().block_out_from;
+        let block_out = target.should_block_out(block_out_from);
+
+        let config = self.options.layout.tab_bar.clone();
+
+        let state = TitleBarState {
+            size: rect.size,
+            row_height: bar_height,
+            scale: self.scale,
+            title: title.clone(),
+            is_focused,
+            is_urgent,
+            is_active,
+            block_out,
+            config,
+        };
+
+        let mut cache = self.titlebar_cache.borrow_mut();
+        let buffer = match cache.as_ref() {
+            Some(entry) if entry.state == state => entry.buffer.clone(),
+            _ => {
+                let tabs = [TabBarTab {
+                    title,
+                    is_focused,
+                    is_urgent,
+                    block_out_from,
+                }];
+
+                let gles = renderer.as_gles_renderer();
+                match render_tab_bar(
+                    gles,
+                    &state.config,
+                    Layout::Tabbed,
+                    rect,
+                    state.row_height,
+                    &tabs,
+                    is_active,
+                    target,
+                    self.scale,
+                ) {
+                    Ok(TabBarRenderOutput { buffer, .. }) => {
+                        *cache = Some(TitleBarCacheEntry { state, buffer: buffer.clone() });
+                        buffer
+                    }
+                    Err(err) => {
+                        warn!("title bar render failed: {err}");
+                        return;
+                    }
+                }
+            }
+        };
+
+        let bar_loc = location + Point::from((border_width, border_width));
+        let elem = TextureRenderElement::from_texture_buffer(
+            buffer,
+            bar_loc,
+            1.0,
+            None,
+            None,
+            Kind::Unspecified,
+        );
+        push(TileRenderElement::TitleBar(PrimaryGpuTextureRenderElement(elem)));
     }
 
     pub fn scale(&self) -> f64 {
@@ -1121,6 +1269,7 @@ impl<W: LayoutElement> Tile<W> {
         renderer: &mut R,
         location: Point<f64, Logical>,
         focus_ring: bool,
+        is_focused: bool,
         target: RenderTarget,
         push: &mut dyn FnMut(TileRenderElement<R>),
     ) {
@@ -1329,6 +1478,10 @@ impl<W: LayoutElement> Tile<W> {
             );
         }
 
+        self.render_titlebar(renderer, location, is_focused, target, &mut |elem| {
+            push(elem)
+        });
+
         if fullscreen_progress > 0. {
             let alpha = fullscreen_progress as f32;
 
@@ -1399,6 +1552,7 @@ impl<W: LayoutElement> Tile<W> {
         renderer: &mut R,
         location: Point<f64, Logical>,
         focus_ring: bool,
+        is_focused: bool,
         target: RenderTarget,
         push: &mut dyn FnMut(TileRenderElement<R>),
     ) {
@@ -1421,6 +1575,7 @@ impl<W: LayoutElement> Tile<W> {
                 renderer,
                 Point::from((0., 0.)),
                 focus_ring,
+                is_focused,
                 target,
                 &mut |elem| elements.push(elem),
             );
@@ -1448,6 +1603,7 @@ impl<W: LayoutElement> Tile<W> {
                 renderer,
                 Point::from((0., 0.)),
                 focus_ring,
+                is_focused,
                 target,
                 &mut |elem| elements.push(elem),
             );
@@ -1467,9 +1623,14 @@ impl<W: LayoutElement> Tile<W> {
         }
 
         if !pushed {
-            self.render_inner(renderer, location, focus_ring, target, &mut |elem| {
-                push(elem)
-            });
+            self.render_inner(
+                renderer,
+                location,
+                focus_ring,
+                is_focused,
+                target,
+                &mut |elem| push(elem),
+            );
         }
     }
 
@@ -1489,6 +1650,7 @@ impl<W: LayoutElement> Tile<W> {
             renderer,
             Point::from((0., 0.)),
             false,
+            false,
             RenderTarget::Output,
             &mut |elem| contents.push(elem),
         );
@@ -1498,6 +1660,7 @@ impl<W: LayoutElement> Tile<W> {
         self.render(
             renderer,
             Point::from((0., 0.)),
+            false,
             false,
             RenderTarget::Screencast,
             &mut |elem| blocked_out_contents.push(elem),

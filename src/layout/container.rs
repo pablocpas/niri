@@ -20,6 +20,7 @@ use super::{LayoutElement, Options};
 use super::tab_bar::tab_bar_row_height;
 use crate::window::Mapped;
 use crate::utils::transaction::{Transaction, TransactionBlocker};
+use niri_config::BlockOutFrom;
 use niri_ipc::{LayoutTreeLayout, LayoutTreeNode};
 
 // ============================================================================
@@ -62,6 +63,7 @@ pub struct TabBarTab {
     pub title: String,
     pub is_focused: bool,
     pub is_urgent: bool,
+    pub block_out_from: Option<BlockOutFrom>,
 }
 
 #[derive(Debug, Clone)]
@@ -132,6 +134,7 @@ struct LayoutData {
     leaf_layouts: Vec<LeafLayoutInfo>,
     container_geometries: HashMap<NodeKey, Rectangle<f64, Logical>>,
     tab_bar_offsets: HashMap<NodeKey, f64>,
+    titlebar_flags: HashMap<NodeKey, bool>,
 }
 
 #[derive(Debug)]
@@ -1072,7 +1075,16 @@ impl<W: LayoutElement> ContainerTree<W> {
         if let Some(root_key) = self.root {
             let mut path = Vec::new();
             let area = self.layout_area();
-            self.layout_node(root_key, area, &mut path, true, animate, animate_resize, 0.0);
+            self.layout_node(
+                root_key,
+                area,
+                &mut path,
+                true,
+                animate,
+                animate_resize,
+                0.0,
+                false,
+            );
         }
 
         if animate {
@@ -1194,11 +1206,12 @@ impl<W: LayoutElement> ContainerTree<W> {
             leaf_layouts: Vec::new(),
             container_geometries: HashMap::new(),
             tab_bar_offsets: HashMap::new(),
+            titlebar_flags: HashMap::new(),
         };
 
         let mut path = Vec::new();
         let area = self.layout_area();
-        self.collect_layout_node(root_key, area, &mut path, true, 0.0, &mut data);
+        self.collect_layout_node(root_key, area, &mut path, true, 0.0, false, &mut data);
         data
     }
 
@@ -1209,16 +1222,19 @@ impl<W: LayoutElement> ContainerTree<W> {
         path: &mut Vec<usize>,
         visible: bool,
         tab_bar_offset: f64,
+        draw_titlebar: bool,
         data: &mut LayoutData,
     ) {
         let node_info = match self.get_node(node_key) {
             Some(NodeData::Leaf(tile)) => {
-                let offset = if tile.window().pending_sizing_mode().is_fullscreen() {
-                    0.0
+                let (offset, show_titlebar) = if tile.window().pending_sizing_mode().is_fullscreen()
+                {
+                    (0.0, false)
                 } else {
-                    tab_bar_offset
+                    (tab_bar_offset, draw_titlebar)
                 };
                 data.tab_bar_offsets.insert(node_key, offset);
+                data.titlebar_flags.insert(node_key, show_titlebar);
                 data.leaf_layouts.push(LeafLayoutInfo {
                     key: node_key,
                     path: path.clone(),
@@ -1248,6 +1264,7 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         match layout {
             Layout::SplitH => {
+                let split_bar_height = self.split_title_bar_height();
                 let child_count = children.len();
                 let total_gap = if child_count > 1 {
                     gap * (child_count as f64 - 1.0)
@@ -1280,7 +1297,17 @@ impl<W: LayoutElement> ContainerTree<W> {
                     );
 
                     path.push(idx);
-                    self.collect_layout_node(child_key, child_rect, path, visible, 0.0, data);
+                    let (child_offset, child_titlebar) =
+                        self.split_child_titlebar(child_key, split_bar_height);
+                    self.collect_layout_node(
+                        child_key,
+                        child_rect,
+                        path,
+                        visible,
+                        child_offset,
+                        child_titlebar,
+                        data,
+                    );
                     path.pop();
 
                     used_width += width;
@@ -1290,6 +1317,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 }
             }
             Layout::SplitV => {
+                let split_bar_height = self.split_title_bar_height();
                 let child_count = children.len();
                 let total_gap = if child_count > 1 {
                     gap * (child_count as f64 - 1.0)
@@ -1322,7 +1350,17 @@ impl<W: LayoutElement> ContainerTree<W> {
                     );
 
                     path.push(idx);
-                    self.collect_layout_node(child_key, child_rect, path, visible, 0.0, data);
+                    let (child_offset, child_titlebar) =
+                        self.split_child_titlebar(child_key, split_bar_height);
+                    self.collect_layout_node(
+                        child_key,
+                        child_rect,
+                        path,
+                        visible,
+                        child_offset,
+                        child_titlebar,
+                        data,
+                    );
                     path.pop();
 
                     used_height += height;
@@ -1377,6 +1415,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                         path,
                         child_visible,
                         child_offset,
+                        false,
                         data,
                     );
                     path.pop();
@@ -1424,8 +1463,15 @@ impl<W: LayoutElement> ContainerTree<W> {
                 continue;
             };
             let offset = data.tab_bar_offsets.get(&info.key).copied().unwrap_or(0.0);
+            let show_titlebar = data
+                .titlebar_flags
+                .get(&info.key)
+                .copied()
+                .unwrap_or(false);
             let old_offset = tile.tab_bar_offset();
+            let old_titlebar = tile.draw_titlebar();
             tile.set_tab_bar_offset(offset);
+            tile.set_draw_titlebar(show_titlebar);
 
             let tx = changed
                 .contains(&info.key)
@@ -1440,6 +1486,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
 
             tile.set_tab_bar_offset(old_offset);
+            tile.set_draw_titlebar(old_titlebar);
         }
     }
 
@@ -1452,6 +1499,11 @@ impl<W: LayoutElement> ContainerTree<W> {
         for (key, offset) in data.tab_bar_offsets {
             if let Some(tile) = self.get_tile_mut(key) {
                 tile.set_tab_bar_offset(offset);
+            }
+        }
+        for (key, show_titlebar) in data.titlebar_flags {
+            if let Some(tile) = self.get_tile_mut(key) {
+                tile.set_draw_titlebar(show_titlebar);
             }
         }
         self.leaf_layouts = data.leaf_layouts;
@@ -1467,18 +1519,24 @@ impl<W: LayoutElement> ContainerTree<W> {
         animate: bool,
         animate_resize: bool,
         tab_bar_offset: f64,
+        draw_titlebar: bool,
     ) {
         // We need to work around borrow checker by getting info first
         let node_info = match self.get_node(node_key) {
             Some(NodeData::Leaf(_)) => {
                 // Handle leaf
                 if let Some(NodeData::Leaf(tile)) = self.get_node_mut(node_key) {
-                    let offset = if tile.window().pending_sizing_mode().is_fullscreen() {
-                        0.0
+                    let (offset, show_titlebar) = if tile
+                        .window()
+                        .pending_sizing_mode()
+                        .is_fullscreen()
+                    {
+                        (0.0, false)
                     } else {
-                        tab_bar_offset
+                        (tab_bar_offset, draw_titlebar)
                     };
                     tile.set_tab_bar_offset(offset);
+                    tile.set_draw_titlebar(show_titlebar);
                     let size = Size::from((rect.size.w, rect.size.h));
                     if tile.window().pending_sizing_mode().is_fullscreen() {
                         tile.request_fullscreen(animate_resize, None);
@@ -1524,6 +1582,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         match layout {
             Layout::SplitH => {
                 // Horizontal split
+                let split_bar_height = self.split_title_bar_height();
                 let child_count = children.len();
                 let total_gap = if child_count > 1 {
                     gap * (child_count as f64 - 1.0)
@@ -1556,6 +1615,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                     );
 
                     path.push(idx);
+                    let (child_offset, child_titlebar) =
+                        self.split_child_titlebar(child_key, split_bar_height);
                     self.layout_node(
                         child_key,
                         child_rect,
@@ -1563,7 +1624,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                         visible,
                         animate,
                         animate_resize,
-                        0.0,
+                        child_offset,
+                        child_titlebar,
                     );
                     path.pop();
 
@@ -1575,6 +1637,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
             Layout::SplitV => {
                 // Vertical split
+                let split_bar_height = self.split_title_bar_height();
                 let child_count = children.len();
                 let total_gap = if child_count > 1 {
                     gap * (child_count as f64 - 1.0)
@@ -1607,6 +1670,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                     );
 
                     path.push(idx);
+                    let (child_offset, child_titlebar) =
+                        self.split_child_titlebar(child_key, split_bar_height);
                     self.layout_node(
                         child_key,
                         child_rect,
@@ -1614,7 +1679,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                         visible,
                         animate,
                         animate_resize,
-                        0.0,
+                        child_offset,
+                        child_titlebar,
                     );
                     path.pop();
 
@@ -1673,6 +1739,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                         animate,
                         animate_resize,
                         child_offset,
+                        false,
                     );
                     path.pop();
                 }
@@ -1685,6 +1752,30 @@ impl<W: LayoutElement> ContainerTree<W> {
             return 0.0;
         }
         tab_bar_row_height(&self.options.layout.tab_bar, self.scale)
+    }
+
+    fn split_title_bar_height(&self) -> f64 {
+        if !self.options.layout.tab_bar.show_in_split {
+            return 0.0;
+        }
+        self.tab_bar_row_height()
+    }
+
+    fn split_child_titlebar(
+        &self,
+        child_key: NodeKey,
+        split_bar_height: f64,
+    ) -> (f64, bool) {
+        if split_bar_height <= 0.0 {
+            return (0.0, false);
+        }
+
+        let is_leaf = matches!(self.get_node(child_key), Some(NodeData::Leaf(_)));
+        if is_leaf {
+            (split_bar_height, true)
+        } else {
+            (0.0, false)
+        }
     }
 
     fn tab_bar_spacing(&self) -> f64 {
@@ -1815,10 +1906,15 @@ impl<W: LayoutElement> ContainerTree<W> {
                     .children
                     .iter()
                     .enumerate()
-                    .map(|(idx, &child_key)| TabBarTab {
-                        title: self.focused_title_in_subtree(child_key),
-                        is_focused: idx == focused_idx,
-                        is_urgent: self.subtree_has_urgent(child_key),
+                    .map(|(idx, &child_key)| {
+                        let (title, block_out_from) =
+                            self.focused_title_and_block_out(child_key);
+                        TabBarTab {
+                            title,
+                            is_focused: idx == focused_idx,
+                            is_urgent: self.subtree_has_urgent(child_key),
+                            block_out_from,
+                        }
                     })
                     .collect();
 
@@ -1850,26 +1946,30 @@ impl<W: LayoutElement> ContainerTree<W> {
         } else {
             self.get_node_key_at_path(container_path)?
         };
-        let container = self.get_container(key)?;
-        let child_key = container.child_key(tab_idx)?;
-        self.focused_window_in_subtree(child_key)
+        if let Some(container) = self.get_container(key) {
+            let child_key = container.child_key(tab_idx)?;
+            return self.focused_window_in_subtree(child_key);
+        }
+
+        if tab_idx == 0 {
+            if let Some(NodeData::Leaf(tile)) = self.get_node(key) {
+                return Some(tile.window());
+            }
+        }
+
+        None
     }
 
-    fn focused_title_in_subtree(&self, node_key: NodeKey) -> String {
-        match self.get_node(node_key) {
-            Some(NodeData::Leaf(tile)) => tile
-                .window()
+    fn focused_title_and_block_out(&self, node_key: NodeKey) -> (String, Option<BlockOutFrom>) {
+        if let Some(window) = self.focused_window_in_subtree(node_key) {
+            let title = window
                 .title()
                 .filter(|title| !title.trim().is_empty())
-                .unwrap_or_else(|| String::from("untitled")),
-            Some(NodeData::Container(container)) => {
-                let Some(child_key) = container.focused_child_key() else {
-                    return String::from("untitled");
-                };
-                self.focused_title_in_subtree(child_key)
-            }
-            None => String::from("untitled"),
+                .unwrap_or_else(|| String::from("untitled"));
+            return (title, window.rules().block_out_from);
         }
+
+        (String::from("untitled"), None)
     }
 
     fn focused_window_in_subtree(&self, node_key: NodeKey) -> Option<&W> {
@@ -2863,34 +2963,6 @@ impl<W: LayoutElement> ContainerTree<W> {
                 }
 
                 container_key
-            }
-        }
-    }
-
-    /// Extract all tiles from a subtree rooted at the given key.
-    /// This recursively collects all tiles and removes the entire subtree from the slotmap.
-    fn extract_tiles_from_subtree(&mut self, key: NodeKey) -> Vec<Tile<W>> {
-        let mut tiles = Vec::new();
-        self.collect_and_remove_tiles(key, &mut tiles);
-        tiles
-    }
-
-    /// Recursively collect tiles from a subtree and remove all nodes
-    fn collect_and_remove_tiles(&mut self, key: NodeKey, tiles: &mut Vec<Tile<W>>) {
-        let node_data = match self.nodes.remove(key) {
-            Some(data) => data,
-            None => return,
-        };
-        self.parents.remove(key);
-
-        match node_data {
-            NodeData::Leaf(tile) => {
-                tiles.push(tile);
-            }
-            NodeData::Container(container) => {
-                for child_key in container.children {
-                    self.collect_and_remove_tiles(child_key, tiles);
-                }
             }
         }
     }

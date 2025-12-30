@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use anyhow::{bail, Context, Result};
 use niri_config::{Color, TabBar};
 use pangocairo::cairo::{self, ImageSurface};
@@ -8,26 +10,67 @@ use smithay::utils::{Logical, Rectangle, Transform};
 
 use super::container::{Layout, TabBarTab};
 use crate::render_helpers::texture::TextureBuffer;
+use crate::render_helpers::RenderTarget;
 use crate::utils::{round_logical_in_physical_max1, to_physical_precise_round};
+
+fn sanitize_title(title: &str) -> Cow<'_, str> {
+    if title.chars().all(|ch| !ch.is_control()) {
+        let trimmed = title.trim();
+        return if trimmed.is_empty() {
+            Cow::Borrowed("untitled")
+        } else {
+            Cow::Borrowed(trimmed)
+        };
+    }
+
+    let mut buf = String::with_capacity(title.len());
+    for ch in title.chars() {
+        if ch.is_control() {
+            buf.push(' ');
+        } else {
+            buf.push(ch);
+        }
+    }
+    let trimmed = buf.trim();
+    if trimmed.is_empty() {
+        Cow::Borrowed("untitled")
+    } else {
+        Cow::Owned(trimmed.to_string())
+    }
+}
+
+fn font_description_for_scale(config: &TabBar, scale: f64) -> FontDescription {
+    let mut font = FontDescription::from_string(&config.font);
+    let base_size = font.size() as f64;
+    let size = if base_size > 0.0 {
+        base_size
+    } else {
+        let fallback_px = parse_font_size(&config.font).unwrap_or(12.0);
+        fallback_px * pango::SCALE as f64
+    };
+    let size = to_physical_precise_round::<f64>(scale, size).max(1.0);
+    font.set_absolute_size(size);
+    font
+}
+
+fn measure_font_height_px(font: &FontDescription) -> Option<i32> {
+    let surface = ImageSurface::create(cairo::Format::ARgb32, 1, 1).ok()?;
+    let cr = cairo::Context::new(&surface).ok()?;
+    let layout = pangocairo::functions::create_layout(&cr);
+    layout.context().set_round_glyph_positions(false);
+    layout.set_font_description(Some(font));
+    layout.set_text("Ag");
+    let (_w, h_px) = layout.pixel_size();
+    (h_px > 0).then_some(h_px)
+}
 
 pub fn tab_bar_row_height(config: &TabBar, scale: f64) -> f64 {
     let mut height = config.height;
     if height <= 0.0 {
-        let mut font = FontDescription::from_string(&config.font);
-        font.set_absolute_size(to_physical_precise_round::<f64>(scale, font.size()));
-
-        if let Ok(surface) = ImageSurface::create(cairo::Format::ARgb32, 1, 1) {
-            if let Ok(cr) = cairo::Context::new(&surface) {
-                let layout = pangocairo::functions::create_layout(&cr);
-                layout.context().set_round_glyph_positions(false);
-                layout.set_font_description(Some(&font));
-                layout.set_text("Ag");
-                let (_w, h_px) = layout.pixel_size();
-                if h_px > 0 {
-                    let font_height = (h_px as f64) / scale;
-                    height = font_height + config.padding_y * 2.0;
-                }
-            }
+        let font = font_description_for_scale(config, scale);
+        if let Some(h_px) = measure_font_height_px(&font) {
+            let font_height = (h_px as f64) / scale;
+            height = font_height + config.padding_y * 2.0;
         }
         if height <= 0.0 {
             let font_height = parse_font_size(&config.font).unwrap_or(12.0);
@@ -91,6 +134,7 @@ pub fn render_tab_bar(
     row_height: f64,
     tabs: &[TabBarTab],
     is_active_workspace: bool,
+    target: RenderTarget,
     scale: f64,
 ) -> Result<TabBarRenderOutput> {
     let tab_count = tabs.len();
@@ -102,20 +146,25 @@ pub fn render_tab_bar(
     let height_px: i32 = to_physical_precise_round::<i32>(scale, rect.size.h).max(1);
     let row_height_px: i32 = to_physical_precise_round::<i32>(scale, row_height).max(1);
     let padding_x_px: i32 = to_physical_precise_round::<i32>(scale, config.padding_x).max(0);
-    let padding_y_px: i32 = to_physical_precise_round::<i32>(scale, config.padding_y).max(0);
+    let mut padding_y_px: i32 = to_physical_precise_round::<i32>(scale, config.padding_y).max(0);
     let separator_width_px: i32 =
         to_physical_precise_round::<i32>(scale, config.separator_width).max(0);
     let border_width_px: i32 = to_physical_precise_round::<i32>(scale, config.border_width).max(0);
 
-    let mut font = FontDescription::from_string(&config.font);
-    let base_size = font.size() as f64;
-    let size = if base_size > 0.0 {
-        base_size
-    } else {
-        let fallback_px = parse_font_size(&config.font).unwrap_or(12.0);
-        fallback_px * pango::SCALE as f64
-    };
-    font.set_absolute_size(to_physical_precise_round::<f64>(scale, size));
+    let mut font = font_description_for_scale(config, scale);
+    let font_height_px = measure_font_height_px(&font).unwrap_or(row_height_px);
+
+    let min_padding_y = row_height_px.saturating_sub(1) / 2;
+    if padding_y_px > min_padding_y {
+        padding_y_px = min_padding_y;
+    }
+
+    let text_area_height = row_height_px.saturating_sub(padding_y_px * 2).max(1);
+    if font_height_px > text_area_height {
+        let scale_factor = text_area_height as f64 / font_height_px as f64;
+        let new_size = (font.size() as f64 * scale_factor).max(1.0);
+        font.set_absolute_size(new_size);
+    }
 
     let tab_widths = if layout == Layout::Tabbed {
         let tab_count_i32 = tab_count as i32;
@@ -137,6 +186,7 @@ pub fn render_tab_bar(
 
     let text_layout = pangocairo::functions::create_layout(&cr);
     text_layout.context().set_round_glyph_positions(false);
+    text_layout.set_single_paragraph_mode(true);
     text_layout.set_font_description(Some(&font));
     text_layout.set_ellipsize(EllipsizeMode::End);
     text_layout.set_alignment(Alignment::Left);
@@ -149,50 +199,54 @@ pub fn render_tab_bar(
         } else {
             (0, idx as i32 * row_height_px, width_px, row_height_px)
         };
+        let tab_border_width = border_width_px.min(w.saturating_sub(1) / 2).min(h / 2);
+        let tab_padding_x = padding_x_px.min(w.saturating_sub(1) / 2);
 
-        let (bg, fg, border) = tab_colors(config, tab, is_active_workspace);
+        let (bg, mut fg, border) = tab_colors(config, tab, is_active_workspace);
+        if target.should_block_out(tab.block_out_from) {
+            fg = bg;
+        }
         set_source_color(&cr, bg);
         cr.rectangle(f64::from(x), f64::from(y), f64::from(w), f64::from(h));
         cr.fill()?;
 
-        if border_width_px > 0 {
-            let bw = border_width_px.min(w).min(h);
-            if bw > 0 {
-                set_source_color(&cr, border);
-                cr.rectangle(f64::from(x), f64::from(y), f64::from(w), f64::from(bw));
-                cr.rectangle(
-                    f64::from(x),
-                    f64::from(y + h - bw),
-                    f64::from(w),
-                    f64::from(bw),
-                );
-                cr.rectangle(f64::from(x), f64::from(y), f64::from(bw), f64::from(h));
-                cr.rectangle(
-                    f64::from(x + w - bw),
-                    f64::from(y),
-                    f64::from(bw),
-                    f64::from(h),
-                );
-                cr.fill()?;
-            }
+        if tab_border_width > 0 {
+            set_source_color(&cr, border);
+            let bw = tab_border_width;
+            cr.rectangle(f64::from(x), f64::from(y), f64::from(w), f64::from(bw));
+            cr.rectangle(
+                f64::from(x),
+                f64::from(y + h - bw),
+                f64::from(w),
+                f64::from(bw),
+            );
+            cr.rectangle(f64::from(x), f64::from(y), f64::from(bw), f64::from(h));
+            cr.rectangle(
+                f64::from(x + w - bw),
+                f64::from(y),
+                f64::from(bw),
+                f64::from(h),
+            );
+            cr.fill()?;
         }
 
-        let title = if tab.title.trim().is_empty() {
-            "untitled"
-        } else {
-            tab.title.as_str()
-        };
-        let text_width = (w - padding_x_px * 2).max(1);
+        let title = sanitize_title(&tab.title);
+        let text_width = (w - tab_padding_x * 2).max(1);
         text_layout.set_width(text_width * pango::SCALE);
-        text_layout.set_text(title);
+        text_layout.set_text(&title);
         let (_tw, th) = text_layout.pixel_size();
-        let text_x = x + padding_x_px;
+        let text_x = x + tab_padding_x;
         let text_area_height = (h - padding_y_px * 2).max(1);
         let text_y = y + padding_y_px + ((text_area_height - th) / 2).max(0);
+
+        cr.save()?;
+        cr.rectangle(f64::from(x), f64::from(y), f64::from(w), f64::from(h));
+        cr.clip();
 
         set_source_color(&cr, fg);
         cr.move_to(f64::from(text_x), f64::from(text_y));
         pangocairo::functions::show_layout(&cr, &text_layout);
+        cr.restore()?;
 
         if separator_width_px > 0 && idx + 1 < tab_count {
             set_source_color(&cr, config.separator_color);

@@ -4426,16 +4426,6 @@ impl<W: LayoutElement> Layout<W> {
                             false,
                         );
                     }
-                    InsertPosition::InColumn(column_idx, tile_idx) => {
-                        mon.add_tile_to_column(
-                            ws_idx,
-                            column_idx,
-                            Some(tile_idx),
-                            move_.tile,
-                            true,
-                            allow_to_activate_workspace,
-                        );
-                    }
                     InsertPosition::Floating => {
                         let tile_render_loc = move_.tile_render_location(zoom);
 
@@ -4973,15 +4963,13 @@ impl<W: LayoutElement> Layout<W> {
         let scale = Scale::from(move_.output.current_scale().fractional_scale());
         let zoom = self.overview_zoom();
         let location = move_.tile_render_location(zoom);
-        move_
-            .tile
-            .render(renderer, location, true, target, &mut |elem| {
-                push(RescaleRenderElement::from_element(
-                    elem,
-                    location.to_physical_precise_round(scale),
-                    zoom,
-                ));
-            });
+        move_.tile.render(renderer, location, true, true, target, &mut |elem| {
+            push(RescaleRenderElement::from_element(
+                elem,
+                location.to_physical_precise_round(scale),
+                zoom,
+            ));
+        });
     }
 
     pub fn refresh(&mut self, is_active: bool) {

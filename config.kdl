@@ -196,6 +196,8 @@ layout {
 
     // Tab bar for tabbed/stacked layouts (matches focus ring by default).
     tab-bar {
+        // Also render a single-row title bar above tiles in split layouts.
+        // show-in-split false
         height 20
         padding-x 6
         padding-y 2

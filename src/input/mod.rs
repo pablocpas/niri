@@ -3193,8 +3193,6 @@ impl State {
 
         let source = event.source();
 
-        let mod_key = self.backend.mod_key(&self.niri.config.borrow());
-
         // We received an event for the regular pointer, so show it now. This is also needed for
         // update_pointer_contents() below to return the real contents, necessary for the pointer
         // axis event to reach the window.
@@ -3227,8 +3225,6 @@ impl State {
         } else {
             false
         };
-
-        let is_mru_open = self.niri.window_mru_ui.is_open();
 
         // Handle wheel scroll bindings.
         if source == AxisSource::Wheel {
