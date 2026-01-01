@@ -1413,6 +1413,71 @@ impl<W: LayoutElement> Tile<W> {
             }
         }
 
+        if !pushed_resize && self.options.animations.off && self.sizing_mode.is_normal() {
+            if let Some(expected) = self.window.expected_size() {
+                let current_size = self.window.size();
+                if expected != current_size {
+                    if ResizeRenderElement::has_shader(renderer) {
+                        let gles_renderer = renderer.as_gles_renderer();
+                        let mut window_elements = Vec::new();
+                        self.window.render_normal(
+                            gles_renderer,
+                            Point::from((0., 0.)),
+                            scale,
+                            1.,
+                            target,
+                            &mut |elem| window_elements.push(elem),
+                        );
+
+                        let offscreen = OffscreenBuffer::default();
+                        let rendered = offscreen
+                            .render(gles_renderer, scale, &window_elements)
+                            .map_err(|err| warn!("error rendering window to texture: {err:?}"))
+                            .ok();
+
+                        if let Some((elem_current, _sync_point, mut data)) = rendered {
+                            let round = |size: Size<f64, Logical>| {
+                                size.to_physical_precise_round(self.scale)
+                                    .to_logical(self.scale)
+                            };
+                            let current_size = round(current_size.to_f64());
+                            let texture_current = elem_current.texture().clone();
+                            // The offset and size are computed in physical pixels and converted to
+                            // logical with the same `scale`, so converting them back with rounding
+                            // inside the geometry() call gives us the same physical result back.
+                            let texture_current_geo = elem_current.geometry(scale);
+
+                            let clip_to_geometry =
+                                target.should_block_out(rules.block_out_from) || clip_to_geometry;
+
+                            let elem = ResizeRenderElement::new(
+                                area,
+                                scale,
+                                (texture_current.clone(), texture_current_geo),
+                                current_size,
+                                (texture_current, texture_current_geo),
+                                current_size,
+                                1.0,
+                                1.0,
+                                radius,
+                                clip_to_geometry,
+                                win_alpha,
+                            );
+
+                            // We're drawing the resize shader, not the offscreen directly.
+                            data.id = elem.id().clone();
+
+                            // This is not a problem for split popups as the code will look for them
+                            // by original id when it doesn't find them on the offscreen.
+                            self.window.set_offscreen_data(Some(data));
+                            push(elem.into());
+                            pushed_resize = true;
+                        }
+                    }
+                }
+            }
+        }
+
         // If we're not resizing, render the window itself.
         let has_border_shader = BorderRenderElement::has_shader(renderer);
         if !pushed_resize {
