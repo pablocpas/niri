@@ -1309,7 +1309,15 @@ impl<W: LayoutElement> Tile<W> {
 
         // Clip to geometry including during the fullscreen animation to help with buggy clients
         // that submit a full-sized buffer before acking the fullscreen state (Firefox).
-        let clip_to_geometry = fullscreen_progress < 1. && rules.clip_to_geometry == Some(true);
+        let mut clip_to_geometry = fullscreen_progress < 1. && rules.clip_to_geometry == Some(true);
+        if !clip_to_geometry && self.options.animations.off {
+            if let Some(expected) = self.window.expected_size() {
+                if expected != self.window.size() {
+                    // Avoid showing old buffer edges while waiting for a resize commit.
+                    clip_to_geometry = true;
+                }
+            }
+        }
         let radius = rules
             .geometry_corner_radius
             .unwrap_or_default()
