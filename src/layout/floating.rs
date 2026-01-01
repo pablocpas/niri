@@ -1089,6 +1089,12 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
         let active = self.active_window_id.clone();
         for (tile, tile_pos) in self.tiles_with_render_positions() {
+            // Skip tiles entirely outside the viewport (culling)
+            let tile_rect = Rectangle::new(tile_pos, tile.tile_size());
+            if !tile_rect.overlaps(view_rect) {
+                continue;
+            }
+
             let is_focused = Some(tile.window().id()) == active.as_ref();
             let draw_focus = focus_ring && is_focused;
 

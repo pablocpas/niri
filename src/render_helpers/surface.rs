@@ -121,14 +121,14 @@ pub fn push_elements_from_surface_tree<R>(
             let data = states.data_map.get::<RendererSurfaceStateUserData>();
 
             if let Some(data) = data {
-                let has_view = if let Some(view) = data.lock().unwrap().view() {
-                    location += view.offset.to_f64().to_physical(scale);
-                    true
-                } else {
-                    false
+                // Take lock once and extract view info
+                let view_offset = {
+                    let guard = data.lock().unwrap();
+                    guard.view().map(|v| v.offset.to_f64().to_physical(scale))
                 };
 
-                if has_view {
+                if let Some(offset) = view_offset {
+                    location += offset;
                     match WaylandSurfaceRenderElement::from_surface(
                         renderer, surface, states, location, alpha, kind,
                     ) {

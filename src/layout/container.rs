@@ -8,6 +8,7 @@
 //!
 //! Uses slotmap for efficient memory management and O(1) access to nodes.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -185,6 +186,18 @@ pub struct ContainerTree<W: LayoutElement> {
     scale: f64,
     /// Layout options
     options: Rc<Options>,
+    /// Generation counter for cache invalidation.
+    generation: u64,
+    /// Cached focus path to avoid recomputation (generation, focused_key, path).
+    focus_path_cache: RefCell<(u64, Option<NodeKey>, Vec<usize>)>,
+    /// Reusable HashMap for tracking previous positions during animation.
+    prev_positions_cache: HashMap<NodeKey, Point<f64, Logical>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct PreviewLeafGeometry {
+    pub rect: Rectangle<f64, Logical>,
+    pub tab_bar_offset: f64,
 }
 
 // ============================================================================
@@ -392,6 +405,11 @@ impl ContainerData {
 
     pub fn child_percent(&self, idx: usize) -> f64 {
         self.child_percents.get(idx).copied().unwrap_or(0.0)
+    }
+
+    /// Get child percentages as a slice (avoids cloning)
+    pub fn child_percents_slice(&self) -> &[f64] {
+        &self.child_percents
     }
 
     pub fn set_child_percent(&mut self, idx: usize, percent: f64) {
@@ -632,7 +650,289 @@ impl<W: LayoutElement> ContainerTree<W> {
             working_area,
             scale,
             options,
+            generation: 0,
+            focus_path_cache: RefCell::new((u64::MAX, None, Vec::new())),
+            prev_positions_cache: HashMap::new(),
         }
+    }
+
+    pub(super) fn preview_new_leaf_geometry(&self) -> Option<PreviewLeafGeometry> {
+        let root_rect = self.layout_area();
+        let Some(root_key) = self.root else {
+            if let Some(layout) = self.pending_layout {
+                let (rect, tab_bar_offset) =
+                    self.preview_child_rect(layout, root_rect, 1, &[1.0], 0, true);
+                return Some(PreviewLeafGeometry {
+                    rect,
+                    tab_bar_offset,
+                });
+            }
+            return Some(PreviewLeafGeometry {
+                rect: root_rect,
+                tab_bar_offset: 0.0,
+            });
+        };
+
+        if matches!(self.get_node(root_key), Some(NodeData::Leaf(_))) {
+            let percents = self.preview_inserted_child_percents(&[], 1, 1);
+            let (rect, tab_bar_offset) =
+                self.preview_child_rect(Layout::SplitH, root_rect, 2, &percents, 1, true);
+            return Some(PreviewLeafGeometry {
+                rect,
+                tab_bar_offset,
+            });
+        }
+
+        let focus_path = self.focus_path();
+        let (parent_path, insert_idx) = if focus_path.is_empty() {
+            (Vec::new(), None)
+        } else {
+            let mut parent_path = focus_path.clone();
+            let insert_idx = parent_path.pop().map(|idx| idx + 1);
+            (parent_path, insert_idx)
+        };
+
+        let parent_key = if parent_path.is_empty() {
+            root_key
+        } else {
+            self.get_node_key_at_path(&parent_path)?
+        };
+        let parent_rect = self.preview_rect_for_path(root_key, root_rect, &parent_path)?;
+        let parent = self.get_container(parent_key)?;
+        let child_count = parent.child_count();
+        let insert_idx = insert_idx.unwrap_or(child_count).min(child_count);
+        let percents = self.preview_inserted_child_percents(
+            parent.child_percents_slice(),
+            child_count,
+            insert_idx,
+        );
+        let (rect, tab_bar_offset) = self.preview_child_rect(
+            parent.layout(),
+            parent_rect,
+            child_count + 1,
+            &percents,
+            insert_idx,
+            true,
+        );
+
+        Some(PreviewLeafGeometry {
+            rect,
+            tab_bar_offset,
+        })
+    }
+
+    fn preview_rect_for_path(
+        &self,
+        root_key: NodeKey,
+        root_rect: Rectangle<f64, Logical>,
+        path: &[usize],
+    ) -> Option<Rectangle<f64, Logical>> {
+        let mut rect = root_rect;
+        let mut node_key = root_key;
+        for &idx in path {
+            let container = self.get_container(node_key)?;
+            let child_key = container.child_key(idx)?;
+            let child_is_leaf = matches!(self.get_node(child_key), Some(NodeData::Leaf(_)));
+            let percents_sum: f64 = container.child_percents_slice().iter().copied().sum();
+            let percents = self.get_normalized_child_percents(
+                node_key,
+                container.child_count(),
+                percents_sum,
+            );
+            let (child_rect, _) = self.preview_child_rect(
+                container.layout(),
+                rect,
+                container.child_count(),
+                &percents,
+                idx,
+                child_is_leaf,
+            );
+            if child_is_leaf {
+                return None;
+            }
+            rect = child_rect;
+            node_key = child_key;
+        }
+        Some(rect)
+    }
+
+    fn preview_inserted_child_percents(
+        &self,
+        current: &[f64],
+        old_len: usize,
+        insert_idx: usize,
+    ) -> Vec<f64> {
+        if old_len == 0 {
+            return vec![1.0];
+        }
+
+        let mut percents = if current.len() == old_len {
+            current.to_vec()
+        } else {
+            vec![1.0 / old_len as f64; old_len]
+        };
+
+        Self::normalize_child_percents_for_preview(&mut percents);
+
+        let new_share = 1.0 / (old_len as f64 + 1.0);
+        for percent in &mut percents {
+            *percent *= 1.0 - new_share;
+        }
+
+        let insert_idx = insert_idx.min(percents.len());
+        percents.insert(insert_idx, new_share);
+        Self::normalize_child_percents_for_preview(&mut percents);
+        percents
+    }
+
+    fn normalize_child_percents_for_preview(percents: &mut Vec<f64>) {
+        if percents.is_empty() {
+            return;
+        }
+        let mut sum = 0.0;
+        for percent in percents.iter() {
+            if !percent.is_finite() || *percent < 0.0 {
+                sum = 0.0;
+                break;
+            }
+            sum += *percent;
+        }
+        if sum <= f64::EPSILON {
+            let value = 1.0 / percents.len() as f64;
+            for percent in percents.iter_mut() {
+                *percent = value;
+            }
+            return;
+        }
+        for percent in percents.iter_mut() {
+            *percent /= sum;
+        }
+    }
+
+    fn preview_child_rect(
+        &self,
+        layout: Layout,
+        rect: Rectangle<f64, Logical>,
+        child_count: usize,
+        percents: &[f64],
+        child_idx: usize,
+        child_is_leaf: bool,
+    ) -> (Rectangle<f64, Logical>, f64) {
+        let gap = self.options.layout.gaps;
+        match layout {
+            Layout::SplitH => {
+                let total_gap = if child_count > 1 {
+                    gap * (child_count as f64 - 1.0)
+                } else {
+                    0.0
+                };
+                let available_width = (rect.size.w - total_gap).max(0.0);
+                let mut cursor_x = rect.loc.x;
+                let mut used_width = 0.0;
+                let split_bar_height = self.split_title_bar_height();
+                for idx in 0..child_count {
+                    let percent = percents
+                        .get(idx)
+                        .copied()
+                        .unwrap_or(1.0 / child_count as f64);
+                    let width = if idx == child_count - 1 {
+                        (available_width - used_width).max(0.0)
+                    } else {
+                        (available_width * percent).max(0.0)
+                    };
+                    if idx == child_idx {
+                        let child_rect = Rectangle::new(
+                            Point::from((cursor_x, rect.loc.y)),
+                            Size::from((width, rect.size.h)),
+                        );
+                        let tab_bar_offset = if child_is_leaf && split_bar_height > 0.0 {
+                            split_bar_height
+                        } else {
+                            0.0
+                        };
+                        return (child_rect, tab_bar_offset);
+                    }
+                    used_width += width;
+                    if idx + 1 < child_count {
+                        cursor_x += width + gap;
+                    }
+                }
+            }
+            Layout::SplitV => {
+                let total_gap = if child_count > 1 {
+                    gap * (child_count as f64 - 1.0)
+                } else {
+                    0.0
+                };
+                let available_height = (rect.size.h - total_gap).max(0.0);
+                let mut cursor_y = rect.loc.y;
+                let mut used_height = 0.0;
+                let split_bar_height = self.split_title_bar_height();
+                for idx in 0..child_count {
+                    let percent = percents
+                        .get(idx)
+                        .copied()
+                        .unwrap_or(1.0 / child_count as f64);
+                    let height = if idx == child_count - 1 {
+                        (available_height - used_height).max(0.0)
+                    } else {
+                        (available_height * percent).max(0.0)
+                    };
+                    if idx == child_idx {
+                        let child_rect = Rectangle::new(
+                            Point::from((rect.loc.x, cursor_y)),
+                            Size::from((rect.size.w, height)),
+                        );
+                        let tab_bar_offset = if child_is_leaf && split_bar_height > 0.0 {
+                            split_bar_height
+                        } else {
+                            0.0
+                        };
+                        return (child_rect, tab_bar_offset);
+                    }
+                    used_height += height;
+                    if idx + 1 < child_count {
+                        cursor_y += height + gap;
+                    }
+                }
+            }
+            Layout::Tabbed | Layout::Stacked => {
+                let mut inner_rect = rect;
+                if gap > 0.0 {
+                    inner_rect.loc.x += gap;
+                    inner_rect.loc.y += gap;
+                    inner_rect.size.w = (inner_rect.size.w - gap * 2.0).max(0.0);
+                    inner_rect.size.h = (inner_rect.size.h - gap * 2.0).max(0.0);
+                }
+
+                let bar_row_height = self.tab_bar_row_height();
+                let mut tab_offset = 0.0;
+                if bar_row_height > 0.0 && child_count > 0 {
+                    let bar_height = match layout {
+                        Layout::Tabbed => bar_row_height,
+                        Layout::Stacked => bar_row_height * child_count as f64,
+                        _ => 0.0,
+                    };
+                    let total_bar_height = (bar_height + self.tab_bar_spacing())
+                        .min(inner_rect.size.h)
+                        .max(0.0);
+                    tab_offset = total_bar_height;
+                }
+
+                if child_is_leaf {
+                    return (inner_rect, tab_offset);
+                }
+
+                let mut content_rect = inner_rect;
+                if tab_offset > 0.0 {
+                    content_rect.loc.y += tab_offset;
+                    content_rect.size.h = (content_rect.size.h - tab_offset).max(0.0);
+                }
+                return (content_rect, 0.0);
+            }
+        }
+
+        (rect, 0.0)
     }
 
     // ========================================================================
@@ -684,16 +984,16 @@ impl<W: LayoutElement> ContainerTree<W> {
             .position(|&key| key == child_key)
     }
 
-    /// Get tile by key
-    fn get_tile(&self, key: NodeKey) -> Option<&Tile<W>> {
+    /// Get tile by key (O(1) access).
+    pub fn get_tile(&self, key: NodeKey) -> Option<&Tile<W>> {
         match self.nodes.get(key)? {
             NodeData::Leaf(tile) => Some(tile),
             _ => None,
         }
     }
 
-    /// Get mutable tile by key
-    fn get_tile_mut(&mut self, key: NodeKey) -> Option<&mut Tile<W>> {
+    /// Get mutable tile by key (O(1) access).
+    pub fn get_tile_mut(&mut self, key: NodeKey) -> Option<&mut Tile<W>> {
         match self.nodes.get_mut(key)? {
             NodeData::Leaf(tile) => Some(tile),
             _ => None,
@@ -1023,18 +1323,33 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     /// Current focus path within the tree.
+    /// Uses cached path when generation and focused_key haven't changed.
     pub fn focus_path(&self) -> Vec<usize> {
-        if let Some(key) = self.focused_key {
-            if let Some(path) = self.find_node_path(key) {
-                return path;
+        {
+            let cache = self.focus_path_cache.borrow();
+            if cache.0 == self.generation && cache.1 == self.focused_key {
+                return cache.2.clone();
             }
         }
-        if let Some(key) = self.first_leaf_key() {
-            if let Some(path) = self.find_node_path(key) {
-                return path;
-            }
+
+        // Recompute path with fallback when focused key is invalid.
+        let path = if let Some(key) = self.focused_key {
+            self.find_node_path(key).or_else(|| {
+                self.first_leaf_key()
+                    .and_then(|first_key| self.find_node_path(first_key))
+            })
+        } else {
+            self.first_leaf_key()
+                .and_then(|first_key| self.find_node_path(first_key))
         }
-        Vec::new()
+        .unwrap_or_default();
+
+        // Update cache
+        let mut cache = self.focus_path_cache.borrow_mut();
+        cache.0 = self.generation;
+        cache.1 = self.focused_key;
+        cache.2 = path.clone();
+        path
     }
 
     /// Focused tile (if any).
@@ -1054,6 +1369,9 @@ impl<W: LayoutElement> ContainerTree<W> {
         let animate = !self.options.animations.off;
         let animate_resize = true; // Keep resize snapshots even when animations are off.
 
+        // Increment generation for focus path caching.
+        self.generation = self.generation.wrapping_add(1);
+
         if self.should_use_atomic_layout() {
             self.layout_atomic(animate_resize);
             return;
@@ -1063,10 +1381,10 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.pending_transaction = None;
         self.pending_relayout = false;
 
-        let mut prev_positions = HashMap::new();
+        self.prev_positions_cache.clear();
         if animate {
             for info in &self.leaf_layouts {
-                prev_positions.insert(info.key, info.rect.loc);
+                self.prev_positions_cache.insert(info.key, info.rect.loc);
             }
         }
 
@@ -1088,11 +1406,14 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
 
         if animate {
-            let layouts = self.leaf_layouts.clone();
-            for info in layouts {
-                if let Some(tile) = self.get_tile_mut(info.key) {
-                    if let Some(prev_loc) = prev_positions.get(&info.key) {
-                        let delta = *prev_loc - info.rect.loc;
+            // Iterate by index to avoid cloning leaf_layouts
+            for i in 0..self.leaf_layouts.len() {
+                let key = self.leaf_layouts[i].key;
+                let rect_loc = self.leaf_layouts[i].rect.loc;
+                let prev_loc = self.prev_positions_cache.get(&key).copied();
+                if let Some(tile) = self.get_tile_mut(key) {
+                    if let Some(prev_loc) = prev_loc {
+                        let delta = prev_loc - rect_loc;
                         if delta.x.abs() > MOVE_ANIMATION_THRESHOLD
                             || delta.y.abs() > MOVE_ANIMATION_THRESHOLD
                         {
@@ -1225,7 +1546,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         draw_titlebar: bool,
         data: &mut LayoutData,
     ) {
-        let node_info = match self.get_node(node_key) {
+        let (layout, child_count, focused_idx, child_percents_sum) = match self.get_node(node_key) {
             Some(NodeData::Leaf(tile)) => {
                 let (offset, show_titlebar) = if tile.window().pending_sizing_mode().is_fullscreen()
                 {
@@ -1245,18 +1566,19 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
             Some(NodeData::Container(container)) => {
                 data.container_geometries.insert(node_key, rect);
+                let percents = container.child_percents_slice();
+                let sum: f64 = percents.iter().copied().sum();
                 (
-                    container.layout,
-                    container.children.clone(),
-                    container.child_percents.clone(),
+                    container.layout(),
+                    container.child_count(),
                     container.focused_child_index(),
+                    sum,
                 )
             }
             None => return,
         };
 
-        let (layout, children, child_percents, focused_idx) = node_info;
-        if children.is_empty() {
+        if child_count == 0 {
             return;
         }
 
@@ -1265,7 +1587,6 @@ impl<W: LayoutElement> ContainerTree<W> {
         match layout {
             Layout::SplitH => {
                 let split_bar_height = self.split_title_bar_height();
-                let child_count = children.len();
                 let total_gap = if child_count > 1 {
                     gap * (child_count as f64 - 1.0)
                 } else {
@@ -1273,18 +1594,17 @@ impl<W: LayoutElement> ContainerTree<W> {
                 };
                 let available_width = (rect.size.w - total_gap).max(0.0);
 
-                let total_percent: f64 = child_percents.iter().copied().sum();
-                let percents: Vec<f64> = if total_percent > f64::EPSILON {
-                    child_percents.iter().map(|p| p / total_percent).collect()
-                } else {
-                    vec![1.0 / child_count as f64; child_count]
-                };
+                // Pre-compute normalized percentages
+                let percents: Vec<f64> = self.get_normalized_child_percents(node_key, child_count, child_percents_sum);
 
                 let mut cursor_x = rect.loc.x;
                 let mut used_width = 0.0;
 
-                for (idx, &child_key) in children.iter().enumerate() {
-                    let percent = percents[idx];
+                for idx in 0..child_count {
+                    let Some(child_key) = self.get_container_child_at(node_key, idx) else {
+                        continue;
+                    };
+                    let percent = percents.get(idx).copied().unwrap_or(1.0 / child_count as f64);
                     let width = if idx == child_count - 1 {
                         (available_width - used_width).max(0.0)
                     } else {
@@ -1318,7 +1638,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
             Layout::SplitV => {
                 let split_bar_height = self.split_title_bar_height();
-                let child_count = children.len();
                 let total_gap = if child_count > 1 {
                     gap * (child_count as f64 - 1.0)
                 } else {
@@ -1326,18 +1645,17 @@ impl<W: LayoutElement> ContainerTree<W> {
                 };
                 let available_height = (rect.size.h - total_gap).max(0.0);
 
-                let total_percent: f64 = child_percents.iter().copied().sum();
-                let percents: Vec<f64> = if total_percent > f64::EPSILON {
-                    child_percents.iter().map(|p| p / total_percent).collect()
-                } else {
-                    vec![1.0 / child_count as f64; child_count]
-                };
+                // Pre-compute normalized percentages
+                let percents: Vec<f64> = self.get_normalized_child_percents(node_key, child_count, child_percents_sum);
 
                 let mut cursor_y = rect.loc.y;
                 let mut used_height = 0.0;
 
-                for (idx, &child_key) in children.iter().enumerate() {
-                    let percent = percents[idx];
+                for idx in 0..child_count {
+                    let Some(child_key) = self.get_container_child_at(node_key, idx) else {
+                        continue;
+                    };
+                    let percent = percents.get(idx).copied().unwrap_or(1.0 / child_count as f64);
                     let height = if idx == child_count - 1 {
                         (available_height - used_height).max(0.0)
                     } else {
@@ -1370,7 +1688,6 @@ impl<W: LayoutElement> ContainerTree<W> {
                 }
             }
             Layout::Tabbed | Layout::Stacked => {
-                let child_count = children.len();
                 let mut inner_rect = rect;
                 if gap > 0.0 {
                     inner_rect.loc.x += gap;
@@ -1393,9 +1710,12 @@ impl<W: LayoutElement> ContainerTree<W> {
                     tab_offset = total_bar_height;
                 }
 
-                let focused_idx = focused_idx.unwrap_or(0).min(children.len().saturating_sub(1));
+                let focused_idx = focused_idx.unwrap_or(0).min(child_count.saturating_sub(1));
 
-                for (idx, &child_key) in children.iter().enumerate() {
+                for idx in 0..child_count {
+                    let Some(child_key) = self.get_container_child_at(node_key, idx) else {
+                        continue;
+                    };
                     path.push(idx);
                     let child_visible = visible && idx == focused_idx;
                     let is_leaf = matches!(self.get_node(child_key), Some(NodeData::Leaf(_)));
@@ -1522,7 +1842,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         draw_titlebar: bool,
     ) {
         // We need to work around borrow checker by getting info first
-        let node_info = match self.get_node(node_key) {
+        let (layout, child_count, focused_idx, child_percents_sum) = match self.get_node(node_key) {
             Some(NodeData::Leaf(_)) => {
                 // Handle leaf
                 if let Some(NodeData::Leaf(tile)) = self.get_node_mut(node_key) {
@@ -1555,25 +1875,25 @@ impl<W: LayoutElement> ContainerTree<W> {
                 return;
             }
             Some(NodeData::Container(container)) => {
-                // Collect container info
+                // Extract only Copy types to avoid cloning Vec
+                let percents = container.child_percents_slice();
+                let sum: f64 = percents.iter().copied().sum();
                 (
-                    container.layout,
-                    container.children.clone(),
-                    container.child_percents.clone(),
+                    container.layout(),
+                    container.child_count(),
                     container.focused_child_index(),
+                    sum,
                 )
             }
             None => return,
         };
-
-        let (layout, children, child_percents, focused_idx) = node_info;
 
         // Update container geometry
         if let Some(NodeData::Container(container)) = self.get_node_mut(node_key) {
             container.set_geometry(rect);
         }
 
-        if children.is_empty() {
+        if child_count == 0 {
             return;
         }
 
@@ -1583,7 +1903,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             Layout::SplitH => {
                 // Horizontal split
                 let split_bar_height = self.split_title_bar_height();
-                let child_count = children.len();
                 let total_gap = if child_count > 1 {
                     gap * (child_count as f64 - 1.0)
                 } else {
@@ -1591,18 +1910,17 @@ impl<W: LayoutElement> ContainerTree<W> {
                 };
                 let available_width = (rect.size.w - total_gap).max(0.0);
 
-                let total_percent: f64 = child_percents.iter().copied().sum();
-                let percents: Vec<f64> = if total_percent > f64::EPSILON {
-                    child_percents.iter().map(|p| p / total_percent).collect()
-                } else {
-                    vec![1.0 / child_count as f64; child_count]
-                };
+                // Pre-compute normalized percentages
+                let percents: Vec<f64> = self.get_normalized_child_percents(node_key, child_count, child_percents_sum);
 
                 let mut cursor_x = rect.loc.x;
                 let mut used_width = 0.0;
 
-                for (idx, &child_key) in children.iter().enumerate() {
-                    let percent = percents[idx];
+                for idx in 0..child_count {
+                    let Some(child_key) = self.get_container_child_at(node_key, idx) else {
+                        continue;
+                    };
+                    let percent = percents.get(idx).copied().unwrap_or(1.0 / child_count as f64);
                     let width = if idx == child_count - 1 {
                         (available_width - used_width).max(0.0)
                     } else {
@@ -1638,7 +1956,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             Layout::SplitV => {
                 // Vertical split
                 let split_bar_height = self.split_title_bar_height();
-                let child_count = children.len();
                 let total_gap = if child_count > 1 {
                     gap * (child_count as f64 - 1.0)
                 } else {
@@ -1646,18 +1963,17 @@ impl<W: LayoutElement> ContainerTree<W> {
                 };
                 let available_height = (rect.size.h - total_gap).max(0.0);
 
-                let total_percent: f64 = child_percents.iter().copied().sum();
-                let percents: Vec<f64> = if total_percent > f64::EPSILON {
-                    child_percents.iter().map(|p| p / total_percent).collect()
-                } else {
-                    vec![1.0 / child_count as f64; child_count]
-                };
+                // Pre-compute normalized percentages
+                let percents: Vec<f64> = self.get_normalized_child_percents(node_key, child_count, child_percents_sum);
 
                 let mut cursor_y = rect.loc.y;
                 let mut used_height = 0.0;
 
-                for (idx, &child_key) in children.iter().enumerate() {
-                    let percent = percents[idx];
+                for idx in 0..child_count {
+                    let Some(child_key) = self.get_container_child_at(node_key, idx) else {
+                        continue;
+                    };
+                    let percent = percents.get(idx).copied().unwrap_or(1.0 / child_count as f64);
                     let height = if idx == child_count - 1 {
                         (available_height - used_height).max(0.0)
                     } else {
@@ -1692,7 +2008,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
             Layout::Tabbed | Layout::Stacked => {
                 // All children get full size, only focused is visible.
-                let child_count = children.len();
                 let mut inner_rect = rect;
                 if gap > 0.0 {
                     inner_rect.loc.x += gap;
@@ -1715,9 +2030,12 @@ impl<W: LayoutElement> ContainerTree<W> {
                     tab_offset = total_bar_height;
                 }
 
-                let focused_idx = focused_idx.unwrap_or(0).min(children.len().saturating_sub(1));
+                let focused_idx = focused_idx.unwrap_or(0).min(child_count.saturating_sub(1));
 
-                for (idx, &child_key) in children.iter().enumerate() {
+                for idx in 0..child_count {
+                    let Some(child_key) = self.get_container_child_at(node_key, idx) else {
+                        continue;
+                    };
                     path.push(idx);
                     let child_visible = visible && idx == focused_idx;
                     let is_leaf = matches!(self.get_node(child_key), Some(NodeData::Leaf(_)));
@@ -1759,6 +2077,28 @@ impl<W: LayoutElement> ContainerTree<W> {
             return 0.0;
         }
         self.tab_bar_row_height()
+    }
+
+    /// Get a child key at a specific index from a container node (avoids cloning children vec)
+    fn get_container_child_at(&self, container_key: NodeKey, idx: usize) -> Option<NodeKey> {
+        match self.get_node(container_key) {
+            Some(NodeData::Container(container)) => container.child_key(idx),
+            _ => None,
+        }
+    }
+
+    /// Get normalized child percentages from a container (avoids cloning by computing inline)
+    fn get_normalized_child_percents(&self, container_key: NodeKey, child_count: usize, percents_sum: f64) -> Vec<f64> {
+        let Some(NodeData::Container(container)) = self.get_node(container_key) else {
+            return vec![1.0 / child_count.max(1) as f64; child_count];
+        };
+        
+        let percents = container.child_percents_slice();
+        if percents_sum > f64::EPSILON {
+            percents.iter().map(|p| p / percents_sum).collect()
+        } else {
+            vec![1.0 / child_count.max(1) as f64; child_count]
+        }
     }
 
     fn split_child_titlebar(

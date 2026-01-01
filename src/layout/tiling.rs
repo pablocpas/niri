@@ -39,7 +39,7 @@ use crate::utils::ResizeEdge;
 use crate::window::ResolvedWindowRules;
 use crate::layout::tab_bar::{render_tab_bar, TabBarRenderOutput};
 use log::warn;
-use crate::utils::to_physical_precise_round;
+use crate::utils::{round_logical_in_physical_max1, to_physical_precise_round};
 
 // ============================================================================
 // MAIN STRUCTURES - i3-style container tree implementation
@@ -62,6 +62,8 @@ pub struct TilingSpace<W: LayoutElement> {
     options: Rc<Options>,
     /// Cached tab bar textures keyed by container path.
     tab_bar_cache: RefCell<HashMap<Vec<usize>, TabBarCacheEntry>>,
+    /// Alternate tab bar cache for swap (avoids allocation).
+    tab_bar_cache_alt: RefCell<HashMap<Vec<usize>, TabBarCacheEntry>>,
     /// Whether this workspace is active (for tab bar styling).
     is_active: bool,
     /// Currently fullscreen window (if any)
@@ -237,8 +239,9 @@ impl<'a, W: LayoutElement> TileRenderPositions<'a, W> {
         let scale = Scale::from(space.scale);
         let mut entries = Vec::new();
         let layouts = space.display_layouts();
-        for info in &layouts {
-            if let Some(tile) = space.tree.tile_at_path(&info.path) {
+        for info in layouts {
+            // Use O(1) key lookup instead of O(depth) path lookup.
+            if let Some(tile) = space.tree.get_tile(info.key) {
                 let mut pos = info.rect.loc + tile.render_offset();
                 pos = pos.to_physical_precise_round(scale).to_logical(scale);
                 entries.push((tile as *const _, pos, info.visible));
@@ -279,7 +282,9 @@ struct TileRenderPositionsMut<'a, W: LayoutElement> {
 
 impl<'a, W: LayoutElement> TileRenderPositionsMut<'a, W> {
     fn new(space: &'a mut TilingSpace<W>, round: bool) -> Self {
-        let layouts = space.display_layouts();
+        // Clone layouts here because we need mutable access to space later.
+        // The layouts are small (just NodeKey + rect per tile).
+        let layouts = space.display_layouts().to_vec();
         Self {
             space: space as *mut _,
             layouts,
@@ -301,7 +306,8 @@ impl<'a, W: LayoutElement> Iterator for TileRenderPositionsMut<'a, W> {
 
             unsafe {
                 let space = &mut *self.space;
-                if let Some(tile) = space.tree.tile_at_path_mut(&info.path) {
+                // Use O(1) key lookup instead of O(depth) path lookup.
+                if let Some(tile) = space.tree.get_tile_mut(info.key) {
                     let mut pos = info.rect.loc + tile.render_offset();
                     if self.round {
                         pos = pos
@@ -322,13 +328,14 @@ impl<'a, W: LayoutElement> Iterator for TileRenderPositionsMut<'a, W> {
 // ============================================================================
 
 impl<W: LayoutElement> TilingSpace<W> {
-    fn display_layouts(&self) -> Vec<LeafLayoutInfo> {
+    /// Returns a reference to the current layout information, avoiding clones.
+    fn display_layouts(&self) -> &[LeafLayoutInfo] {
         if self.tree.leaf_layouts().is_empty() {
             self.tree
-                .pending_leaf_layouts_cloned()
-                .unwrap_or_else(|| self.tree.leaf_layouts_cloned())
+                .pending_leaf_layouts()
+                .unwrap_or_else(|| self.tree.leaf_layouts())
         } else {
-            self.tree.leaf_layouts_cloned()
+            self.tree.leaf_layouts()
         }
     }
 
@@ -479,6 +486,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             clock,
             options,
             tab_bar_cache: RefCell::new(HashMap::new()),
+            tab_bar_cache_alt: RefCell::new(HashMap::new()),
             is_active: false,
             fullscreen_window: None,
             closing_windows: Vec::new(),
@@ -595,8 +603,11 @@ impl<W: LayoutElement> TilingSpace<W> {
         target: RenderTarget,
         scrolling_focus_ring: bool,
     ) -> Vec<TilingSpaceRenderElement<R>> {
-        let mut elements = Vec::new();
-        let mut active_elements = Vec::new();
+        // Pre-allocate: ~4 elements per tile + closing windows + tab bars
+        let tile_count = self.tree.window_count();
+        let estimated_capacity = tile_count * 4 + self.closing_windows.len() + tile_count / 2;
+        let mut elements = Vec::with_capacity(estimated_capacity);
+        let mut active_elements = Vec::with_capacity(8);
         let scale = Scale::from(self.scale);
         let focus_path = self.tree.focus_path();
         let fullscreen_id = self.fullscreen_window.as_ref();
@@ -609,7 +620,8 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         let render_layouts = self.display_layouts();
         for info in render_layouts.iter().rev() {
-            if let Some(tile) = self.tree.tile_at_path(&info.path) {
+            // Use O(1) key lookup instead of O(depth) path lookup.
+            if let Some(tile) = self.tree.get_tile(info.key) {
                 let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
                 let show_tile = fullscreen_id.map_or(info.visible, |_| is_fullscreen_tile);
 
@@ -644,7 +656,8 @@ impl<W: LayoutElement> TilingSpace<W> {
         if fullscreen_id.is_none() && !self.options.layout.tab_bar.off {
             let tab_bar_infos = self.tree.tab_bar_layouts();
             let mut cache = self.tab_bar_cache.borrow_mut();
-            let mut next_cache = HashMap::new();
+            let mut next_cache = self.tab_bar_cache_alt.borrow_mut();
+            next_cache.clear();
             let gles = renderer.as_gles_renderer();
             let tab_bar_config = self.effective_tab_bar_config();
             let is_active_workspace = self.is_active;
@@ -705,7 +718,8 @@ impl<W: LayoutElement> TilingSpace<W> {
                     },
                 );
             }
-            *cache = next_cache;
+            // Swap caches: next becomes current, current will be cleared on next frame
+            std::mem::swap(&mut *cache, &mut *next_cache);
         } else {
             self.tab_bar_cache.borrow_mut().clear();
         }
@@ -784,14 +798,16 @@ impl<W: LayoutElement> TilingSpace<W> {
         } else {
             self.tree.leaf_layouts_cloned()
         };
-        let render_layouts = self.display_layouts();
+        // Clone here because we need mutable access to tree in the loop below.
+        let render_layouts = self.display_layouts().to_vec();
         let workspace_view = Rectangle::from_size(self.view_size);
         let focus_path = self.tree.focus_path();
         let scale = Scale::from(self.scale);
         let fullscreen_id = self.fullscreen_window.as_ref();
 
         for info in state_layouts {
-            if let Some(tile) = self.tree.tile_at_path_mut(&info.path) {
+            // Use O(1) key lookup instead of O(depth) path lookup.
+            if let Some(tile) = self.tree.get_tile_mut(info.key) {
                 Self::update_window_state(
                     tile,
                     &info,
@@ -808,7 +824,8 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
 
         for info in render_layouts {
-            if let Some(tile) = self.tree.tile_at_path_mut(&info.path) {
+            // Use O(1) key lookup instead of O(depth) path lookup.
+            if let Some(tile) = self.tree.get_tile_mut(info.key) {
                 let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
 
                 let mut pos = info.rect.loc + tile.render_offset();
@@ -1205,7 +1222,8 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         let render_layouts = self.display_layouts();
         for info in render_layouts.iter().rev() {
-            if let Some(tile) = self.tree.tile_at_path(&info.path) {
+            // Use O(1) key lookup instead of O(depth) path lookup.
+            if let Some(tile) = self.tree.get_tile(info.key) {
                 let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
                 if fullscreen_id.is_some() && !is_fullscreen_tile {
                     continue;
@@ -1485,9 +1503,26 @@ impl<W: LayoutElement> TilingSpace<W> {
         &self,
         _width: Option<PresetSize>,
         _height: Option<PresetSize>,
-        _rules: &ResolvedWindowRules,
+        rules: &ResolvedWindowRules,
     ) -> Size<i32, Logical> {
-        Size::from((800, 600))
+        let Some(preview) = self.tree.preview_new_leaf_geometry() else {
+            return Size::from((800, 600));
+        };
+
+        let mut size = preview.rect.size;
+        let mut border_config = self.options.layout.border.merged_with(&rules.border);
+        border_config.width = round_logical_in_physical_max1(self.scale, border_config.width);
+
+        if !border_config.off {
+            let width = border_config.width * 2.0;
+            size.w = f64::max(1.0, size.w - width);
+            size.h = f64::max(1.0, size.h - width);
+        }
+        if preview.tab_bar_offset > 0.0 {
+            size.h = f64::max(1.0, size.h - preview.tab_bar_offset);
+        }
+
+        size.to_i32_floor()
     }
 
     pub fn new_window_toplevel_bounds(&self, _rules: &ResolvedWindowRules) -> Size<i32, Logical> {
@@ -2011,7 +2046,8 @@ impl<W: LayoutElement> TilingSpace<W> {
         let fullscreen_id = self.fullscreen_window.as_ref();
 
         for info in layouts {
-            if let Some(tile) = self.tree.tile_at_path_mut(&info.path) {
+            // Use O(1) key lookup instead of O(depth) path lookup.
+            if let Some(tile) = self.tree.get_tile_mut(info.key) {
                 let deactivate_unfocused = self.options.deactivate_unfocused_windows && !is_focused;
 
                 Self::update_window_state(
@@ -2037,7 +2073,25 @@ impl<W: LayoutElement> TilingSpace<W> {
         0.0
     }
 
-    pub fn popup_target_rect(&self, _window: &W::Id) -> Option<Rectangle<f64, Logical>> {
+    pub fn popup_target_rect(&self, window: &W::Id) -> Option<Rectangle<f64, Logical>> {
+        // Find the tile for this window and return its popup target rectangle
+        for info in self.display_layouts() {
+            if let Some(tile) = self.tree.get_tile(info.key) {
+                if tile.window().id() == window {
+                    // Similar to scrolling layout: constrain horizontally to window,
+                    // vertically to the working area
+                    let width = tile.window_size().w;
+                    let height = self.working_area.size.h;
+
+                    let mut target = Rectangle::from_size(Size::from((width, height)));
+                    target.loc.y += self.working_area.loc.y;
+                    target.loc.y -= info.rect.loc.y;
+                    target.loc.y -= tile.window_loc().y;
+
+                    return Some(target);
+                }
+            }
+        }
         None
     }
 
