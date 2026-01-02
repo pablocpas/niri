@@ -130,6 +130,14 @@ pub struct LeafLayoutInfo {
     pub visible: bool,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct InsertParentInfo {
+    pub parent_path: Vec<usize>,
+    pub insert_idx: usize,
+    pub layout: Layout,
+    pub child_percents: Vec<f64>,
+}
+
 #[derive(Debug)]
 struct LayoutData {
     leaf_layouts: Vec<LeafLayoutInfo>,
@@ -720,6 +728,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             tab_bar_offset,
         })
     }
+
 
     fn preview_rect_for_path(
         &self,
@@ -1441,6 +1450,20 @@ impl<W: LayoutElement> ContainerTree<W> {
             area.size.h = (area.size.h - gap * 2.0).max(0.0);
         }
         area
+    }
+
+    pub(super) fn parent_layout_for_path(&self, path: &[usize]) -> Option<Layout> {
+        if path.is_empty() {
+            return None;
+        }
+
+        let parent_path = &path[..path.len() - 1];
+        let parent_key = if parent_path.is_empty() {
+            self.root?
+        } else {
+            self.get_node_key_at_path(parent_path)?
+        };
+        self.get_container(parent_key).map(|c| c.layout())
     }
 
     fn layout_atomic(&mut self, animate_resize: bool) {
@@ -3672,6 +3695,323 @@ impl<W: LayoutElement> ContainerTree<W> {
         true
     }
 
+    pub(super) fn insert_parent_info_for_window(
+        &self,
+        window_id: &W::Id,
+    ) -> Option<InsertParentInfo> {
+        let path = self.find_window(window_id)?;
+        if path.is_empty() {
+            return None;
+        }
+
+        let mut parent_path = path.clone();
+        let insert_idx = parent_path.pop().unwrap();
+        let parent_key = if parent_path.is_empty() {
+            self.root?
+        } else {
+            self.get_node_key_at_path(&parent_path)?
+        };
+        let parent = self.get_container(parent_key)?;
+        Some(InsertParentInfo {
+            parent_path,
+            insert_idx,
+            layout: parent.layout(),
+            child_percents: parent.child_percents_slice().to_vec(),
+        })
+    }
+
+    pub(super) fn replace_leaf_at_path(
+        &mut self,
+        path: &[usize],
+        tile: Tile<W>,
+    ) -> Option<Tile<W>> {
+        let key = self.get_node_key_at_path(path)?;
+        match self.get_node_mut(key)? {
+            NodeData::Leaf(existing) => Some(std::mem::replace(existing, tile)),
+            _ => None,
+        }
+    }
+
+    pub(super) fn is_leaf_at_path(&self, path: &[usize]) -> bool {
+        let Some(key) = self.get_node_key_at_path(path) else {
+            return false;
+        };
+        matches!(self.get_node(key), Some(NodeData::Leaf(_)))
+    }
+
+    pub(super) fn insert_leaf_with_parent_info(
+        &mut self,
+        info: &InsertParentInfo,
+        tile: Tile<W>,
+        focus: bool,
+    ) -> bool {
+        let container_key = match self.ensure_container_at_path(&info.parent_path, info.layout) {
+            Some(key) => key,
+            None => {
+                self.append_leaf(tile, focus);
+                return true;
+            }
+        };
+
+        let tile_key = self.insert_node(NodeData::Leaf(tile));
+        if let Some(container) = self.get_container_mut(container_key) {
+            container.insert_child(info.insert_idx, tile_key);
+            if info.child_percents.len() == container.child_percents.len() {
+                container.child_percents = info.child_percents.clone();
+                container.normalize_child_percents();
+            }
+        }
+        self.set_parent(tile_key, Some(container_key));
+
+        if focus {
+            self.focus_node_key(tile_key);
+        } else if let Some(key) = self.focused_key {
+            self.sync_container_focus_from_key(key);
+        } else {
+            self.focus_first_leaf();
+        }
+
+        true
+    }
+
+    pub fn insert_leaf_split(
+        &mut self,
+        target_path: &[usize],
+        direction: Direction,
+        tile: Tile<W>,
+        focus: bool,
+    ) -> bool {
+        if self.root.is_none() {
+            self.append_leaf(tile, focus);
+            return true;
+        }
+
+        let desired_layout = if direction.is_horizontal() {
+            Layout::SplitH
+        } else {
+            Layout::SplitV
+        };
+
+        if target_path.is_empty() {
+            let Some(root_key) = self.root else {
+                self.append_leaf(tile, focus);
+                return true;
+            };
+            if !matches!(self.get_node(root_key), Some(NodeData::Leaf(_))) {
+                self.append_leaf(tile, focus);
+                return true;
+            }
+
+            let tile_key = self.insert_node(NodeData::Leaf(tile));
+            let mut container = ContainerData::new(desired_layout);
+            container.mark_preserve_on_single();
+            match direction {
+                Direction::Left | Direction::Up => {
+                    container.add_child(tile_key);
+                    container.add_child(root_key);
+                }
+                Direction::Right | Direction::Down => {
+                    container.add_child(root_key);
+                    container.add_child(tile_key);
+                }
+            }
+
+            let container_key = self.insert_node(NodeData::Container(container));
+            self.set_parent(tile_key, Some(container_key));
+            self.set_parent(root_key, Some(container_key));
+            self.set_parent(container_key, None);
+            self.root = Some(container_key);
+
+            if focus {
+                self.focus_node_key(tile_key);
+            } else if let Some(key) = self.focused_key {
+                self.sync_container_focus_from_key(key);
+            } else {
+                self.focus_first_leaf();
+            }
+            return true;
+        }
+
+        let parent_path = &target_path[..target_path.len() - 1];
+        let target_idx = *target_path.last().unwrap();
+        let parent_key = if parent_path.is_empty() {
+            self.root
+        } else {
+            self.get_node_key_at_path(parent_path)
+        };
+        let Some(parent_key) = parent_key else {
+            self.append_leaf(tile, focus);
+            return true;
+        };
+
+        let parent = match self.get_container(parent_key) {
+            Some(container) => container,
+            None => {
+                self.append_leaf(tile, focus);
+                return true;
+            }
+        };
+        let target_key = match parent.child_key(target_idx) {
+            Some(key) => key,
+            None => {
+                self.append_leaf(tile, focus);
+                return true;
+            }
+        };
+
+        let parent_layout = parent.layout();
+        if matches!(parent_layout, Layout::SplitH | Layout::SplitV) && parent_layout == desired_layout
+        {
+            let insert_idx = match direction {
+                Direction::Left | Direction::Up => target_idx,
+                Direction::Right | Direction::Down => target_idx + 1,
+            };
+            let tile_key = self.insert_node(NodeData::Leaf(tile));
+
+            let container = self
+                .get_container_mut(parent_key)
+                .expect("insert split parent missing");
+            container.insert_child(insert_idx, tile_key);
+
+            self.set_parent(tile_key, Some(parent_key));
+            if focus {
+                self.focus_node_key(tile_key);
+            } else if let Some(key) = self.focused_key {
+                self.sync_container_focus_from_key(key);
+            } else {
+                self.focus_first_leaf();
+            }
+            return true;
+        }
+
+        let tile_key = self.insert_node(NodeData::Leaf(tile));
+        let mut new_container = ContainerData::new(desired_layout);
+        new_container.mark_preserve_on_single();
+        match direction {
+            Direction::Left | Direction::Up => {
+                new_container.add_child(tile_key);
+                new_container.add_child(target_key);
+            }
+            Direction::Right | Direction::Down => {
+                new_container.add_child(target_key);
+                new_container.add_child(tile_key);
+            }
+        }
+        let new_container_key = self.insert_node(NodeData::Container(new_container));
+
+        self.set_parent(tile_key, Some(new_container_key));
+        self.set_parent(target_key, Some(new_container_key));
+
+        let container = self
+            .get_container_mut(parent_key)
+            .expect("insert split parent missing");
+        let idx = container
+            .children
+            .iter()
+            .position(|child| *child == target_key)
+            .expect("insert split target missing");
+        container.children[idx] = new_container_key;
+
+        if let Some(pos) = container
+            .focus_stack
+            .iter()
+            .position(|key| *key == target_key)
+        {
+            container.focus_stack[pos] = new_container_key;
+        } else if !container.focus_stack.contains(&new_container_key) {
+            container.focus_stack.push(new_container_key);
+        }
+        container.ensure_focus_stack();
+
+        self.set_parent(new_container_key, Some(parent_key));
+
+        if focus {
+            self.focus_node_key(tile_key);
+        } else if let Some(key) = self.focused_key {
+            self.sync_container_focus_from_key(key);
+        } else {
+            self.focus_first_leaf();
+        }
+
+        true
+    }
+
+    pub fn insert_leaf_split_root(
+        &mut self,
+        direction: Direction,
+        tile: Tile<W>,
+        focus: bool,
+    ) -> bool {
+        let desired_layout = if direction.is_horizontal() {
+            Layout::SplitH
+        } else {
+            Layout::SplitV
+        };
+
+        if self.root.is_none() {
+            self.append_leaf(tile, focus);
+            return true;
+        }
+
+        let Some(root_key) = self.root else {
+            self.append_leaf(tile, focus);
+            return true;
+        };
+
+        let tile_key = self.insert_node(NodeData::Leaf(tile));
+
+        if let Some(root_container) = self.get_container(root_key) {
+            if root_container.layout() == desired_layout {
+                let insert_idx = match direction {
+                    Direction::Left | Direction::Up => 0,
+                    Direction::Right | Direction::Down => root_container.child_count(),
+                };
+                if let Some(container) = self.get_container_mut(root_key) {
+                    container.insert_child(insert_idx, tile_key);
+                }
+
+                self.set_parent(tile_key, Some(root_key));
+                if focus {
+                    self.focus_node_key(tile_key);
+                } else if let Some(key) = self.focused_key {
+                    self.sync_container_focus_from_key(key);
+                } else {
+                    self.focus_first_leaf();
+                }
+                return true;
+            }
+        }
+
+        let mut new_container = ContainerData::new(desired_layout);
+        new_container.mark_preserve_on_single();
+        match direction {
+            Direction::Left | Direction::Up => {
+                new_container.add_child(tile_key);
+                new_container.add_child(root_key);
+            }
+            Direction::Right | Direction::Down => {
+                new_container.add_child(root_key);
+                new_container.add_child(tile_key);
+            }
+        }
+        let new_container_key = self.insert_node(NodeData::Container(new_container));
+
+        self.set_parent(tile_key, Some(new_container_key));
+        self.set_parent(root_key, Some(new_container_key));
+        self.set_parent(new_container_key, None);
+        self.root = Some(new_container_key);
+
+        if focus {
+            self.focus_node_key(tile_key);
+        } else if let Some(key) = self.focused_key {
+            self.sync_container_focus_from_key(key);
+        } else {
+            self.focus_first_leaf();
+        }
+
+        true
+    }
+
     // ========================================================================
     // Helper methods
     // ========================================================================
@@ -3803,6 +4143,56 @@ impl<W: LayoutElement> ContainerTree<W> {
         } else {
             root_key
         }
+    }
+
+    fn ensure_container_at_path(&mut self, path: &[usize], layout: Layout) -> Option<NodeKey> {
+        let root_key = self.root?;
+        if path.is_empty() {
+            if matches!(self.get_node(root_key), Some(NodeData::Container(_))) {
+                return Some(root_key);
+            }
+
+            let mut container = ContainerData::new(layout);
+            container.mark_preserve_on_single();
+            container.add_child(root_key);
+            let container_key = self.insert_node(NodeData::Container(container));
+            self.set_parent(root_key, Some(container_key));
+            self.set_parent(container_key, None);
+            self.root = Some(container_key);
+            return Some(container_key);
+        }
+
+        let key = self.get_node_key_at_path(path)?;
+        if matches!(self.get_node(key), Some(NodeData::Container(_))) {
+            return Some(key);
+        }
+
+        let parent_path = &path[..path.len() - 1];
+        let parent_key = if parent_path.is_empty() {
+            self.root?
+        } else {
+            self.get_node_key_at_path(parent_path)?
+        };
+        let child_idx = *path.last().unwrap();
+
+        let mut container = ContainerData::new(layout);
+        container.mark_preserve_on_single();
+        container.add_child(key);
+        let container_key = self.insert_node(NodeData::Container(container));
+        self.set_parent(key, Some(container_key));
+
+        if let Some(parent) = self.get_container_mut(parent_key) {
+            parent.children[child_idx] = container_key;
+            if let Some(pos) = parent.focus_stack.iter().position(|k| *k == key) {
+                parent.focus_stack[pos] = container_key;
+            } else if !parent.focus_stack.contains(&container_key) {
+                parent.focus_stack.push(container_key);
+            }
+            parent.ensure_focus_stack();
+        }
+
+        self.set_parent(container_key, Some(parent_key));
+        Some(container_key)
     }
 
     fn move_node_to_grandparent(

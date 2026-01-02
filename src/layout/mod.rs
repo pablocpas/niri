@@ -52,6 +52,7 @@ use tile::{Tile, TileRenderElement};
 use tiling::{Column, ColumnWidth};
 use workspace::{WorkspaceAddWindowTarget, WorkspaceId};
 
+use self::container::InsertParentInfo;
 pub use self::container::Layout as ContainerLayout;
 pub use self::monitor::MonitorRenderElement;
 use self::monitor::{Monitor, WorkspaceSwitch};
@@ -413,6 +414,10 @@ struct InteractiveMoveData<W: LayoutElement> {
     /// config overrides for the workspace where the move originated from. As soon as the window
     /// moves over some different workspace though, this override will reset.
     pub(self) workspace_config: Option<(WorkspaceId, niri_config::LayoutPart)>,
+    /// Original insert location for swaps within the scrolling layout.
+    pub(self) swap_origin: Option<InsertParentInfo>,
+    /// Workspace where the move originated.
+    pub(self) origin_workspace: WorkspaceId,
 }
 
 #[derive(Debug)]
@@ -4135,6 +4140,13 @@ impl<W: LayoutElement> Layout<W> {
                 ws.set_fullscreen(window, false);
                 ws.set_maximized(window, false);
 
+                let origin_workspace = ws.id();
+                let swap_origin = if is_floating {
+                    None
+                } else {
+                    ws.scrolling_insert_parent_info(&window_id)
+                };
+
                 let RemovedTile {
                     mut tile,
                     width,
@@ -4184,6 +4196,8 @@ impl<W: LayoutElement> Layout<W> {
                     pointer_ratio_within_window,
                     output_config,
                     workspace_config,
+                    swap_origin,
+                    origin_workspace,
                 };
 
                 if let Some((tile_pos, zoom)) = tile_pos {
@@ -4424,6 +4438,58 @@ impl<W: LayoutElement> Layout<W> {
                             move_.width,
                             move_.is_full_width,
                             false,
+                        );
+                    }
+                    InsertPosition::Swap { path, direction } => {
+                        let ws_id = mon.workspaces[ws_idx].id();
+                        let same_workspace = move_.origin_workspace == ws_id;
+                        let can_swap = same_workspace
+                            && move_.swap_origin.is_some()
+                            && mon.workspaces[ws_idx].scrolling_is_leaf_at_path(&path);
+
+                        if can_swap {
+                            let origin = move_.swap_origin.clone().unwrap();
+                            let target = mon.workspaces[ws_idx]
+                                .scrolling_replace_tile_at_path(&path, move_.tile)
+                                .expect("swap target missing");
+                            let _ = mon.workspaces[ws_idx]
+                                .scrolling_insert_tile_with_parent_info(&origin, target, false);
+
+                            if allow_to_activate_workspace {
+                                mon.workspaces[ws_idx].activate_window(&win_id);
+                            }
+                        } else {
+                            let _ = mon.add_tile_split(
+                                ws_idx,
+                                &path,
+                                direction,
+                                move_.tile,
+                                true,
+                                allow_to_activate_workspace,
+                            );
+                        }
+                    }
+                    InsertPosition::Split {
+                        path,
+                        direction,
+                        ..
+                    } => {
+                        let _ = mon.add_tile_split(
+                            ws_idx,
+                            &path,
+                            direction,
+                            move_.tile,
+                            true,
+                            allow_to_activate_workspace,
+                        );
+                    }
+                    InsertPosition::SplitRoot { direction, .. } => {
+                        let _ = mon.add_tile_split_root(
+                            ws_idx,
+                            direction,
+                            move_.tile,
+                            true,
+                            allow_to_activate_workspace,
                         );
                     }
                     InsertPosition::Floating => {

@@ -10,6 +10,7 @@ use smithay::backend::renderer::element::utils::{
 use smithay::output::Output;
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
+use super::container::Direction;
 use super::insert_hint_element::{InsertHintElement, InsertHintRenderElement};
 use super::tile::Tile;
 use super::tiling::{Column, ColumnWidth};
@@ -125,9 +126,25 @@ pub struct WorkspaceSwitchGesture {
     dnd_nonzero_start_time: Option<Duration>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum SplitIndicator {
+    LayoutBorder,
+    Center,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum InsertPosition {
     NewColumn(usize),
+    Swap { path: Vec<usize>, direction: Direction },
+    Split {
+        path: Vec<usize>,
+        direction: Direction,
+        indicator: SplitIndicator,
+    },
+    SplitRoot {
+        direction: Direction,
+        indicator: SplitIndicator,
+    },
     Floating,
 }
 
@@ -591,6 +608,91 @@ impl<W: LayoutElement> Monitor<W> {
         if allow_to_activate_workspace && activate.map_smart(|| false) {
             self.activate_workspace(workspace_idx);
         }
+    }
+
+    pub fn add_tile_split(
+        &mut self,
+        workspace_idx: usize,
+        target_path: &[usize],
+        direction: Direction,
+        tile: Tile<W>,
+        activate: bool,
+        allow_to_activate_workspace: bool,
+    ) -> bool {
+        let inserted = {
+            let workspace = &mut self.workspaces[workspace_idx];
+            let inserted = workspace.add_tile_split(target_path, direction, tile, activate);
+
+            // After adding a new window, workspace becomes this output's own.
+            if inserted && workspace.name().is_none() {
+                workspace.original_output = OutputId::new(&self.output);
+            }
+
+            inserted
+        };
+
+        if !inserted {
+            return false;
+        }
+
+        if workspace_idx == self.workspaces.len() - 1 {
+            // Insert a new empty workspace.
+            self.add_workspace_bottom();
+        }
+
+        let mut workspace_idx = workspace_idx;
+        if self.options.layout.empty_workspace_above_first && workspace_idx == 0 {
+            self.add_workspace_top();
+            workspace_idx += 1;
+        }
+
+        if allow_to_activate_workspace && activate {
+            self.activate_workspace(workspace_idx);
+        }
+
+        true
+    }
+
+    pub fn add_tile_split_root(
+        &mut self,
+        workspace_idx: usize,
+        direction: Direction,
+        tile: Tile<W>,
+        activate: bool,
+        allow_to_activate_workspace: bool,
+    ) -> bool {
+        let inserted = {
+            let workspace = &mut self.workspaces[workspace_idx];
+            let inserted = workspace.add_tile_split_root(direction, tile, activate);
+
+            // After adding a new window, workspace becomes this output's own.
+            if inserted && workspace.name().is_none() {
+                workspace.original_output = OutputId::new(&self.output);
+            }
+
+            inserted
+        };
+
+        if !inserted {
+            return false;
+        }
+
+        if workspace_idx == self.workspaces.len() - 1 {
+            // Insert a new empty workspace.
+            self.add_workspace_bottom();
+        }
+
+        let mut workspace_idx = workspace_idx;
+        if self.options.layout.empty_workspace_above_first && workspace_idx == 0 {
+            self.add_workspace_top();
+            workspace_idx += 1;
+        }
+
+        if allow_to_activate_workspace && activate {
+            self.activate_workspace(workspace_idx);
+        }
+
+        true
     }
 
     pub fn add_tile_to_column(
@@ -1107,12 +1209,12 @@ impl<W: LayoutElement> Monitor<W> {
             match hint.workspace {
                 InsertWorkspace::Existing(ws_id) => {
                     if let Some(ws) = self.workspaces.iter().find(|ws| ws.id() == ws_id) {
-                        if let Some(mut area) = ws.insert_hint_area(hint.position) {
+                        if let Some(mut area) = ws.insert_hint_area(&hint.position) {
                             let scale = ws.scale().fractional_scale();
                             let view_size = ws.view_size();
 
                             // Make sure the hint is at least partially visible.
-                            if matches!(hint.position, InsertPosition::NewColumn(_)) {
+                            if matches!(&hint.position, InsertPosition::NewColumn(_)) {
                                 let zoom = self.overview_zoom();
                                 let geo = insert_hint_ws_geo.unwrap();
                                 let geo = geo.downscale(zoom);

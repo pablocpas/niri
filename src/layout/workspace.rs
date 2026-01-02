@@ -17,7 +17,7 @@ use smithay::utils::{Logical, Point, Rectangle, Serial, Size, Transform};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
-use super::container::Layout;
+use super::container::{Direction, InsertParentInfo, Layout};
 use super::floating::{compute_toplevel_bounds, FloatingSpace, FloatingSpaceRenderElement};
 use super::shadow::Shadow;
 use super::tile::{Tile, TileRenderSnapshot};
@@ -708,6 +708,78 @@ impl<W: LayoutElement> Workspace<W> {
         if activate {
             self.floating_is_active = FloatingActive::No;
         }
+    }
+
+    pub(super) fn scrolling_insert_parent_info(
+        &self,
+        window: &W::Id,
+    ) -> Option<InsertParentInfo> {
+        self.scrolling.insert_parent_info_for_window(window)
+    }
+
+    pub(super) fn scrolling_replace_tile_at_path(
+        &mut self,
+        path: &[usize],
+        tile: Tile<W>,
+    ) -> Option<Tile<W>> {
+        self.scrolling.replace_tile_at_path(path, tile)
+    }
+
+    pub(super) fn scrolling_is_leaf_at_path(&self, path: &[usize]) -> bool {
+        self.scrolling.is_leaf_at_path(path)
+    }
+
+    pub(super) fn scrolling_insert_tile_with_parent_info(
+        &mut self,
+        info: &InsertParentInfo,
+        tile: Tile<W>,
+        activate: bool,
+    ) -> bool {
+        self.scrolling
+            .insert_tile_with_parent_info(info, tile, activate)
+    }
+
+    pub fn add_tile_split(
+        &mut self,
+        target_path: &[usize],
+        direction: Direction,
+        mut tile: Tile<W>,
+        activate: bool,
+    ) -> bool {
+        tile.set_scratchpad(false);
+        self.enter_output_for_window(tile.window());
+        tile.restore_to_floating = false;
+
+        let inserted = self
+            .scrolling
+            .insert_tile_split(target_path, direction, tile, activate);
+
+        if inserted && activate {
+            self.floating_is_active = FloatingActive::No;
+        }
+
+        inserted
+    }
+
+    pub fn add_tile_split_root(
+        &mut self,
+        direction: Direction,
+        mut tile: Tile<W>,
+        activate: bool,
+    ) -> bool {
+        tile.set_scratchpad(false);
+        self.enter_output_for_window(tile.window());
+        tile.restore_to_floating = false;
+
+        let inserted = self
+            .scrolling
+            .insert_tile_split_root(direction, tile, activate);
+
+        if inserted && activate {
+            self.floating_is_active = FloatingActive::No;
+        }
+
+        inserted
     }
 
     pub fn add_column(&mut self, column: Column<W>, activate: bool) {
@@ -1986,7 +2058,7 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub(super) fn insert_hint_area(
         &self,
-        position: InsertPosition,
+        position: &InsertPosition,
     ) -> Option<Rectangle<f64, Logical>> {
         self.scrolling.insert_hint_area(position)
     }

@@ -25,7 +25,7 @@ use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
     ContainerTree, DetachedContainer, DetachedNode, Direction, Layout, LeafLayoutInfo, TabBarInfo,
 };
-use super::monitor::InsertPosition;
+use super::monitor::{InsertPosition, SplitIndicator};
 use super::tile::{Tile, TileRenderElement};
 use super::{ConfigureIntent, LayoutElement, Options, RemovedTile};
 use crate::animation::{Animation, Clock};
@@ -1097,17 +1097,267 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.focused_root_index().unwrap_or(0)
     }
 
+    fn layout_area(&self) -> Rectangle<f64, Logical> {
+        let mut area = self.working_area;
+        let gap = self.options.layout.gaps;
+        if gap > 0.0 {
+            area.loc.x += gap;
+            area.loc.y += gap;
+            area.size.w = (area.size.w - gap * 2.0).max(0.0);
+            area.size.h = (area.size.h - gap * 2.0).max(0.0);
+        }
+        area
+    }
+
+    const DROP_LAYOUT_BORDER: f64 = 30.0;
+    const DROP_CENTER_RATIO: f64 = 0.3;
+
+    fn closest_edge(
+        rect: Rectangle<f64, Logical>,
+        pos: Point<f64, Logical>,
+    ) -> (Direction, f64) {
+        let left = (pos.x - rect.loc.x).abs();
+        let right = (rect.loc.x + rect.size.w - pos.x).abs();
+        let top = (pos.y - rect.loc.y).abs();
+        let bottom = (rect.loc.y + rect.size.h - pos.y).abs();
+
+        let mut dir = Direction::Left;
+        let mut min = left;
+
+        if right < min {
+            min = right;
+            dir = Direction::Right;
+        }
+        if top < min {
+            min = top;
+            dir = Direction::Up;
+        }
+        if bottom < min {
+            min = bottom;
+            dir = Direction::Down;
+        }
+
+        (dir, min)
+    }
+
+    fn leaf_rect_for_path(&self, path: &[usize]) -> Option<Rectangle<f64, Logical>> {
+        let scale = Scale::from(self.scale);
+        let info = self.display_layouts().iter().find(|info| info.path == path)?;
+        let tile = self.tree.get_tile(info.key)?;
+        let mut tile_pos = info.rect.loc + tile.render_offset();
+        tile_pos = tile_pos.to_physical_precise_round(scale).to_logical(scale);
+        Some(Rectangle::new(tile_pos, tile.tile_size()))
+    }
+
+    fn closest_leaf_rect(
+        &self,
+        pos: Point<f64, Logical>,
+    ) -> Option<(Vec<usize>, Rectangle<f64, Logical>)> {
+        let scale = Scale::from(self.scale);
+        let fullscreen_id = self.fullscreen_window.as_ref();
+
+        let mut nearest: Option<(Vec<usize>, Rectangle<f64, Logical>, f64)> = None;
+
+        for info in self.display_layouts() {
+            if let Some(tile) = self.tree.get_tile(info.key) {
+                let is_fullscreen_tile =
+                    fullscreen_id.is_some_and(|id| id == tile.window().id());
+                if fullscreen_id.is_some() && !is_fullscreen_tile {
+                    continue;
+                }
+                if !info.visible && !is_fullscreen_tile {
+                    continue;
+                }
+
+                let mut tile_pos = info.rect.loc + tile.render_offset();
+                tile_pos = tile_pos.to_physical_precise_round(scale).to_logical(scale);
+                let tile_rect = Rectangle::new(tile_pos, tile.tile_size());
+
+                if tile_rect.contains(pos) {
+                    return Some((info.path.clone(), tile_rect));
+                }
+
+                let dx = if pos.x < tile_rect.loc.x {
+                    tile_rect.loc.x - pos.x
+                } else if pos.x > tile_rect.loc.x + tile_rect.size.w {
+                    pos.x - (tile_rect.loc.x + tile_rect.size.w)
+                } else {
+                    0.0
+                };
+                let dy = if pos.y < tile_rect.loc.y {
+                    tile_rect.loc.y - pos.y
+                } else if pos.y > tile_rect.loc.y + tile_rect.size.h {
+                    pos.y - (tile_rect.loc.y + tile_rect.size.h)
+                } else {
+                    0.0
+                };
+                let dist2 = dx * dx + dy * dy;
+
+                let replace = nearest.as_ref().is_none_or(|(_, _, best)| dist2 < *best);
+                if replace {
+                    nearest = Some((info.path.clone(), tile_rect, dist2));
+                }
+            }
+        }
+
+        nearest.map(|(path, rect, _)| (path, rect))
+    }
+
+    fn indicator_rect(
+        rect: Rectangle<f64, Logical>,
+        direction: Direction,
+        thickness: f64,
+    ) -> Rectangle<f64, Logical> {
+        let thickness = thickness.max(1.0);
+        match direction {
+            Direction::Left => Rectangle::new(
+                rect.loc,
+                Size::from((thickness.min(rect.size.w), rect.size.h)),
+            ),
+            Direction::Right => Rectangle::new(
+                Point::from((
+                    rect.loc.x + rect.size.w - thickness.min(rect.size.w),
+                    rect.loc.y,
+                )),
+                Size::from((thickness.min(rect.size.w), rect.size.h)),
+            ),
+            Direction::Up => Rectangle::new(
+                rect.loc,
+                Size::from((rect.size.w, thickness.min(rect.size.h))),
+            ),
+            Direction::Down => Rectangle::new(
+                Point::from((
+                    rect.loc.x,
+                    rect.loc.y + rect.size.h - thickness.min(rect.size.h),
+                )),
+                Size::from((rect.size.w, thickness.min(rect.size.h))),
+            ),
+        }
+    }
+
+    fn inset_rect(rect: Rectangle<f64, Logical>, inset: f64) -> Rectangle<f64, Logical> {
+        let inset = inset
+            .min(rect.size.w / 2.0)
+            .min(rect.size.h / 2.0)
+            .max(0.0);
+        Rectangle::new(
+            Point::from((rect.loc.x + inset, rect.loc.y + inset)),
+            Size::from((rect.size.w - 2.0 * inset, rect.size.h - 2.0 * inset)),
+        )
+    }
+
     /// Determine insert position from pointer location
-    pub(super) fn insert_position(&self, _pos: Point<f64, Logical>) -> InsertPosition {
-        InsertPosition::NewColumn(0)
+    pub(super) fn insert_position(&self, pos: Point<f64, Logical>) -> InsertPosition {
+        if self.tree.is_empty() {
+            return InsertPosition::NewColumn(0);
+        }
+
+        let layout_area = self.layout_area();
+        if pos.y < layout_area.loc.y + Self::DROP_LAYOUT_BORDER {
+            return InsertPosition::SplitRoot {
+                direction: Direction::Up,
+                indicator: SplitIndicator::LayoutBorder,
+            };
+        }
+        if pos.y > layout_area.loc.y + layout_area.size.h - Self::DROP_LAYOUT_BORDER {
+            return InsertPosition::SplitRoot {
+                direction: Direction::Down,
+                indicator: SplitIndicator::LayoutBorder,
+            };
+        }
+
+        let Some((path, rect)) = self.closest_leaf_rect(pos) else {
+            return InsertPosition::NewColumn(0);
+        };
+
+        let parent_layout = self
+            .tree
+            .parent_layout_for_path(&path)
+            .unwrap_or(Layout::SplitH);
+
+        if matches!(parent_layout, Layout::SplitH | Layout::Tabbed) {
+            if pos.y < rect.loc.y + Self::DROP_LAYOUT_BORDER {
+                return InsertPosition::Split {
+                    path,
+                    direction: Direction::Up,
+                    indicator: SplitIndicator::LayoutBorder,
+                };
+            }
+            if pos.y > rect.loc.y + rect.size.h - Self::DROP_LAYOUT_BORDER {
+                return InsertPosition::Split {
+                    path,
+                    direction: Direction::Down,
+                    indicator: SplitIndicator::LayoutBorder,
+                };
+            }
+        } else if matches!(parent_layout, Layout::SplitV | Layout::Stacked) {
+            if pos.x < rect.loc.x + Self::DROP_LAYOUT_BORDER {
+                return InsertPosition::Split {
+                    path,
+                    direction: Direction::Left,
+                    indicator: SplitIndicator::LayoutBorder,
+                };
+            }
+            if pos.x > rect.loc.x + rect.size.w - Self::DROP_LAYOUT_BORDER {
+                return InsertPosition::Split {
+                    path,
+                    direction: Direction::Right,
+                    indicator: SplitIndicator::LayoutBorder,
+                };
+            }
+        }
+
+        let (direction, dist) = Self::closest_edge(rect, pos);
+        let thickness = f64::min(rect.size.w, rect.size.h) * Self::DROP_CENTER_RATIO;
+        if dist > thickness {
+            InsertPosition::Swap { path, direction }
+        } else {
+            InsertPosition::Split {
+                path,
+                direction,
+                indicator: SplitIndicator::Center,
+            }
+        }
     }
 
     /// Get hint area for insertion position
     pub(super) fn insert_hint_area(
         &self,
-        _position: InsertPosition,
+        position: &InsertPosition,
     ) -> Option<Rectangle<f64, Logical>> {
-        None
+        match position {
+            InsertPosition::NewColumn(_) => Some(self.layout_area()),
+            InsertPosition::Swap { path, .. } => {
+                let rect = self.leaf_rect_for_path(path)?;
+                let thickness = f64::min(rect.size.w, rect.size.h) * Self::DROP_CENTER_RATIO;
+                Some(Self::inset_rect(rect, thickness))
+            }
+            InsertPosition::Split {
+                path,
+                direction,
+                indicator,
+            } => {
+                let rect = self.leaf_rect_for_path(path)?;
+                let thickness = match indicator {
+                    SplitIndicator::LayoutBorder => Self::DROP_LAYOUT_BORDER,
+                    SplitIndicator::Center => {
+                        f64::min(rect.size.w, rect.size.h) * Self::DROP_CENTER_RATIO
+                    }
+                };
+                Some(Self::indicator_rect(rect, *direction, thickness))
+            }
+            InsertPosition::SplitRoot { direction, indicator } => {
+                let rect = self.layout_area();
+                let thickness = match indicator {
+                    SplitIndicator::LayoutBorder => Self::DROP_LAYOUT_BORDER,
+                    SplitIndicator::Center => {
+                        f64::min(rect.size.w, rect.size.h) * Self::DROP_CENTER_RATIO
+                    }
+                };
+                Some(Self::indicator_rect(rect, *direction, thickness))
+            }
+            InsertPosition::Floating => None,
+        }
     }
 
     // Window queries
@@ -1414,6 +1664,80 @@ impl<W: LayoutElement> TilingSpace<W> {
             self.sync_fullscreen_window();
             self.tree.layout();
         }
+    }
+
+    pub(super) fn insert_parent_info_for_window(
+        &self,
+        window: &W::Id,
+    ) -> Option<super::container::InsertParentInfo> {
+        self.tree.insert_parent_info_for_window(window)
+    }
+
+    pub(super) fn replace_tile_at_path(
+        &mut self,
+        path: &[usize],
+        tile: Tile<W>,
+    ) -> Option<Tile<W>> {
+        self.tree.replace_leaf_at_path(path, tile)
+    }
+
+    pub(super) fn is_leaf_at_path(&self, path: &[usize]) -> bool {
+        self.tree.is_leaf_at_path(path)
+    }
+
+    pub(super) fn insert_tile_with_parent_info(
+        &mut self,
+        info: &super::container::InsertParentInfo,
+        tile: Tile<W>,
+        activate: bool,
+    ) -> bool {
+        if self
+            .tree
+            .insert_leaf_with_parent_info(info, tile, activate)
+        {
+            self.sync_fullscreen_window();
+            self.tree.layout();
+            return true;
+        }
+
+        false
+    }
+
+    pub fn insert_tile_split(
+        &mut self,
+        target_path: &[usize],
+        direction: Direction,
+        tile: Tile<W>,
+        activate: bool,
+    ) -> bool {
+        if self
+            .tree
+            .insert_leaf_split(target_path, direction, tile, activate)
+        {
+            self.sync_fullscreen_window();
+            self.tree.layout();
+            return true;
+        }
+
+        false
+    }
+
+    pub fn insert_tile_split_root(
+        &mut self,
+        direction: Direction,
+        tile: Tile<W>,
+        activate: bool,
+    ) -> bool {
+        if self
+            .tree
+            .insert_leaf_split_root(direction, tile, activate)
+        {
+            self.sync_fullscreen_window();
+            self.tree.layout();
+            return true;
+        }
+
+        false
     }
 
     pub fn active_tile_visual_rectangle(&self) -> Option<Rectangle<f64, Logical>> {
