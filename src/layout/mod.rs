@@ -4541,17 +4541,17 @@ impl<W: LayoutElement> Layout<W> {
                 }
 
                 // needed because empty_workspace_above_first could have modified the idx
-                let (tile, tile_offset, ws_geo) = mon
+                if let Some((tile, tile_offset, ws_geo)) = mon
                     .workspaces_with_render_geo_mut(false)
                     .find_map(|(ws, geo)| {
                         ws.tiles_with_render_positions_mut(false)
                             .find(|(tile, _)| tile.window().id() == &win_id)
                             .map(|(tile, tile_offset)| (tile, tile_offset, geo))
                     })
-                    .unwrap();
-                let new_tile_render_loc = ws_geo.loc + tile_offset.upscale(zoom);
-
-                tile.animate_move_from((tile_render_loc - new_tile_render_loc).downscale(zoom));
+                {
+                    let new_tile_render_loc = ws_geo.loc + tile_offset.upscale(zoom);
+                    tile.animate_move_from((tile_render_loc - new_tile_render_loc).downscale(zoom));
+                }
             }
             MonitorSet::NoOutputs { workspaces, .. } => {
                 if workspaces.is_empty() {

@@ -586,8 +586,20 @@ impl<W: LayoutElement> TilingSpace<W> {
         })
     }
 
-    pub fn update_window(&mut self, _window: &W::Id, _serial: Option<smithay::utils::Serial>) {
-        // TODO: Implement window updates
+    pub fn update_window(&mut self, window: &W::Id, serial: Option<smithay::utils::Serial>) {
+        let Some(path) = self.tree.find_window(window) else {
+            return;
+        };
+        let Some(tile) = self.tree.tile_at_path_mut(&path) else {
+            return;
+        };
+
+        // Do this before calling update_window() so it can get up-to-date info.
+        if let Some(serial) = serial {
+            tile.window_mut().on_commit(serial);
+        }
+
+        tile.update_window();
     }
 
     pub fn find_window(&self, window: &W) -> Option<(usize, usize)> {
@@ -1773,7 +1785,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.layout();
     }
     pub fn remove_tile(&mut self, window: &W::Id, transaction: Transaction) -> RemovedTile<W> {
-        if self.options.animations.off && !self.options.disable_transactions {
+        if !self.options.disable_transactions {
             self.tree.set_pending_transaction(transaction.clone());
         }
         let tile = self

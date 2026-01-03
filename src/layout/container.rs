@@ -1437,7 +1437,7 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     fn should_use_atomic_layout(&self) -> bool {
-        self.options.animations.off && !self.options.disable_transactions
+        !self.options.disable_transactions
     }
 
     fn layout_area(&self) -> Rectangle<f64, Logical> {

@@ -8,6 +8,7 @@ use niri_ipc::WindowLayout;
 use smithay::backend::renderer::element::{Element, Kind};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
+use smithay::wayland::compositor::{Blocker, BlockerState};
 
 use super::container::{Layout, TabBarTab};
 use super::focus_ring::{FocusRing, FocusRingRenderElement};
@@ -98,6 +99,9 @@ pub struct Tile<W: LayoutElement> {
 
     /// The animation of the window resizing.
     resize_animation: Option<ResizeAnimation>,
+
+    /// Resize snapshot that must be held until its transaction completes.
+    pending_resize: Option<PendingResize>,
 
     /// The animation of a tile visually moving horizontally.
     move_x_animation: Option<MoveAnimation>,
@@ -213,6 +217,12 @@ struct TitleBarCacheEntry {
     buffer: TextureBuffer<GlesTexture>,
 }
 
+#[derive(Debug)]
+struct PendingResize {
+    size: Size<f64, Logical>,
+    blocker: crate::utils::transaction::TransactionBlocker,
+}
+
 impl<W: LayoutElement> Tile<W> {
     pub fn new(
         window: W,
@@ -245,6 +255,7 @@ impl<W: LayoutElement> Tile<W> {
             floating_preset_height_idx: None,
             open_animation: None,
             resize_animation: None,
+            pending_resize: None,
             move_x_animation: None,
             move_y_animation: None,
             alpha_animation: None,
@@ -1012,7 +1023,40 @@ impl<W: LayoutElement> Tile<W> {
         size
     }
 
+    fn record_pending_resize(&mut self, transaction: Option<&Transaction>) {
+        if self.options.disable_transactions {
+            return;
+        }
+        let Some(transaction) = transaction else {
+            return;
+        };
+
+        if let Some(pending) = &self.pending_resize {
+            if pending.blocker.state() == BlockerState::Pending {
+                return;
+            }
+        }
+
+        let mut size = self.window.size().to_f64();
+        size = size
+            .to_physical_precise_round(self.scale)
+            .to_logical(self.scale);
+        self.pending_resize = Some(PendingResize {
+            size,
+            blocker: transaction.blocker(),
+        });
+    }
+
     pub fn window_size(&self) -> Size<f64, Logical> {
+        if !self.options.disable_transactions {
+            if let Some(pending) = &self.pending_resize {
+                if pending.blocker.state() == BlockerState::Pending
+                    && self.window.interactive_resize_data().is_none()
+                {
+                    return pending.size;
+                }
+            }
+        }
         if self.options.animations.off {
             return self.window_expected_or_current_size();
         }
@@ -1119,6 +1163,7 @@ impl<W: LayoutElement> Tile<W> {
         animate: bool,
         transaction: Option<Transaction>,
     ) {
+        self.record_pending_resize(transaction.as_ref());
         // Can't go through effective_border_width() because we might be fullscreen.
         if !self.border.is_off() {
             let width = self.border.width();
@@ -1196,6 +1241,7 @@ impl<W: LayoutElement> Tile<W> {
         animate: bool,
         transaction: Option<Transaction>,
     ) {
+        self.record_pending_resize(transaction.as_ref());
         self.window.request_size(
             size.to_i32_round(),
             SizingMode::Maximized,
@@ -1205,6 +1251,7 @@ impl<W: LayoutElement> Tile<W> {
     }
 
     pub fn request_fullscreen(&mut self, animate: bool, transaction: Option<Transaction>) {
+        self.record_pending_resize(transaction.as_ref());
         self.window.request_size(
             self.view_size.to_i32_round(),
             SizingMode::Fullscreen,
@@ -1410,71 +1457,6 @@ impl<W: LayoutElement> Tile<W> {
                 );
                 push(elem.into());
                 pushed_resize = true;
-            }
-        }
-
-        if !pushed_resize && self.options.animations.off && self.sizing_mode.is_normal() {
-            if let Some(expected) = self.window.expected_size() {
-                let current_size = self.window.size();
-                if expected != current_size {
-                    if ResizeRenderElement::has_shader(renderer) {
-                        let gles_renderer = renderer.as_gles_renderer();
-                        let mut window_elements = Vec::new();
-                        self.window.render_normal(
-                            gles_renderer,
-                            Point::from((0., 0.)),
-                            scale,
-                            1.,
-                            target,
-                            &mut |elem| window_elements.push(elem),
-                        );
-
-                        let offscreen = OffscreenBuffer::default();
-                        let rendered = offscreen
-                            .render(gles_renderer, scale, &window_elements)
-                            .map_err(|err| warn!("error rendering window to texture: {err:?}"))
-                            .ok();
-
-                        if let Some((elem_current, _sync_point, mut data)) = rendered {
-                            let round = |size: Size<f64, Logical>| {
-                                size.to_physical_precise_round(self.scale)
-                                    .to_logical(self.scale)
-                            };
-                            let current_size = round(current_size.to_f64());
-                            let texture_current = elem_current.texture().clone();
-                            // The offset and size are computed in physical pixels and converted to
-                            // logical with the same `scale`, so converting them back with rounding
-                            // inside the geometry() call gives us the same physical result back.
-                            let texture_current_geo = elem_current.geometry(scale);
-
-                            let clip_to_geometry =
-                                target.should_block_out(rules.block_out_from) || clip_to_geometry;
-
-                            let elem = ResizeRenderElement::new(
-                                area,
-                                scale,
-                                (texture_current.clone(), texture_current_geo),
-                                current_size,
-                                (texture_current, texture_current_geo),
-                                current_size,
-                                1.0,
-                                1.0,
-                                radius,
-                                clip_to_geometry,
-                                win_alpha,
-                            );
-
-                            // We're drawing the resize shader, not the offscreen directly.
-                            data.id = elem.id().clone();
-
-                            // This is not a problem for split popups as the code will look for them
-                            // by original id when it doesn't find them on the offscreen.
-                            self.window.set_offscreen_data(Some(data));
-                            push(elem.into());
-                            pushed_resize = true;
-                        }
-                    }
-                }
             }
         }
 
