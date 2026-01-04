@@ -1,23 +1,23 @@
-<h1 align="center"><img alt="niri" src="https://github.com/user-attachments/assets/07d05cd0-d5dc-4a28-9a35-51bae8f119a0"></h1>
-<p align="center">A scrollable-tiling Wayland compositor.</p>
-<p align="center">
-    <a href="https://matrix.to/#/#niri:matrix.org"><img alt="Matrix" src="https://img.shields.io/badge/matrix-%23niri-blue?logo=matrix"></a>
-    <a href="https://github.com/YaLTeR/niri/blob/main/LICENSE"><img alt="GitHub License" src="https://img.shields.io/github/license/YaLTeR/niri"></a>
-    <a href="https://github.com/YaLTeR/niri/releases"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/YaLTeR/niri?logo=github"></a>
-</p>
+<h1 align="center"><img alt="tiri" src="tiri.svg"></h1>
+<p align="center">An i3-like tiling Wayland compositor based on niri.</p>
 
-<p align="center">
-    <a href="https://yalter.github.io/niri/Getting-Started.html">Getting Started</a> | <a href="https://yalter.github.io/niri/Configuration%3A-Introduction.html">Configuration</a> | <a href="https://github.com/YaLTeR/niri/discussions/325">Setup&nbsp;Showcase</a>
-</p>
-
-![niri with a few windows open](https://github.com/user-attachments/assets/535e6530-2f44-4b84-a883-1240a3eee6e9)
+![tiri with tiling windows](tiri.png)
 
 ## About
 
-Windows are arranged in columns on an infinite strip going to the right.
-Opening a new window never causes existing windows to resize.
+**Tiri** is a fork of [niri](https://github.com/YaLTeR/niri) that implements traditional i3/sway-style tiling window management.
 
-Every monitor has its own separate window strip.
+### Why tiri?
+
+Coming from GNOME, I tried niri and loved how well it worked - excellent performance, clean architecture, and a minimalist approach. However, the scrollable strips weren't for me: I couldn't remember what windows were where. Tiri keeps all of niri's excellence but uses i3-style tiling with predictable, visible window positions.
+
+Windows are automatically arranged using a container tree with support for:
+- **Horizontal and Vertical splits**: automatic tiling that divides space between windows
+- **Tabbed mode**: windows overlay each other with tab indicators
+- **Stacked mode**: similar to tabbed but with a vertical stack layout
+- **Floating windows**: for dialogs and special cases
+
+Every monitor has its own separate tiling tree.
 Windows can never "overflow" onto an adjacent monitor.
 
 Workspaces are dynamic and arranged vertically.
@@ -28,36 +28,43 @@ When a monitor disconnects, its workspaces will move to another monitor, but upo
 
 ## Features
 
-- Built from the ground up for scrollable tiling
-- [Dynamic workspaces](https://yalter.github.io/niri/Workspaces.html) like in GNOME
-- An [Overview](https://github.com/user-attachments/assets/379a5d1f-acdb-4c11-b36c-e85fd91f0995) that zooms out workspaces and windows
+- **i3/sway-like tiling**: Container tree with automatic window placement
+- **Multiple container modes**: SplitH, SplitV, Tabbed, Stacked
+- Dynamic workspaces like in GNOME
 - Built-in screenshot UI
 - Monitor and window screencasting through xdg-desktop-portal-gnome
-    - You can [block out](https://yalter.github.io/niri/Configuration%3A-Window-Rules.html#block-out-from) sensitive windows from screencasts
-    - [Dynamic cast target](https://yalter.github.io/niri/Screencasting.html#dynamic-screencast-target) that can change what it shows on the go
-- [Touchpad](https://github.com/YaLTeR/niri/assets/1794388/946a910e-9bec-4cd1-a923-4a9421707515) and [mouse](https://github.com/YaLTeR/niri/assets/1794388/8464e65d-4bf2-44fa-8c8e-5883355bd000) gestures
-- Group windows into [tabs](https://yalter.github.io/niri/Tabs.html)
+    - Block out sensitive windows from screencasts
+    - Dynamic cast target that can change what it shows on the go
+- Touchpad and mouse gestures
+- Floating windows support
 - Configurable layout: gaps, borders, struts, window sizes
-- [Gradient borders](https://yalter.github.io/niri/Configuration%3A-Layout.html#gradients) with Oklab and Oklch support
-- [Animations](https://github.com/YaLTeR/niri/assets/1794388/ce178da2-af9e-4c51-876f-8709c241d95e) with support for [custom shaders](https://github.com/YaLTeR/niri/assets/1794388/27a238d6-0a22-4692-b794-30dc7a626fad)
+- Gradient borders with Oklab and Oklch support
+- Smooth animations with support for custom shaders
 - Live-reloading config
-- Works with [screen readers](https://yalter.github.io/niri/Accessibility.html)
+- Works with screen readers
+- All the rendering excellence from niri's codebase
 
-## Video Demo
+## Differences from niri
 
-https://github.com/YaLTeR/niri/assets/1794388/bce834b0-f205-434e-a027-b373495f9729
+Tiri maintains niri's excellent foundation while changing the core window management:
 
-Also check out this video from Brodie Robertson that showcases a lot of the niri functionality: [Niri Is My New Favorite Wayland Compositor](https://youtu.be/DeYx2exm04M)
+- **Layout system**: Container tree (like i3/sway) instead of scrollable columns
+- **Window placement**: Automatic tiling with splits instead of manual column arrangement
+- **Navigation**: Focus moves between tiled windows in the tree structure
+- **Container modes**: Support for Tabbed and Stacked modes in addition to splits
+- **Same great features**: All of niri's rendering, Wayland protocols, and compositor features remain
 
 ## Status
 
-Niri is stable for day-to-day use and does most things expected of a Wayland compositor.
-Many people are daily-driving niri, and are happy to help in our [Matrix channel].
+Tiri is in active development. It builds on niri's stable foundation and is being refined for day-to-day use with i3-style tiling.
 
-Give it a try!
-Follow the instructions on the [Getting Started](https://yalter.github.io/niri/Getting-Started.html) page.
-Have your [waybar]s and [fuzzel]s ready: niri is not a complete desktop environment.
-Also check out [awesome-niri], a list of niri-related links and projects.
+Being a fork of niri means tiri inherits:
+- Mature Wayland protocol support
+- Excellent rendering performance
+- Multi-monitor handling
+- All the compositor infrastructure
+
+Have your [waybar]s and [fuzzel]s ready: tiri is not a complete desktop environment, just like i3/sway.
 
 Here are some points you may have questions about:
 
@@ -74,49 +81,38 @@ You can check on [wayland.app](https://wayland.app) at the bottom of each protoc
 I've seen someone use it fine on an Eee PC 900 from 2008, of all things.
 - **Xwayland**: [integrated](https://yalter.github.io/niri/Xwayland.html#using-xwayland-satellite) via xwayland-satellite starting from niri 25.08.
 
-## Media
+## Credits and Acknowledgments
 
-[niri: Making a Wayland compositor in Rust](https://youtu.be/Kmz8ODolnDg?list=PLRdS-n5seLRqrmWDQY4KDqtRMfIwU0U3T) · *December 2024*
+Tiri is built on top of [niri](https://github.com/YaLTeR/niri) by Ivan Molodetskikh (YaLTeR). All of niri's excellent architecture, Wayland protocol implementations, rendering pipeline, and compositor features are the foundation of this project.
 
-My talk from the 2024 Moscow RustCon about niri, and how I do randomized property testing and profiling, and measure input latency.
-The talk is in Russian, but I prepared full English subtitles that you can find in YouTube's subtitle language selector.
+If you want to learn more about the underlying technology, check out these niri resources:
 
-[An interview with Ivan, the developer behind Niri](https://www.trommelspeicher.de/podcast/special_the_developer_behind_niri) · *June 2025*
-
-An interview by a German tech podcast Das Triumvirat (in English).
-We talk about niri development and history, and my experience building and maintaining niri.
-
-[A tour of the niri scrolling-tiling Wayland compositor](https://lwn.net/Articles/1025866/) · *July 2025*
-
-An LWN article with a nice overview and introduction to niri.
+- [niri: Making a Wayland compositor in Rust](https://youtu.be/Kmz8ODolnDg?list=PLRdS-n5seLRqrmWDQY4KDqtRMfIwU0U3T) - Talk about niri's internals
+- [A tour of the niri scrolling-tiling Wayland compositor](https://lwn.net/Articles/1025866/) - LWN article about niri
 
 ## Contributing
 
-If you'd like to help with niri, there are plenty of both coding- and non-coding-related ways to do so.
-See [CONTRIBUTING.md](https://github.com/YaLTeR/niri/blob/main/CONTRIBUTING.md) for an overview.
+Contributions to tiri are welcome! This is an independent fork focused on i3-style tiling.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Inspiration
 
-Niri is heavily inspired by [PaperWM] which implements scrollable tiling on top of GNOME Shell.
+Tiri is inspired by [i3](https://i3wm.org/) and [sway](https://swaywm.org/), the excellent tiling window managers that pioneered the container tree approach.
 
-One of the reasons that prompted me to try writing my own compositor is being able to properly separate the monitors.
-Being a GNOME Shell extension, PaperWM has to work against Shell's global window coordinate space to prevent windows from overflowing.
+The project is built on [niri](https://github.com/YaLTeR/niri)'s foundation, which provides world-class Wayland compositor infrastructure.
 
-## Tile Scrollably Elsewhere
+## Related Projects
 
-Here are some other projects which implement a similar workflow:
+Other tiling window managers and compositors:
 
-- [PaperWM]: scrollable tiling on top of GNOME Shell.
-- [karousel]: scrollable tiling on top of KDE.
-- [scroll](https://github.com/dawsers/scroll) and [papersway]: scrollable tiling on top of sway/i3.
-- [hyprscrolling] and [hyprslidr]: scrollable tiling on top of Hyprland.
-- [PaperWM.spoon]: scrollable tiling on top of macOS.
+- [i3](https://i3wm.org/): The original tiling WM for X11
+- [sway](https://swaywm.org/): i3-compatible tiling Wayland compositor
+- [niri](https://github.com/YaLTeR/niri): The scrollable-tiling Wayland compositor this is based on
+- [Hyprland](https://hyprland.org/): Dynamic tiling Wayland compositor
 
-## Contact
+## License
 
-Our main communication channel is a Matrix chat, feel free to join and ask a question: https://matrix.to/#/#niri:matrix.org
-
-We also have a community Discord server: https://discord.gg/vT8Sfjy7sx
+Tiri is licensed under GPL-3.0-or-later, the same as niri.
 
 [PaperWM]: https://github.com/paperwm/PaperWM
 [waybar]: https://github.com/Alexays/Waybar
