@@ -1494,7 +1494,13 @@ impl<W: LayoutElement> TilingSpace<W> {
                     continue;
                 }
 
-                let mut tile_pos = info.rect.loc + tile.render_offset();
+                // For fullscreen tiles, use (0,0) as base position since they cover the entire screen
+                let base_pos = if is_fullscreen_tile {
+                    Point::from((0.0, 0.0))
+                } else {
+                    info.rect.loc
+                };
+                let mut tile_pos = base_pos + tile.render_offset();
                 tile_pos = tile_pos.to_physical_precise_round(scale).to_logical(scale);
 
                 if let Some(hit) = super::HitType::hit_tile(tile, tile_pos, pos) {

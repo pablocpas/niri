@@ -1458,7 +1458,13 @@ impl<W: LayoutElement> Workspace<W> {
             .tiles()
             .find(|tile| tile.window().id() == window)
             .unwrap();
-        let current = tile.window().pending_sizing_mode().is_fullscreen();
+        // Use scrolling.is_fullscreen() as the source of truth instead of pending_sizing_mode()
+        // because pending_sizing_mode() updates asynchronously after animations complete.
+        let current = if self.floating.has_window(window) {
+            false
+        } else {
+            self.scrolling.is_fullscreen(tile.window())
+        };
         self.set_fullscreen(window, !current);
     }
 
