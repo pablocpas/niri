@@ -2772,7 +2772,7 @@ impl<W: LayoutElement> Layout<W> {
                 }
 
                 // Keep advancing animations if we might need to scroll the view.
-                if !move_.is_floating {
+                if !move_.is_floating || self.overview_open {
                     return true;
                 }
             }
@@ -4146,7 +4146,6 @@ impl<W: LayoutElement> Layout<W> {
                 } else {
                     ws.scrolling_insert_parent_info(&window_id)
                 };
-
                 let RemovedTile {
                     mut tile,
                     width,

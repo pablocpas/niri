@@ -65,7 +65,6 @@ pub struct Tile<W: LayoutElement> {
 
     /// Whether the tile should float upon unfullscreening.
     pub(super) restore_to_floating: bool,
-
     /// Whether this tile is in the scratchpad.
     pub(super) is_scratchpad: bool,
 
@@ -608,9 +607,6 @@ impl<W: LayoutElement> Tile<W> {
         if self.tab_bar_offset > 0.0 {
             draw_focus_ring_with_background = false;
         }
-        if self.tab_bar_offset > 0.0 {
-            draw_focus_ring_with_background = false;
-        }
         let radius = radius.expanded_by(self.focus_ring.width() as f32);
         self.focus_ring.update_render_elements(
             animated_tile_size,
@@ -887,7 +883,6 @@ impl<W: LayoutElement> Tile<W> {
     pub(super) fn clear_marks(&mut self) {
         self.marks.clear();
     }
-
     pub fn sizing_mode(&self) -> SizingMode {
         self.sizing_mode
     }
@@ -1536,7 +1531,6 @@ impl<W: LayoutElement> Tile<W> {
         self.render_titlebar(renderer, location, is_focused, target, &mut |elem| {
             push(elem)
         });
-
         if fullscreen_progress > 0. {
             let alpha = fullscreen_progress as f32;
 

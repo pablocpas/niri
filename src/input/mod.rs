@@ -38,8 +38,6 @@ use smithay::utils::{Logical, Point, Rectangle, Transform, SERIAL_COUNTER};
 use smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitor;
 use smithay::wayland::pointer_constraints::{with_pointer_constraint, PointerConstraint};
 use smithay::wayland::tablet_manager::{TabletDescriptor, TabletSeatTrait};
-#[allow(unused_imports)]
-use touch_move_grab::TouchMoveGrab;
 use touch_overview_grab::TouchOverviewGrab;
 
 use self::move_grab::MoveGrab;
@@ -65,7 +63,6 @@ pub mod resize_grab;
 // REMOVED for i3-conversion: pub mod scroll_tracker;
 pub mod spatial_movement_grab;
 pub mod swipe_tracker;
-pub mod touch_move_grab;
 pub mod touch_overview_grab;
 pub mod touch_resize_grab;
 
@@ -748,7 +745,7 @@ impl State {
                 self.open_screenshot_ui(show_cursor, path);
                 self.niri.cancel_mru();
             }
-            Action::ScreenshotWindow(write_to_disk, path) => {
+            Action::ScreenshotWindow(write_to_disk, show_pointer, path) => {
                 let focus = self.niri.layout.focus_with_output();
                 if let Some((mapped, output)) = focus {
                     self.backend.with_primary_renderer(|renderer| {
@@ -757,6 +754,7 @@ impl State {
                             output,
                             mapped,
                             write_to_disk,
+                            show_pointer,
                             path,
                         ) {
                             warn!("error taking screenshot: {err:?}");
@@ -767,6 +765,7 @@ impl State {
             Action::ScreenshotWindowById {
                 id,
                 write_to_disk,
+                show_pointer,
                 path,
             } => {
                 let mut windows = self.niri.layout.windows();
@@ -779,6 +778,7 @@ impl State {
                             output,
                             mapped,
                             write_to_disk,
+                            show_pointer,
                             path,
                         ) {
                             warn!("error taking screenshot: {err:?}");
@@ -3226,6 +3226,8 @@ impl State {
             false
         };
 
+        let is_mru_open = self.niri.window_mru_ui.is_open();
+
         // Handle wheel scroll bindings.
         if source == AxisSource::Wheel {
             // If we have a scroll bind with current modifiers, then accumulate and don't pass to
@@ -5153,6 +5155,54 @@ pub fn mods_with_wheel_binds(_mod_key: ModKey, _binds: &Binds) -> HashSet<Modifi
 
 pub fn mods_with_finger_scroll_binds(_mod_key: ModKey, _binds: &Binds) -> HashSet<Modifiers> {
     HashSet::new()
+}
+
+fn grab_allows_hot_corner(grab: &(dyn PointerGrab<State> + 'static)) -> bool {
+    let grab = grab.as_any();
+
+    // We lean on the blocklist approach here since it's not a terribly big deal if hot corner
+    // works where it shouldn't, but it could prevent some workflows if the hot corner doesn't work
+    // when it should.
+    //
+    // Some notable grabs not mentioned here:
+    // - DnDGrab allows hot corner to DnD across workspaces.
+    // - ClickGrab keeps pointer focus on the window, so the hot corner doesn't trigger.
+    // - Touch grabs: touch doesn't trigger the hot corner.
+    if grab.is::<ResizeGrab>() || grab.is::<SpatialMovementGrab>() {
+        return false;
+    }
+
+    if let Some(grab) = grab.downcast_ref::<MoveGrab>() {
+        // Window move allows hot corner to DnD across workspaces.
+        if !grab.is_move() {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Returns an iterator over bindings.
+///
+/// Includes dynamically populated bindings like the MRU UI.
+fn make_binds_iter<'a>(
+    config: &'a Config,
+    mru: &'a mut WindowMruUi,
+    mods: Modifiers,
+) -> impl Iterator<Item = &'a Bind> + Clone {
+    // Figure out the binds to use depending on whether the MRU is enabled and/or open.
+    let general_binds = (!mru.is_open()).then_some(config.binds.0.iter());
+    let general_binds = general_binds.into_iter().flatten();
+
+    let mru_binds =
+        (config.recent_windows.on || mru.is_open()).then_some(config.recent_windows.binds.iter());
+    let mru_binds = mru_binds.into_iter().flatten();
+
+    let mru_open_binds = mru.is_open().then(|| mru.opened_bindings(mods));
+    let mru_open_binds = mru_open_binds.into_iter().flatten();
+
+    // General binds take precedence over the MRU binds.
+    general_binds.chain(mru_binds).chain(mru_open_binds)
 }
 
 fn grab_allows_hot_corner(grab: &(dyn PointerGrab<State> + 'static)) -> bool {
