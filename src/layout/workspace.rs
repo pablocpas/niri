@@ -1537,10 +1537,10 @@ impl<W: LayoutElement> Workspace<W> {
             return;
         };
 
-        let (_, render_pos, _) = self
+        let render_pos = self
             .tiles_with_render_positions()
             .find(|(tile, _, _)| *tile.window().id() == id)
-            .unwrap();
+            .map(|(_, pos, _)| pos);
 
         if self.floating.has_window(&id) {
             let removed = self.floating.remove_tile(&id);
@@ -1572,11 +1572,13 @@ impl<W: LayoutElement> Workspace<W> {
                     } else {
                         Point::from((50., 50.))
                     };
-                let pos = render_pos + offset;
-                let size = removed.tile.tile_size();
-                let pos = self.floating.clamp_within_working_area(pos, size);
-                let pos = self.floating.logical_to_size_frac(pos);
-                removed.tile.floating_pos = Some(pos);
+                if let Some(render_pos) = render_pos {
+                    let pos = render_pos + offset;
+                    let size = removed.tile.tile_size();
+                    let pos = self.floating.clamp_within_working_area(pos, size);
+                    let pos = self.floating.logical_to_size_frac(pos);
+                    removed.tile.floating_pos = Some(pos);
+                }
             }
 
             self.floating.add_tile(removed.tile, target_is_active);
@@ -1585,12 +1587,15 @@ impl<W: LayoutElement> Workspace<W> {
             }
         }
 
-        let (tile, new_render_pos) = self
-            .tiles_with_render_positions_mut(false)
-            .find(|(tile, _)| *tile.window().id() == id)
-            .unwrap();
-
-        tile.animate_move_from(render_pos - new_render_pos);
+        // The tile might not be in the layout data yet if there are pending transactions.
+        // In that case, skip the animation since we can't determine the new position.
+        if let (Some(render_pos), Some((tile, new_render_pos))) = (
+            render_pos,
+            self.tiles_with_render_positions_mut(false)
+                .find(|(tile, _)| *tile.window().id() == id),
+        ) {
+            tile.animate_move_from(render_pos - new_render_pos);
+        }
     }
 
     pub fn scratchpad_window_id(&self) -> Option<W::Id> {
