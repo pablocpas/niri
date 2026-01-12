@@ -1331,6 +1331,83 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.pending_transaction = Some(transaction);
     }
 
+    fn debug_layout_state(&self, context: &'static str) {
+        let window_count = self.window_count();
+        let leaf_count = self.leaf_layouts.len();
+        let pending_leaf_count = self
+            .pending_layouts
+            .as_ref()
+            .map(|pending| pending.data.leaf_layouts.len())
+            .unwrap_or(0);
+        let has_pending = self.pending_layouts.is_some();
+
+        if window_count <= 3 {
+            debug!(
+                context = context,
+                window_count,
+                leaf_count,
+                pending_leaf_count,
+                has_pending,
+                working_area = ?self.working_area,
+                view_size = ?self.view_size,
+                scale = self.scale,
+                root = ?self.root,
+                focused = ?self.focused_key,
+                "layout summary"
+            );
+            for info in &self.leaf_layouts {
+                debug!(
+                    context = context,
+                    key = ?info.key,
+                    rect = ?info.rect,
+                    visible = info.visible,
+                    path = ?info.path,
+                    "leaf layout"
+                );
+            }
+            if let Some(pending) = &self.pending_layouts {
+                for info in &pending.data.leaf_layouts {
+                    debug!(
+                        context = context,
+                        key = ?info.key,
+                        rect = ?info.rect,
+                        visible = info.visible,
+                        path = ?info.path,
+                        "pending leaf layout"
+                    );
+                }
+            }
+        }
+
+        if leaf_count == 0 && pending_leaf_count > 0 {
+            debug!(
+                context = context,
+                window_count,
+                pending_leaf_count,
+                "layout has no leaf layouts but pending exists"
+            );
+        }
+        if window_count != leaf_count {
+            debug!(
+                context = context,
+                window_count,
+                leaf_count,
+                pending_leaf_count,
+                has_pending,
+                "layout window/leaf mismatch"
+            );
+        }
+
+        let zero_size = self
+            .leaf_layouts
+            .iter()
+            .filter(|info| info.rect.size.w <= 0.0 || info.rect.size.h <= 0.0)
+            .count();
+        if zero_size > 0 {
+            debug!(context = context, zero_size, "layout has zero-size leafs");
+        }
+    }
+
     /// Current focus path within the tree.
     /// Uses cached path when generation and focused_key haven't changed.
     pub fn focus_path(&self) -> Vec<usize> {
@@ -1434,6 +1511,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                 }
             }
         }
+
+        self.debug_layout_state("layout");
     }
 
     fn should_use_atomic_layout(&self) -> bool {
@@ -1469,6 +1548,7 @@ impl<W: LayoutElement> ContainerTree<W> {
     fn layout_atomic(&mut self, animate_resize: bool) {
         if self.pending_layouts.is_some() && !self.apply_pending_layouts_if_ready() {
             self.pending_relayout = true;
+            self.debug_layout_state("layout_atomic_pending");
             return;
         }
         self.pending_relayout = false;
@@ -1478,6 +1558,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             self.pending_layouts = None;
             self.pending_transaction = None;
             self.pending_relayout = false;
+            self.debug_layout_state("layout_atomic_empty");
             return;
         };
 
@@ -1487,6 +1568,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             self.pending_layouts = None;
             self.pending_transaction = None;
             self.apply_layout_data(data);
+            self.debug_layout_state("layout_atomic_apply");
             return;
         }
 
@@ -1499,6 +1581,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             data,
             blocker: transaction.blocker(),
         });
+        self.debug_layout_state("layout_atomic_requested");
     }
 
     pub fn apply_pending_layouts_if_ready(&mut self) -> bool {
@@ -1510,6 +1593,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
         let pending = self.pending_layouts.take().unwrap();
         self.apply_layout_data(pending.data);
+        self.debug_layout_state("layout_atomic_apply_pending");
         true
     }
 

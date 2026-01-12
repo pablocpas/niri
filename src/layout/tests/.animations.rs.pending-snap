@@ -1,0 +1,195 @@
+{"run_id":"1767947646-454074545","line":628,"new":null,"old":null}
+{"run_id":"1767947646-454074545","line":149,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_back","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":149,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947646-454074545","line":91,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_animates_next_y","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":91,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 ×  50 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947646-454074545","line":120,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"clientside_height_change_doesnt_animate","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":120,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947646-454074545","line":399,"new":null,"old":null}
+{"run_id":"1767947646-454074545","line":1035,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel_of_column_to_the_left","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":1035,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:640 y:  0"}}
+{"run_id":"1767947646-454074545","line":636,"new":null,"old":null}
+{"run_id":"1767947646-454074545","line":409,"new":null,"old":null}
+{"run_id":"1767947646-454074545","line":644,"new":null,"old":null}
+{"run_id":"1767947646-454074545","line":418,"new":null,"old":null}
+{"run_id":"1767947646-454074545","line":494,"new":null,"old":null}
+{"run_id":"1767947646-454074545","line":653,"new":null,"old":null}
+{"run_id":"1767947646-454074545","line":226,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_cancel","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":226,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947646-454074545","line":970,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":970,"expression":"format_tiles(&layout)"},"snapshot":"105 × 100 at x:  0 y:  0\n200 × 200 at x:640 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"200 × 100 at x:  0 y:  0\n200 × 200 at x:618 y:  0"}}
+{"run_id":"1767947646-454074545","line":519,"new":null,"old":null}
+{"run_id":"1767947646-454074545","line":529,"new":null,"old":null}
+{"run_id":"1767947646-454074545","line":538,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":317,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":700,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":585,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":450,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":945,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":789,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":594,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":326,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":709,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":865,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":335,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":605,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":718,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":459,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":468,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":806,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":815,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":226,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_cancel","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":226,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947866-372578749","line":874,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":358,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":628,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":742,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":636,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":368,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":751,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":885,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":494,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":644,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":653,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":91,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_animates_next_y","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":91,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 ×  50 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947866-372578749","line":120,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"clientside_height_change_doesnt_animate","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":120,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947866-372578749","line":1035,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel_of_column_to_the_left","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":1035,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:640 y:  0"}}
+{"run_id":"1767947866-372578749","line":970,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":970,"expression":"format_tiles(&layout)"},"snapshot":"105 × 100 at x:  0 y:  0\n200 × 200 at x:640 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"200 × 100 at x:  0 y:  0\n200 × 200 at x:618 y:  0"}}
+{"run_id":"1767947866-372578749","line":391,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":149,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_back","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":149,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947866-372578749","line":399,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":519,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":409,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":529,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":418,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":538,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":913,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":945,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":450,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":865,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":789,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":585,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":317,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":700,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":459,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":468,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":806,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":709,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":815,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":874,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":326,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":885,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":718,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":149,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_back","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":149,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947878-35951770","line":335,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":226,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_cancel","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":226,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947878-35951770","line":594,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":1035,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel_of_column_to_the_left","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":1035,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:640 y:  0"}}
+{"run_id":"1767947878-35951770","line":494,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":605,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":913,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":519,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":120,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"clientside_height_change_doesnt_animate","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":120,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947878-35951770","line":91,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_animates_next_y","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":91,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 ×  50 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947878-35951770","line":358,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":970,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":970,"expression":"format_tiles(&layout)"},"snapshot":"105 × 100 at x:  0 y:  0\n200 × 200 at x:640 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"200 × 100 at x:  0 y:  0\n200 × 200 at x:618 y:  0"}}
+{"run_id":"1767947878-35951770","line":628,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":529,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":368,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":538,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":636,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":742,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":644,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":653,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":751,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":391,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":399,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":409,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":418,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":120,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"clientside_height_change_doesnt_animate","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":120,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947889-265190476","line":789,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":806,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":815,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":149,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_back","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":149,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947889-265190476","line":317,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":326,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":335,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":358,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":368,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":391,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":399,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":409,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":418,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":226,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_cancel","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":226,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947889-265190476","line":450,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":459,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":468,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":494,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":519,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":529,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":538,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":91,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_animates_next_y","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":91,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 ×  50 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947889-265190476","line":585,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":594,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":605,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":628,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":636,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":644,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":653,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":700,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":709,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":718,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":742,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":751,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":865,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":874,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":885,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":913,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":945,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":970,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":970,"expression":"format_tiles(&layout)"},"snapshot":"105 × 100 at x:  0 y:  0\n200 × 200 at x:640 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"200 × 100 at x:  0 y:  0\n200 × 200 at x:618 y:  0"}}
+{"run_id":"1767947889-265190476","line":1035,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel_of_column_to_the_left","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":1035,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:640 y:  0"}}
+{"run_id":"1767947897-693900516","line":120,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"clientside_height_change_doesnt_animate","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":120,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947897-693900516","line":789,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":806,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":815,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":149,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_back","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":149,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947897-693900516","line":317,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":326,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":335,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":358,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":368,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":391,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":399,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":409,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":418,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":226,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_cancel","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":226,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947897-693900516","line":450,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":459,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":468,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":494,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":519,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":529,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":538,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":91,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_animates_next_y","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":91,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 ×  50 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947897-693900516","line":585,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":594,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":605,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":628,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":636,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":644,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":653,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":700,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":709,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":718,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":742,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":751,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":865,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":874,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":885,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":913,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":945,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":970,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":970,"expression":"format_tiles(&layout)"},"snapshot":"105 × 100 at x:  0 y:  0\n200 × 200 at x:640 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"200 × 100 at x:  0 y:  0\n200 × 200 at x:618 y:  0"}}
+{"run_id":"1767947897-693900516","line":1035,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel_of_column_to_the_left","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":1035,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:640 y:  0"}}
+{"run_id":"1767947924-87669329","line":317,"new":null,"old":null}
+{"run_id":"1767947924-87669329","line":326,"new":null,"old":null}
+{"run_id":"1767947924-87669329","line":335,"new":null,"old":null}
+{"run_id":"1767947924-87669329","line":358,"new":null,"old":null}
+{"run_id":"1767947924-87669329","line":149,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_back","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":149,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1767947924-87669329","line":368,"new":null,"old":null}
+{"run_id":"1767947924-87669329","line":391,"new":null,"old":null}
+{"run_id":"1767947924-87669329","line":399,"new":null,"old":null}
+{"run_id":"1767947924-87669329","line":409,"new":null,"old":null}
+{"run_id":"1767947924-87669329","line":418,"new":null,"old":null}

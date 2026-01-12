@@ -550,6 +550,15 @@ impl Mapped {
         let needs_frame_callback = self.needs_frame_callback;
         self.needs_frame_callback = false;
 
+        // DEBUG: Log frame callback sending
+        if needs_frame_callback {
+            let app_id = with_toplevel_role(self.toplevel(), |role| role.app_id.clone());
+            warn!(
+                "DEBUG: send_frame app_id={:?} needs_frame_callback=true (will send unconditionally)",
+                app_id
+            );
+        }
+
         let should_send = move |surface: &WlSurface, states: &SurfaceData| {
             // Let primary_scan_out_output() run its logic and update internal state.
             if let Some(output) = primary_scan_out_output(surface, states) {
@@ -1013,6 +1022,13 @@ impl LayoutElement for Mapped {
 
             let serial = toplevel.send_configure();
             trace!(?serial, "sending configure");
+
+            // DEBUG: Log configure send with app_id
+            let app_id = with_toplevel_role(self.toplevel(), |role| role.app_id.clone());
+            warn!(
+                "DEBUG: send_pending_configure app_id={:?} serial={:?} setting needs_frame_callback=true",
+                app_id, serial
+            );
 
             self.needs_configure = false;
 

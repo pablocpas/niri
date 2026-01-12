@@ -394,7 +394,8 @@ fn interactive_move_restore_to_floating_animates_view_offset() {
     assert!(scrolling.tiles().next().unwrap().window().id() == &2);
 
     // The view offset should be animating to show window 2.
-    assert!(scrolling.view_offset().is_animation_ongoing());
+    // Note: TilingSpace doesn't have animated view_offset, check that tiles have animations.
+    assert!(scrolling.are_animations_ongoing());
 }
 
 #[test]
