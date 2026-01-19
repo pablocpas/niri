@@ -41,13 +41,60 @@ use crate::input::move_grab::MoveGrab;
 use crate::input::resize_grab::ResizeGrab;
 use crate::input::touch_resize_grab::TouchResizeGrab;
 use crate::input::{PointerOrTouchStartData, DOUBLE_CLICK_TIME};
-use crate::layout::ActivateWindow;
+use crate::layout::monitor::Monitor;
+use crate::layout::workspace::Workspace;
+use crate::layout::{ActivateWindow, Layout};
 use crate::niri::{CastTarget, PopupGrabState, State};
 use crate::utils::transaction::Transaction;
 use crate::utils::{
     get_monotonic_time, output_matches_name, send_scale_transform, update_tiled_state, ResizeEdge,
 };
 use crate::window::{InitialConfigureState, ResolvedWindowRules, Unmapped, WindowRef};
+
+fn resolve_unmapped_monitor<'a>(
+    layout: &'a Layout<crate::window::Mapped>,
+    toplevel: &ToplevelSurface,
+    output_hint: Option<&Output>,
+    workspace_name: Option<&str>,
+) -> (Option<Output>, Option<&'a Monitor<crate::window::Mapped>>) {
+    let mon = workspace_name
+        .and_then(|name| layout.monitor_for_workspace(name))
+        .map(|mon| (mon, false));
+
+    let mon = mon.or_else(|| {
+        output_hint
+            .and_then(|o| layout.monitor_for_output(o))
+            .map(|mon| (mon, false))
+    });
+
+    let mon = mon.or_else(|| {
+        toplevel
+            .parent()
+            .and_then(|parent| layout.find_window_and_output(&parent))
+            .and_then(|(_win, output)| output)
+            .and_then(|o| layout.monitor_for_output(o))
+            .map(|mon| (mon, true))
+    });
+
+    let mon = mon.or_else(|| layout.active_monitor_ref().map(|mon| (mon, false)));
+
+    let output = mon
+        .filter(|(_, parent)| !*parent)
+        .map(|(mon, _)| mon.output().clone());
+    let mon = mon.map(|(mon, _)| mon);
+
+    (output, mon)
+}
+
+fn resolve_unmapped_workspace<'a>(
+    layout: &'a Layout<crate::window::Mapped>,
+    mon: Option<&'a Monitor<crate::window::Mapped>>,
+    workspace_name: Option<&str>,
+) -> Option<&'a Workspace<crate::window::Mapped>> {
+    workspace_name
+        .and_then(|name| mon.and_then(|mon| mon.find_named_workspace(name)))
+        .or_else(|| mon.map(|mon| mon.active_workspace_ref()).or_else(|| layout.active_workspace()))
+}
 
 impl XdgShellHandler for State {
     fn xdg_shell_state(&mut self) -> &mut XdgShellState {
@@ -433,37 +480,12 @@ impl XdgShellHandler for State {
                     is_pending_maximized,
                     ..
                 } => {
-                    // Figure out the monitor following a similar logic to initial configure.
-                    // FIXME: deduplicate.
-                    let mon = output
-                        .as_ref()
-                        .and_then(|o| self.niri.layout.monitor_for_output(o))
-                        .map(|mon| (mon, false))
-                        // If not, check if we have a parent with a monitor.
-                        .or_else(|| {
-                            toplevel
-                                .parent()
-                                .and_then(|parent| self.niri.layout.find_window_and_output(&parent))
-                                .and_then(|(_win, output)| output)
-                                .and_then(|o| self.niri.layout.monitor_for_output(o))
-                                .map(|mon| (mon, true))
-                        })
-                        // If not, fall back to the active monitor.
-                        .or_else(|| {
-                            self.niri
-                                .layout
-                                .active_monitor_ref()
-                                .map(|mon| (mon, false))
-                        });
+                    let layout = &self.niri.layout;
+                    let (resolved_output, mon) =
+                        resolve_unmapped_monitor(layout, &toplevel, output.as_ref(), None);
+                    *output = resolved_output;
 
-                    *output = mon
-                        .filter(|(_, parent)| !parent)
-                        .map(|(mon, _)| mon.output().clone());
-                    let mon = mon.map(|(mon, _)| mon);
-
-                    let ws = mon
-                        .map(|mon| mon.active_workspace_ref())
-                        .or_else(|| self.niri.layout.active_workspace());
+                    let ws = resolve_unmapped_workspace(layout, mon, None);
 
                     if let Some(ws) = ws {
                         // If the window is pending fullscreen, then this will do nothing. But
@@ -520,50 +542,13 @@ impl XdgShellHandler for State {
                     workspace_name,
                     is_pending_maximized,
                 } => {
-                    // Figure out the monitor following a similar logic to initial configure.
-                    // FIXME: deduplicate.
-                    let mon = workspace_name
-                        .as_deref()
-                        .and_then(|name| self.niri.layout.monitor_for_workspace(name))
-                        .map(|mon| (mon, false));
+                    let workspace_name = workspace_name.as_deref();
+                    let layout = &self.niri.layout;
+                    let (resolved_output, mon) =
+                        resolve_unmapped_monitor(layout, &toplevel, output.as_ref(), workspace_name);
+                    *output = resolved_output;
 
-                    let mon = mon.or_else(|| {
-                        output
-                            .as_ref()
-                            .and_then(|o| self.niri.layout.monitor_for_output(o))
-                            .map(|mon| (mon, false))
-                            // If not, check if we have a parent with a monitor.
-                            .or_else(|| {
-                                toplevel
-                                    .parent()
-                                    .and_then(|parent| {
-                                        self.niri.layout.find_window_and_output(&parent)
-                                    })
-                                    .and_then(|(_win, output)| output)
-                                    .and_then(|o| self.niri.layout.monitor_for_output(o))
-                                    .map(|mon| (mon, true))
-                            })
-                            // If not, fall back to the active monitor.
-                            .or_else(|| {
-                                self.niri
-                                    .layout
-                                    .active_monitor_ref()
-                                    .map(|mon| (mon, false))
-                            })
-                    });
-
-                    *output = mon
-                        .filter(|(_, parent)| !parent)
-                        .map(|(mon, _)| mon.output().clone());
-                    let mon = mon.map(|(mon, _)| mon);
-
-                    let ws = workspace_name
-                        .as_deref()
-                        .and_then(|name| mon.map(|mon| mon.find_named_workspace(name)))
-                        .unwrap_or_else(|| {
-                            mon.map(|mon| mon.active_workspace_ref())
-                                .or_else(|| self.niri.layout.active_workspace())
-                        });
+                    let ws = resolve_unmapped_workspace(layout, mon, workspace_name);
 
                     if let Some(ws) = ws {
                         // If the window is pending fullscreen, then this will do nothing since
@@ -647,39 +632,13 @@ impl XdgShellHandler for State {
                     // The required configure will be the initial configure.
                 }
                 InitialConfigureState::Configured { rules, output, .. } => {
-                    // Figure out the monitor following a similar logic to initial configure.
-                    // FIXME: deduplicate.
-                    let mon = requested_output
-                        .as_ref()
-                        // If none requested, try currently configured output.
-                        .or(output.as_ref())
-                        .and_then(|o| self.niri.layout.monitor_for_output(o))
-                        .map(|mon| (mon, false))
-                        // If not, check if we have a parent with a monitor.
-                        .or_else(|| {
-                            toplevel
-                                .parent()
-                                .and_then(|parent| self.niri.layout.find_window_and_output(&parent))
-                                .and_then(|(_win, output)| output)
-                                .and_then(|o| self.niri.layout.monitor_for_output(o))
-                                .map(|mon| (mon, true))
-                        })
-                        // If not, fall back to the active monitor.
-                        .or_else(|| {
-                            self.niri
-                                .layout
-                                .active_monitor_ref()
-                                .map(|mon| (mon, false))
-                        });
+                    let output_hint = requested_output.as_ref().or(output.as_ref());
+                    let layout = &self.niri.layout;
+                    let (resolved_output, mon) =
+                        resolve_unmapped_monitor(layout, &toplevel, output_hint, None);
+                    *output = resolved_output;
 
-                    *output = mon
-                        .filter(|(_, parent)| !parent)
-                        .map(|(mon, _)| mon.output().clone());
-                    let mon = mon.map(|(mon, _)| mon);
-
-                    let ws = mon
-                        .map(|mon| mon.active_workspace_ref())
-                        .or_else(|| self.niri.layout.active_workspace());
+                    let ws = resolve_unmapped_workspace(layout, mon, None);
 
                     if let Some(ws) = ws {
                         toplevel.with_pending_state(|state| {
@@ -731,50 +690,13 @@ impl XdgShellHandler for State {
                     workspace_name,
                     is_pending_maximized,
                 } => {
-                    // Figure out the monitor following a similar logic to initial configure.
-                    // FIXME: deduplicate.
-                    let mon = workspace_name
-                        .as_deref()
-                        .and_then(|name| self.niri.layout.monitor_for_workspace(name))
-                        .map(|mon| (mon, false));
+                    let workspace_name = workspace_name.as_deref();
+                    let layout = &self.niri.layout;
+                    let (resolved_output, mon) =
+                        resolve_unmapped_monitor(layout, &toplevel, output.as_ref(), workspace_name);
+                    *output = resolved_output;
 
-                    let mon = mon.or_else(|| {
-                        output
-                            .as_ref()
-                            .and_then(|o| self.niri.layout.monitor_for_output(o))
-                            .map(|mon| (mon, false))
-                            // If not, check if we have a parent with a monitor.
-                            .or_else(|| {
-                                toplevel
-                                    .parent()
-                                    .and_then(|parent| {
-                                        self.niri.layout.find_window_and_output(&parent)
-                                    })
-                                    .and_then(|(_win, output)| output)
-                                    .and_then(|o| self.niri.layout.monitor_for_output(o))
-                                    .map(|mon| (mon, true))
-                            })
-                            // If not, fall back to the active monitor.
-                            .or_else(|| {
-                                self.niri
-                                    .layout
-                                    .active_monitor_ref()
-                                    .map(|mon| (mon, false))
-                            })
-                    });
-
-                    *output = mon
-                        .filter(|(_, parent)| !parent)
-                        .map(|(mon, _)| mon.output().clone());
-                    let mon = mon.map(|(mon, _)| mon);
-
-                    let ws = workspace_name
-                        .as_deref()
-                        .and_then(|name| mon.map(|mon| mon.find_named_workspace(name)))
-                        .unwrap_or_else(|| {
-                            mon.map(|mon| mon.active_workspace_ref())
-                                .or_else(|| self.niri.layout.active_workspace())
-                        });
+                    let ws = resolve_unmapped_workspace(layout, mon, workspace_name);
 
                     if let Some(ws) = ws {
                         toplevel.with_pending_state(|state| {

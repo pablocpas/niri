@@ -6,7 +6,7 @@ use niri_config::utils::MergeWith as _;
 use niri_config::{Color, CornerRadius, GradientInterpolation, TabBar};
 use niri_ipc::WindowLayout;
 use smithay::backend::renderer::element::{Element, Kind};
-use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
+use smithay::backend::renderer::gles::{GlesRenderer, GlesTexProgram, GlesTexture};
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 use smithay::wayland::compositor::{Blocker, BlockerState};
 
@@ -161,6 +161,71 @@ niri_render_elements! {
 
 pub type TileRenderSnapshot =
     RenderSnapshot<TileRenderElement<GlesRenderer>, TileRenderElement<GlesRenderer>>;
+
+pub(crate) fn clip_layout_element<R, T>(
+    elem: LayoutElementRenderElement<R>,
+    scale: Scale<f64>,
+    geometry: Rectangle<f64, Logical>,
+    corner_radius: CornerRadius,
+    clip_to_geometry: bool,
+    clip_shader: &Option<GlesTexProgram>,
+    has_border_shader: bool,
+) -> T
+where
+    R: NiriRenderer,
+    T: From<LayoutElementRenderElement<R>>
+        + From<ClippedSurfaceRenderElement<R>>
+        + From<BorderRenderElement>,
+{
+    match elem {
+        LayoutElementRenderElement::Wayland(elem) => {
+            if clip_to_geometry {
+                if let Some(shader) = clip_shader.clone() {
+                    if ClippedSurfaceRenderElement::will_clip(&elem, scale, geometry, corner_radius)
+                    {
+                        return ClippedSurfaceRenderElement::new(
+                            elem,
+                            scale,
+                            geometry,
+                            shader,
+                            corner_radius,
+                        )
+                        .into();
+                    }
+                }
+            }
+
+            LayoutElementRenderElement::Wayland(elem).into()
+        }
+        LayoutElementRenderElement::SolidColor(elem) => {
+            // In this branch we're rendering a blocked-out window with a solid
+            // color. We need to render it with a rounded corner shader even if
+            // clip_to_geometry is false, because in this case we're assuming that
+            // the unclipped window CSD already has corners rounded to the
+            // user-provided radius, so our blocked-out rendering should match that
+            // radius.
+            if corner_radius != CornerRadius::default() && has_border_shader {
+                return BorderRenderElement::new(
+                    geometry.size,
+                    Rectangle::from_size(geometry.size),
+                    GradientInterpolation::default(),
+                    Color::from_color32f(elem.color()),
+                    Color::from_color32f(elem.color()),
+                    0.,
+                    Rectangle::from_size(geometry.size),
+                    0.,
+                    corner_radius,
+                    scale.x as f32,
+                    1.,
+                )
+                .with_location(geometry.loc)
+                .into();
+            }
+
+            LayoutElementRenderElement::SolidColor(elem).into()
+        }
+    }
+}
 
 #[derive(Debug)]
 struct ResizeAnimation {
@@ -1462,55 +1527,8 @@ impl<W: LayoutElement> Tile<W> {
             let radius = radius.fit_to(window_size.w as f32, window_size.h as f32);
 
             let clip_shader = ClippedSurfaceRenderElement::shader(renderer).cloned();
-            let clip = |elem| match elem {
-                LayoutElementRenderElement::Wayland(elem) => {
-                    // If we should clip to geometry, render a clipped window.
-                    if clip_to_geometry {
-                        if let Some(shader) = clip_shader.clone() {
-                            if ClippedSurfaceRenderElement::will_clip(&elem, scale, geo, radius) {
-                                return ClippedSurfaceRenderElement::new(
-                                    elem,
-                                    scale,
-                                    geo,
-                                    shader.clone(),
-                                    radius,
-                                )
-                                .into();
-                            }
-                        }
-                    }
-
-                    // Otherwise, render it normally.
-                    LayoutElementRenderElement::Wayland(elem).into()
-                }
-                LayoutElementRenderElement::SolidColor(elem) => {
-                    // In this branch we're rendering a blocked-out window with a solid
-                    // color. We need to render it with a rounded corner shader even if
-                    // clip_to_geometry is false, because in this case we're assuming that
-                    // the unclipped window CSD already has corners rounded to the
-                    // user-provided radius, so our blocked-out rendering should match that
-                    // radius.
-                    if radius != CornerRadius::default() && has_border_shader {
-                        return BorderRenderElement::new(
-                            geo.size,
-                            Rectangle::from_size(geo.size),
-                            GradientInterpolation::default(),
-                            Color::from_color32f(elem.color()),
-                            Color::from_color32f(elem.color()),
-                            0.,
-                            Rectangle::from_size(geo.size),
-                            0.,
-                            radius,
-                            scale.x as f32,
-                            1.,
-                        )
-                        .with_location(geo.loc)
-                        .into();
-                    }
-
-                    // Otherwise, render the solid color as is.
-                    LayoutElementRenderElement::SolidColor(elem).into()
-                }
+            let clip = |elem| {
+                clip_layout_element(elem, scale, geo, radius, clip_to_geometry, &clip_shader, has_border_shader)
             };
 
             if clip_to_geometry && clip_shader.is_some() {
