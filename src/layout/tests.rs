@@ -4666,8 +4666,8 @@ fn move_right_enters_container_with_different_layout() {
         @"SplitH
   SplitV
     Window 2
-    Window 3
     Window 1 *
+    Window 3
 "
     );
 }
@@ -4850,8 +4850,8 @@ fn move_left_enters_container_with_different_layout() {
         @"SplitH
   SplitV
     Window 1
-    Window 2 *
     Window 3
+    Window 2 *
 "
     );
 }

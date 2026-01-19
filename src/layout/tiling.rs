@@ -2327,11 +2327,23 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.focus_bottom_in_current_column();
     }
 
+    fn move_root_child_with_layout(&mut self, current: usize, target: usize) -> bool {
+        if current == target {
+            return false;
+        }
+        if target >= self.tree.root_children_len() {
+            return false;
+        }
+        let moved = self.tree.move_root_child(current, target);
+        if moved {
+            self.tree.layout();
+        }
+        moved
+    }
+
     pub fn move_column_to_first(&mut self) {
         if let Some(idx) = self.tree.focused_root_index() {
-            if self.tree.move_root_child(idx, 0) {
-                self.tree.layout();
-            }
+            self.move_root_child_with_layout(idx, 0);
         }
     }
 
@@ -2341,9 +2353,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             return;
         }
         if let Some(idx) = self.tree.focused_root_index() {
-            if self.tree.move_root_child(idx, len - 1) {
-                self.tree.layout();
-            }
+            self.move_root_child_with_layout(idx, len - 1);
         }
     }
 
@@ -2355,11 +2365,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             return false;
         }
 
-        let moved = self.tree.move_root_child(idx, idx - 1);
-        if moved {
-            self.tree.layout();
-        }
-        moved
+        self.move_root_child_with_layout(idx, idx - 1)
     }
 
     pub fn move_column_right(&mut self) -> bool {
@@ -2371,11 +2377,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             return false;
         }
 
-        let moved = self.tree.move_root_child(idx, idx + 1);
-        if moved {
-            self.tree.layout();
-        }
-        moved
+        self.move_root_child_with_layout(idx, idx + 1)
     }
 
     pub fn move_column_to_index(&mut self, idx: usize) {
@@ -2387,40 +2389,29 @@ impl<W: LayoutElement> TilingSpace<W> {
             if current == target {
                 return;
             }
-            let len = self.tree.root_children_len();
-            if target >= len {
-                return;
-            }
-            if self.tree.move_root_child(current, target) {
-                self.tree.layout();
-            }
+            self.move_root_child_with_layout(current, target);
+        }
+    }
+
+    fn consume_or_expel_window(&mut self, window: Option<&W::Id>, direction: Direction) {
+        if let Some(id) = window {
+            self.tree.focus_window_by_id(id);
+        }
+
+        if self.tree.move_in_direction(direction) {
+            self.tree.layout();
+        } else {
+            self.tree.split_focused(Layout::SplitV);
+            self.tree.layout();
         }
     }
 
     pub fn consume_or_expel_window_left(&mut self, window: Option<&W::Id>) {
-        if let Some(id) = window {
-            self.tree.focus_window_by_id(id);
-        }
-
-        if self.tree.move_in_direction(Direction::Left) {
-            self.tree.layout();
-        } else {
-            self.tree.split_focused(Layout::SplitV);
-            self.tree.layout();
-        }
+        self.consume_or_expel_window(window, Direction::Left);
     }
 
     pub fn consume_or_expel_window_right(&mut self, window: Option<&W::Id>) {
-        if let Some(id) = window {
-            self.tree.focus_window_by_id(id);
-        }
-
-        if self.tree.move_in_direction(Direction::Right) {
-            self.tree.layout();
-        } else {
-            self.tree.split_focused(Layout::SplitV);
-            self.tree.layout();
-        }
+        self.consume_or_expel_window(window, Direction::Right);
     }
 
     pub fn toggle_full_width(&mut self) {
@@ -2434,12 +2425,19 @@ impl<W: LayoutElement> TilingSpace<W> {
             .is_some_and(|win_id| win_id == tile.window().id());
         let _ = self.set_fullscreen(&id, !currently_fullscreen);
     }
-    pub fn toggle_window_height(&mut self, window: Option<&W::Id>, forwards: bool) {
+
+    fn toggle_window_dimension(
+        &mut self,
+        window: Option<&W::Id>,
+        layout: Layout,
+        presets: &[PresetSize],
+        forwards: bool,
+    ) {
         let Some(path) = self.window_path(window) else {
             return;
         };
         let Some((parent_path, child_idx, available, _, _)) =
-            self.window_container_metrics(&path, Layout::SplitV)
+            self.window_container_metrics(&path, layout)
         else {
             return;
         };
@@ -2448,52 +2446,34 @@ impl<W: LayoutElement> TilingSpace<W> {
             .child_percent_at(parent_path.as_slice(), child_idx)
             .unwrap_or(1.0);
 
-        if let Some(percent) = self.cycle_presets(
-            available,
-            current_percent,
-            &self.options.layout.preset_window_heights,
-            forwards,
-        ) {
-            if self.tree.set_child_percent_at(
-                parent_path.as_slice(),
-                child_idx,
-                Layout::SplitV,
-                percent,
-            ) {
+        if let Some(percent) = self.cycle_presets(available, current_percent, presets, forwards) {
+            if self
+                .tree
+                .set_child_percent_at(parent_path.as_slice(), child_idx, layout, percent)
+            {
                 self.tree.layout();
             }
         }
     }
 
-    pub fn toggle_window_width(&mut self, window: Option<&W::Id>, forwards: bool) {
-        let Some(path) = self.window_path(window) else {
-            return;
-        };
-        let Some((parent_path, child_idx, available, _, _)) =
-            self.window_container_metrics(&path, Layout::SplitH)
-        else {
-            return;
-        };
-        let current_percent = self
-            .tree
-            .child_percent_at(parent_path.as_slice(), child_idx)
-            .unwrap_or(1.0);
-
-        if let Some(percent) = self.cycle_presets(
-            available,
-            current_percent,
-            &self.options.layout.preset_column_widths,
+    pub fn toggle_window_height(&mut self, window: Option<&W::Id>, forwards: bool) {
+        let presets = self.options.layout.preset_window_heights.clone();
+        self.toggle_window_dimension(
+            window,
+            Layout::SplitV,
+            &presets,
             forwards,
-        ) {
-            if self.tree.set_child_percent_at(
-                parent_path.as_slice(),
-                child_idx,
-                Layout::SplitH,
-                percent,
-            ) {
-                self.tree.layout();
-            }
-        }
+        );
+    }
+
+    pub fn toggle_window_width(&mut self, window: Option<&W::Id>, forwards: bool) {
+        let presets = self.options.layout.preset_column_widths.clone();
+        self.toggle_window_dimension(
+            window,
+            Layout::SplitH,
+            &presets,
+            forwards,
+        );
     }
 
     pub fn set_window_width(&mut self, window: Option<&W::Id>, change: SizeChange) {
