@@ -605,21 +605,28 @@ impl<W: LayoutElement> Workspace<W> {
         is_full_width: bool,
         is_floating: bool,
     ) {
-        if !is_floating {
-            tile.set_scratchpad(false);
-        }
         self.enter_output_for_window(tile.window());
-        tile.restore_to_floating = is_floating;
+        let floating_active = self.floating_is_active.get();
 
         match target {
             WorkspaceAddWindowTarget::Auto => {
+                let wants_floating = is_floating || floating_active;
+                if !wants_floating {
+                    tile.set_scratchpad(false);
+                }
+                tile.restore_to_floating = wants_floating;
+
                 // Don't steal focus from an active fullscreen window.
                 let activate = activate.map_smart(|| !self.is_active_pending_fullscreen());
 
                 // If the tile is pending maximized or fullscreen, open it in the scrolling layout
                 // where it can do that.
-                if is_floating && tile.window().pending_sizing_mode().is_normal() {
-                    self.floating.add_tile(tile, activate);
+                if wants_floating && tile.window().pending_sizing_mode().is_normal() {
+                    if floating_active && self.floating.active_container_allows_splits() {
+                        self.floating.add_tile_to_active_container(tile, activate);
+                    } else {
+                        self.floating.add_tile(tile, activate);
+                    }
 
                     if activate || self.scrolling.is_empty() {
                         self.floating_is_active = FloatingActive::Yes;
@@ -634,6 +641,10 @@ impl<W: LayoutElement> Workspace<W> {
                 }
             }
             WorkspaceAddWindowTarget::NewColumnAt(col_idx) => {
+                if !is_floating {
+                    tile.set_scratchpad(false);
+                }
+                tile.restore_to_floating = is_floating;
                 let activate = activate.map_smart(|| false);
                 self.scrolling
                     .add_tile(Some(col_idx), tile, activate, width, is_full_width, None);
@@ -643,13 +654,23 @@ impl<W: LayoutElement> Workspace<W> {
                 }
             }
             WorkspaceAddWindowTarget::NextTo(next_to) => {
+                let floating_has_window = self.floating.has_window(next_to);
+                let wants_floating = is_floating || floating_has_window;
+                if !wants_floating {
+                    tile.set_scratchpad(false);
+                }
+                tile.restore_to_floating = wants_floating;
+
                 let activate = activate.map_smart(|| self.active_window().unwrap().id() == next_to);
 
-                let floating_has_window = self.floating.has_window(next_to);
-
-                if is_floating && tile.window().pending_sizing_mode().is_normal() {
+                if wants_floating && tile.window().pending_sizing_mode().is_normal() {
                     if floating_has_window {
-                        self.floating.add_tile_above(next_to, tile, activate);
+                        if self.floating.container_allows_splits(next_to) {
+                            self.floating
+                                .add_tile_to_container_of(next_to, tile, activate);
+                        } else {
+                            self.floating.add_tile_above(next_to, tile, activate);
+                        }
                     } else {
                         // FIXME: use static pos
                         let (next_to_tile, render_pos, _visible) = self
@@ -1361,44 +1382,50 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn focus_parent(&mut self) {
         if self.floating_is_active.get() {
-            return;
+            self.floating.focus_parent();
+        } else {
+            self.scrolling.focus_parent();
         }
-        self.scrolling.focus_parent();
     }
 
     pub fn focus_child(&mut self) {
         if self.floating_is_active.get() {
-            return;
+            self.floating.focus_child();
+        } else {
+            self.scrolling.focus_child();
         }
-        self.scrolling.focus_child();
     }
 
     pub fn split_horizontal(&mut self) {
         if self.floating_is_active.get() {
-            return;
+            self.floating.split_horizontal();
+        } else {
+            self.scrolling.split_horizontal();
         }
-        self.scrolling.split_horizontal();
     }
 
     pub fn split_vertical(&mut self) {
         if self.floating_is_active.get() {
-            return;
+            self.floating.split_vertical();
+        } else {
+            self.scrolling.split_vertical();
         }
-        self.scrolling.split_vertical();
     }
 
     pub fn set_layout_mode(&mut self, layout: Layout) {
         if self.floating_is_active.get() {
-            return;
+            self.floating.set_layout_mode(layout);
+        } else {
+            self.scrolling.set_layout_mode(layout);
         }
-        self.scrolling.set_layout_mode(layout);
     }
 
     pub fn toggle_split_layout(&mut self) {
         if self.floating_is_active.get() {
-            return;
+            self.floating.toggle_split_layout();
+        } else {
+            self.scrolling.toggle_split_layout();
         }
-        self.scrolling.toggle_split_layout();
     }
 
     pub fn set_fullscreen(&mut self, window: &W::Id, is_fullscreen: bool) {
@@ -1536,6 +1563,37 @@ impl<W: LayoutElement> Workspace<W> {
         let Some(id) = id.cloned().or(active_id) else {
             return;
         };
+
+        if self.floating.has_window(&id) {
+            if self.floating.selected_is_container(Some(&id)) {
+                if let Some((subtree, origin, _rect)) = self.floating.take_selected_subtree(&id) {
+                    if let Some(origin) = origin {
+                        self.scrolling
+                            .insert_subtree_with_parent_info(&origin, subtree, target_is_active);
+                    } else {
+                        self.scrolling
+                            .insert_subtree_at_root(0, subtree, target_is_active);
+                    }
+
+                    if target_is_active {
+                        self.floating_is_active = FloatingActive::No;
+                    }
+                }
+                return;
+            }
+        } else {
+            if target_is_active && self.scrolling.selected_is_container() {
+                if let Some((subtree, origin, rect)) = self.scrolling.take_selected_subtree() {
+                    let focus = target_is_active.then_some(&id);
+                    self.floating
+                        .add_subtree(subtree, rect, origin, target_is_active, focus);
+                    if target_is_active {
+                        self.floating_is_active = FloatingActive::Yes;
+                    }
+                }
+                return;
+            }
+        }
 
         let (_, render_pos, _) = self
             .tiles_with_render_positions()
@@ -2168,6 +2226,22 @@ impl<W: LayoutElement> Workspace<W> {
         logical_pos: Point<f64, Logical>,
     ) -> Point<f64, SizeFrac> {
         self.floating.logical_to_size_frac(logical_pos)
+    }
+
+    pub(super) fn floating_container_allows_splits(&self, id: &W::Id) -> bool {
+        self.floating.container_allows_splits(id)
+    }
+
+    pub(super) fn floating_container_pos(&self, id: &W::Id) -> Option<Point<f64, Logical>> {
+        self.floating.container_pos(id)
+    }
+
+    pub(super) fn move_floating_container_for_window_to(
+        &mut self,
+        id: &W::Id,
+        pos: Point<f64, Logical>,
+    ) -> bool {
+        self.floating.move_container_for_window_to(id, pos, false)
     }
 
     pub fn working_area(&self) -> Rectangle<f64, Logical> {

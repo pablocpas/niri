@@ -384,6 +384,8 @@ enum InteractiveMoveState<W: LayoutElement> {
     },
     /// Moving; the window is no longer in the layout.
     Moving(InteractiveMoveData<W>),
+    /// Moving a floating container; the windows remain in the layout.
+    MovingContainer(InteractiveMoveContainerData<W>),
 }
 
 #[derive(Debug)]
@@ -418,6 +420,20 @@ struct InteractiveMoveData<W: LayoutElement> {
     pub(self) swap_origin: Option<InsertParentInfo>,
     /// Workspace where the move originated.
     pub(self) origin_workspace: WorkspaceId,
+}
+
+#[derive(Debug)]
+struct InteractiveMoveContainerData<W: LayoutElement> {
+    /// The window being moved (used to find its container).
+    pub(self) window_id: W::Id,
+    /// Output where the pointer is currently located.
+    pub(self) output: Output,
+    /// Current pointer position within output.
+    pub(self) pointer_pos_within_output: Point<f64, Logical>,
+    /// Pointer position at the start of the container move.
+    pub(self) start_pointer_pos_within_output: Point<f64, Logical>,
+    /// Container position at the start of the move (workspace coords).
+    pub(self) start_container_pos: Point<f64, Logical>,
 }
 
 #[derive(Debug)]
@@ -568,6 +584,28 @@ impl<W: LayoutElement> InteractiveMoveState<W> {
             InteractiveMoveState::Moving(move_) => Some(move_),
             _ => None,
         }
+    }
+
+    fn moving_container(&self) -> Option<&InteractiveMoveContainerData<W>> {
+        match self {
+            InteractiveMoveState::MovingContainer(move_) => Some(move_),
+            _ => None,
+        }
+    }
+
+    fn moving_window_id(&self) -> Option<&W::Id> {
+        match self {
+            InteractiveMoveState::Moving(move_) => Some(move_.tile.window().id()),
+            InteractiveMoveState::MovingContainer(move_) => Some(&move_.window_id),
+            _ => None,
+        }
+    }
+
+    fn is_moving(&self) -> bool {
+        matches!(
+            self,
+            InteractiveMoveState::Moving(_) | InteractiveMoveState::MovingContainer(_)
+        )
     }
 }
 
@@ -1127,6 +1165,11 @@ impl<W: LayoutElement> Layout<W> {
                         });
                     }
                 }
+                InteractiveMoveState::MovingContainer(move_) => {
+                    if &move_.window_id == window {
+                        self.interactive_move_end(window);
+                    }
+                }
             }
         }
 
@@ -1469,10 +1512,13 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn scroll_amount_to_activate(&self, window: &W::Id) -> f64 {
-        if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
-            if move_.tile.window().id() == window {
-                return 0.;
-            }
+        if self
+            .interactive_move
+            .as_ref()
+            .and_then(InteractiveMoveState::moving_window_id)
+            .is_some_and(|id| id == window)
+        {
+            return 0.;
         }
 
         for mon in self.monitors() {
@@ -1493,10 +1539,13 @@ impl<W: LayoutElement> Layout<W> {
         //
         // This function allows focus-follows-mouse to trigger only on the animation target
         // workspace.
-        if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
-            if move_.tile.window().id() == window {
-                return true;
-            }
+        if self
+            .interactive_move
+            .as_ref()
+            .and_then(InteractiveMoveState::moving_window_id)
+            .is_some_and(|id| id == window)
+        {
+            return true;
         }
 
         let MonitorSet::Normal { monitors, .. } = &self.monitor_set else {
@@ -1522,10 +1571,13 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn activate_window(&mut self, window: &W::Id) {
-        if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
-            if move_.tile.window().id() == window {
-                return;
-            }
+        if self
+            .interactive_move
+            .as_ref()
+            .and_then(InteractiveMoveState::moving_window_id)
+            .is_some_and(|id| id == window)
+        {
+            return;
         }
 
         let MonitorSet::Normal {
@@ -1558,10 +1610,13 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn activate_window_without_raising(&mut self, window: &W::Id) {
-        if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
-            if move_.tile.window().id() == window {
-                return;
-            }
+        if self
+            .interactive_move
+            .as_ref()
+            .and_then(InteractiveMoveState::moving_window_id)
+            .is_some_and(|id| id == window)
+        {
+            return;
         }
 
         let MonitorSet::Normal {
@@ -2332,7 +2387,11 @@ impl<W: LayoutElement> Layout<W> {
         output: &Output,
         pos_within_output: Point<f64, Logical>,
     ) -> Option<(&W, HitType)> {
-        if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
+        if let Some(move_) = self
+            .interactive_move
+            .as_ref()
+            .and_then(InteractiveMoveState::moving)
+        {
             if move_.output == *output {
                 if self.overview_progress.is_some() {
                     let zoom = self.overview_zoom();
@@ -2342,17 +2401,49 @@ impl<W: LayoutElement> Layout<W> {
                     // really represent scaled windows properly.
                     let (win, hit) =
                         HitType::hit_tile(&move_.tile, Point::from((0., 0.)), pos_within_tile)?;
-                    Some((win, hit.to_activate()))
+                    return Some((win, hit.to_activate()));
                 } else {
                     let tile_pos = move_.tile_render_location(1.);
-                    HitType::hit_tile(&move_.tile, tile_pos, pos_within_output)
+                    return HitType::hit_tile(&move_.tile, tile_pos, pos_within_output);
                 }
-            } else {
-                None
             }
-        } else {
-            None
         }
+
+        if let Some(move_) = self
+            .interactive_move
+            .as_ref()
+            .and_then(InteractiveMoveState::moving_container)
+        {
+            if move_.output != *output {
+                return None;
+            }
+
+            let (mon, (ws, ws_geo)) = self.monitors().find_map(|mon| {
+                mon.workspaces_with_render_geo()
+                    .find(|(ws, _)| ws.has_window(&move_.window_id))
+                    .map(|rv| (mon, rv))
+            })?;
+            if mon.output() != output {
+                return None;
+            }
+
+            let (tile, tile_offset, _visible) = ws
+                .tiles_with_render_positions()
+                .find(|(tile, _, _)| tile.window().id() == &move_.window_id)?;
+            let zoom = mon.overview_zoom();
+            let tile_pos = ws_geo.loc + tile_offset.upscale(zoom);
+
+            if self.overview_progress.is_some() {
+                let pos_within_tile = (pos_within_output - tile_pos).downscale(zoom);
+                let (win, hit) =
+                    HitType::hit_tile(tile, Point::from((0., 0.)), pos_within_tile)?;
+                return Some((win, hit.to_activate()));
+            }
+
+            return HitType::hit_tile(tile, tile_pos, pos_within_output);
+        }
+
+        None
     }
 
     /// Returns the window under the cursor and the hit type.
@@ -2473,6 +2564,13 @@ impl<W: LayoutElement> Layout<W> {
                             );
                         }
                     }
+                }
+                InteractiveMoveState::MovingContainer(move_) => {
+                    assert!(
+                        self.has_window(&move_.window_id),
+                        "interactive move container must be on an existing window"
+                    );
+                    move_win_id = Some(move_.window_id.clone());
                 }
             }
         }
@@ -2830,7 +2928,10 @@ impl<W: LayoutElement> Layout<W> {
             if output.is_none_or(|output| mon.output == *output) {
                 let is_active = self.is_active
                     && idx == *active_monitor_idx
-                    && !matches!(self.interactive_move, Some(InteractiveMoveState::Moving(_)));
+                    && !self
+                        .interactive_move
+                        .as_ref()
+                        .is_some_and(InteractiveMoveState::is_moving);
                 mon.set_overview_progress(self.overview_progress.as_ref());
                 mon.update_render_elements(is_active);
             }
@@ -4071,21 +4172,22 @@ impl<W: LayoutElement> Layout<W> {
                 }
                 .band(sq_dist / INTERACTIVE_MOVE_START_THRESHOLD);
 
-                let (is_floating, tile, workspace_config) = self
-                    .workspaces_mut()
-                    .find(|ws| ws.has_window(&window_id))
-                    .map(|ws| {
-                        let workspace_config = ws.layout_config().cloned().map(|c| (ws.id(), c));
-                        (
-                            ws.is_floating(&window_id),
-                            ws.tiles_mut()
-                                .find(|tile| *tile.window().id() == window_id)
-                                .unwrap(),
-                            workspace_config,
-                        )
-                    })
-                    .unwrap();
-                tile.interactive_move_offset = pointer_delta.upscale(factor);
+                let (is_floating, workspace_config, floating_grouped) = {
+                    let ws = self
+                        .workspaces_mut()
+                        .find(|ws| ws.has_window(&window_id))
+                        .unwrap();
+                    let workspace_config = ws.layout_config().cloned().map(|c| (ws.id(), c));
+                    let is_floating = ws.is_floating(&window_id);
+                    let floating_grouped =
+                        is_floating && ws.floating_container_allows_splits(&window_id);
+                    let tile = ws
+                        .tiles_mut()
+                        .find(|tile| *tile.window().id() == window_id)
+                        .unwrap();
+                    tile.interactive_move_offset = pointer_delta.upscale(factor);
+                    (is_floating, workspace_config, floating_grouped)
+                };
 
                 // Put it back to be able to easily return.
                 self.interactive_move = Some(InteractiveMoveState::Starting {
@@ -4095,6 +4197,40 @@ impl<W: LayoutElement> Layout<W> {
                 });
 
                 if !is_floating && sq_dist < INTERACTIVE_MOVE_START_THRESHOLD {
+                    return true;
+                }
+
+                if floating_grouped {
+                    let start_container_pos = {
+                        let ws = self
+                            .workspaces_mut()
+                            .find(|ws| ws.has_window(&window_id))
+                            .unwrap();
+                        let tile = ws
+                            .tiles_mut()
+                            .find(|tile| *tile.window().id() == window_id)
+                            .unwrap();
+                        tile.interactive_move_offset = Point::from((0., 0.));
+                        let Some(pos) = ws.floating_container_pos(&window_id) else {
+                            self.interactive_move = Some(InteractiveMoveState::Starting {
+                                window_id,
+                                pointer_delta,
+                                pointer_ratio_within_window,
+                            });
+                            return false;
+                        };
+                        pos
+                    };
+
+                    self.interactive_move = Some(InteractiveMoveState::MovingContainer(
+                        InteractiveMoveContainerData {
+                            window_id,
+                            output: output.clone(),
+                            pointer_pos_within_output,
+                            start_pointer_pos_within_output: pointer_pos_within_output,
+                            start_container_pos,
+                        },
+                    ));
                     return true;
                 }
 
@@ -4262,6 +4398,34 @@ impl<W: LayoutElement> Layout<W> {
 
                 self.interactive_move = Some(InteractiveMoveState::Moving(move_));
             }
+            InteractiveMoveState::MovingContainer(mut move_) => {
+                if window != &move_.window_id {
+                    self.interactive_move = Some(InteractiveMoveState::MovingContainer(move_));
+                    return false;
+                }
+
+                if output != move_.output {
+                    self.interactive_move = Some(InteractiveMoveState::MovingContainer(move_));
+                    return false;
+                }
+
+                move_.pointer_pos_within_output = pointer_pos_within_output;
+
+                let zoom = self.overview_zoom();
+                let delta =
+                    (move_.pointer_pos_within_output - move_.start_pointer_pos_within_output)
+                        .downscale(zoom);
+                let new_pos = move_.start_container_pos + delta;
+
+                if let Some(ws) = self
+                    .workspaces_mut()
+                    .find(|ws| ws.has_window(&move_.window_id))
+                {
+                    ws.move_floating_container_for_window_to(&move_.window_id, new_pos);
+                }
+
+                self.interactive_move = Some(InteractiveMoveState::MovingContainer(move_));
+            }
         }
 
         true
@@ -4311,6 +4475,34 @@ impl<W: LayoutElement> Layout<W> {
                 return;
             }
             InteractiveMoveState::Moving(move_) => move_,
+            InteractiveMoveState::MovingContainer(move_) => {
+                if window != &move_.window_id {
+                    return;
+                }
+
+                let Some(InteractiveMoveState::MovingContainer(move_)) =
+                    self.interactive_move.take()
+                else {
+                    unreachable!()
+                };
+
+                for mon in self.monitors_mut() {
+                    mon.dnd_scroll_gesture_end();
+                }
+
+                if let Some(ws) = self
+                    .workspaces_mut()
+                    .find(|ws| ws.has_window(&move_.window_id))
+                {
+                    if let Some(tile) =
+                        ws.tiles_mut().find(|tile| *tile.window().id() == move_.window_id)
+                    {
+                        tile.interactive_move_offset = Point::from((0., 0.));
+                    }
+                }
+
+                return;
+            }
         };
 
         if window != move_.tile.window().id() {
@@ -4576,11 +4768,23 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn interactive_move_is_moving_above_output(&self, output: &Output) -> bool {
-        let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move else {
-            return false;
-        };
+        if let Some(move_) = self
+            .interactive_move
+            .as_ref()
+            .and_then(InteractiveMoveState::moving)
+        {
+            return move_.output == *output;
+        }
 
-        move_.output == *output
+        if let Some(move_) = self
+            .interactive_move
+            .as_ref()
+            .and_then(InteractiveMoveState::moving_container)
+        {
+            return move_.output == *output;
+        }
+
+        false
     }
 
     pub fn dnd_update(&mut self, output: Output, pointer_pos_within_output: Point<f64, Logical>) {
@@ -5081,7 +5285,10 @@ impl<W: LayoutElement> Layout<W> {
                 for (idx, mon) in monitors.iter_mut().enumerate() {
                     let is_active = self.is_active
                         && idx == *active_monitor_idx
-                        && !matches!(self.interactive_move, Some(InteractiveMoveState::Moving(_)));
+                        && !self
+                            .interactive_move
+                            .as_ref()
+                            .is_some_and(InteractiveMoveState::is_moving);
 
                     if ongoing_scrolling_dnd.is_some() && self.overview_open {
                         // Begin the scroll on new monitors and when opening the overview.

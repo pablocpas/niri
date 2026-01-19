@@ -161,6 +161,12 @@ pub struct Mapped {
     /// flickering.
     is_pending_windowed_fullscreen: bool,
 
+    /// Whether this window is pending to be fullscreen.
+    ///
+    /// We track this ourselves to keep pending_sizing_mode() stable even if the toplevel pending
+    /// state gets cleared after a configure.
+    is_pending_fullscreen: bool,
+
     /// Pending windowed fullscreen updates.
     ///
     /// These have been "sent" to the window in form of configures, but the window hadn't committed
@@ -252,6 +258,11 @@ impl Mapped {
     pub fn new(window: Window, rules: ResolvedWindowRules, hook: HookId) -> Self {
         let surface = window.wl_surface().expect("no X11 support");
         let credentials = get_credentials_for_surface(&surface);
+        let toplevel = window.toplevel().expect("no X11 support");
+        let pending_fullscreen = toplevel
+            .with_pending_state(|state| state.states.contains(xdg_toplevel::State::Fullscreen));
+        let pending_maximized = toplevel
+            .with_pending_state(|state| state.states.contains(xdg_toplevel::State::Maximized));
 
         let mut rv = Self {
             window,
@@ -280,15 +291,15 @@ impl Mapped {
             last_interactive_resize_start: Cell::new(None),
             is_windowed_fullscreen: false,
             is_pending_windowed_fullscreen: false,
+            is_pending_fullscreen: pending_fullscreen,
             uncommitted_windowed_fullscreen: Vec::new(),
             is_maximized: false,
-            is_pending_maximized: false,
+            is_pending_maximized: pending_maximized,
             uncommitted_maximized: Vec::new(),
             focus_timestamp: None,
         };
 
         rv.is_maximized = rv.sizing_mode().is_maximized();
-        rv.is_pending_maximized = rv.pending_sizing_mode().is_maximized();
 
         rv
     }
@@ -695,6 +706,7 @@ impl LayoutElement for Mapped {
             }
         }
 
+        self.is_pending_fullscreen = mode == SizingMode::Fullscreen;
         self.is_pending_maximized = mode == SizingMode::Maximized;
         if self.is_maximized != self.is_pending_maximized {
             // Make sure we receive a commit to update self.is_maximized later on.
@@ -740,6 +752,7 @@ impl LayoutElement for Mapped {
         // longer participate in any transactions with other windows.
         self.transaction_for_next_configure = None;
 
+        self.is_pending_fullscreen = false;
         self.is_pending_maximized = false;
         if self.is_maximized != self.is_pending_maximized {
             // Make sure we receive a commit to update self.is_maximized later on.
@@ -1113,15 +1126,14 @@ impl LayoutElement for Mapped {
             };
         }
 
-        self.toplevel().with_pending_state(|state| {
-            if state.states.contains(xdg_toplevel::State::Fullscreen) {
-                SizingMode::Fullscreen
-            } else if state.states.contains(xdg_toplevel::State::Maximized) {
-                SizingMode::Maximized
-            } else {
-                SizingMode::Normal
-            }
-        })
+        if self.is_pending_fullscreen {
+            return SizingMode::Fullscreen;
+        }
+        if self.is_pending_maximized {
+            return SizingMode::Maximized;
+        }
+
+        SizingMode::Normal
     }
 
     fn is_ignoring_opacity_window_rule(&self) -> bool {

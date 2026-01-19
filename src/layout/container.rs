@@ -178,6 +178,8 @@ pub struct ContainerTree<W: LayoutElement> {
     pending_layout: Option<Layout>,
     /// Focused leaf node key (source of truth for focus).
     focused_key: Option<NodeKey>,
+    /// Currently selected node key (container selection via focus-parent).
+    selected_key: Option<NodeKey>,
     /// Cached layout info for leaves
     leaf_layouts: Vec<LeafLayoutInfo>,
     /// Pending layouts waiting for transactions to complete.
@@ -650,6 +652,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             root: None,
             pending_layout: None,
             focused_key: None,
+            selected_key: None,
             leaf_layouts: Vec::new(),
             pending_layouts: None,
             pending_transaction: None,
@@ -1185,9 +1188,11 @@ impl<W: LayoutElement> ContainerTree<W> {
     fn focus_node_key(&mut self, key: NodeKey) {
         let Some(leaf_key) = self.leaf_under_key(key) else {
             self.focused_key = None;
+            self.selected_key = None;
             return;
         };
         self.focused_key = Some(leaf_key);
+        self.selected_key = None;
         self.sync_container_focus_from_key(leaf_key);
     }
 
@@ -1359,6 +1364,61 @@ impl<W: LayoutElement> ContainerTree<W> {
         cache.1 = self.focused_key;
         cache.2 = path.clone();
         path
+    }
+
+    pub fn selected_path(&self) -> Vec<usize> {
+        if let Some(key) = self.selected_key {
+            if let Some(path) = self.find_node_path(key) {
+                return path;
+            }
+        }
+        self.focus_path()
+    }
+
+    pub fn selected_node_key(&self) -> Option<NodeKey> {
+        if let Some(key) = self.selected_key {
+            if self.get_node(key).is_some() {
+                return Some(key);
+            }
+        }
+        self.focused_key.or_else(|| self.first_leaf_key())
+    }
+
+    pub fn selected_is_container(&self) -> bool {
+        self.selected_key.is_some_and(|key| matches!(self.get_node(key), Some(NodeData::Container(_))))
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selected_key = None;
+    }
+
+    pub fn select_parent(&mut self) -> bool {
+        let base_key = self
+            .selected_key
+            .or(self.focused_key)
+            .or_else(|| self.first_leaf_key());
+        let Some(base_key) = base_key else {
+            return false;
+        };
+        let Some(parent_key) = self.parent_of(base_key) else {
+            return false;
+        };
+        self.selected_key = Some(parent_key);
+        true
+    }
+
+    pub fn select_child(&mut self) -> bool {
+        let Some(selected_key) = self.selected_key else {
+            return false;
+        };
+        let Some(container) = self.get_container(selected_key) else {
+            return false;
+        };
+        let Some(child_key) = container.focused_child_key() else {
+            return false;
+        };
+        self.selected_key = Some(child_key);
+        true
     }
 
     /// Focused tile (if any).
@@ -2576,6 +2636,12 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         self.cleanup_containers(cleanup_key);
 
+        if let Some(key) = self.selected_key {
+            if self.get_node(key).is_none() {
+                self.selected_key = None;
+            }
+        }
+
         if self.root.is_none() {
             self.focused_key = None;
         } else if was_focused {
@@ -2590,6 +2656,70 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.layout();
 
         Some(tile)
+    }
+
+    pub(super) fn take_subtree_at_path(
+        &mut self,
+        path: &[usize],
+    ) -> Option<(DetachedNode<W>, Option<InsertParentInfo>)> {
+        let node_key = self.get_node_key_at_path(path)?;
+        let insert_info = self.insert_parent_info_for_path(path);
+
+        let focused_path = self.focus_path();
+        let focused_in_subtree =
+            focused_path.len() >= path.len() && focused_path[..path.len()] == *path;
+
+        if let Some(selected_key) = self.selected_key {
+            if let Some(selected_path) = self.find_node_path(selected_key) {
+                if selected_path.len() >= path.len() && selected_path[..path.len()] == *path {
+                    self.selected_key = None;
+                }
+            }
+        }
+
+        let cleanup_key = if path.is_empty() {
+            self.root = None;
+            self.set_parent(node_key, None);
+            None
+        } else {
+            let parent_path = &path[..path.len() - 1];
+            let parent_key = if parent_path.is_empty() {
+                self.root?
+            } else {
+                self.get_node_key_at_path(parent_path)?
+            };
+
+            if let Some(container) = self.get_container_mut(parent_key) {
+                let idx = *path.last().unwrap();
+                container.remove_child(idx);
+            }
+            self.set_parent(node_key, None);
+            Some(parent_key)
+        };
+
+        let subtree = self.extract_subtree(node_key);
+        self.cleanup_containers(cleanup_key);
+
+        if let Some(key) = self.selected_key {
+            if self.get_node(key).is_none() {
+                self.selected_key = None;
+            }
+        }
+
+        if self.root.is_none() {
+            self.focused_key = None;
+        } else if focused_in_subtree {
+            self.focused_key = None;
+            self.focus_first_leaf();
+        } else if let Some(key) = self.focused_key {
+            self.sync_container_focus_from_key(key);
+        } else {
+            self.focus_first_leaf();
+        }
+
+        self.layout();
+
+        Some((subtree, insert_info))
     }
 
     /// Move window in a direction (swaps with sibling)
@@ -2990,6 +3120,40 @@ impl<W: LayoutElement> ContainerTree<W> {
             };
             self.get_container(parent_key).map(|c| c.layout())
         }
+    }
+
+    /// Whether the focused container should accept new splits.
+    pub fn focused_container_allows_splits(&self) -> bool {
+        let focus_path = self.focus_path();
+        let container_key = if focus_path.is_empty() {
+            let root_key = match self.root {
+                Some(key) => key,
+                None => return false,
+            };
+            if matches!(self.get_node(root_key), Some(NodeData::Container(_))) {
+                root_key
+            } else {
+                return false;
+            }
+        } else {
+            let parent_path = &focus_path[..focus_path.len() - 1];
+            if parent_path.is_empty() {
+                match self.root {
+                    Some(key) => key,
+                    None => return false,
+                }
+            } else {
+                match self.get_node_key_at_path(parent_path) {
+                    Some(key) => key,
+                    None => return false,
+                }
+            }
+        };
+
+        let Some(container) = self.get_container(container_key) else {
+            return false;
+        };
+        container.child_count() > 1 || container.preserve_on_single()
     }
 
     // ========================================================================
@@ -3700,11 +3864,15 @@ impl<W: LayoutElement> ContainerTree<W> {
         window_id: &W::Id,
     ) -> Option<InsertParentInfo> {
         let path = self.find_window(window_id)?;
+        self.insert_parent_info_for_path(&path)
+    }
+
+    fn insert_parent_info_for_path(&self, path: &[usize]) -> Option<InsertParentInfo> {
         if path.is_empty() {
             return None;
         }
 
-        let mut parent_path = path.clone();
+        let mut parent_path = path.to_vec();
         let insert_idx = parent_path.pop().unwrap();
         let parent_key = if parent_path.is_empty() {
             self.root?
@@ -3765,6 +3933,41 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         if focus {
             self.focus_node_key(tile_key);
+        } else if let Some(key) = self.focused_key {
+            self.sync_container_focus_from_key(key);
+        } else {
+            self.focus_first_leaf();
+        }
+
+        true
+    }
+
+    pub(super) fn insert_subtree_with_parent_info(
+        &mut self,
+        info: &InsertParentInfo,
+        subtree: DetachedNode<W>,
+        focus: bool,
+    ) -> bool {
+        let container_key = match self.ensure_container_at_path(&info.parent_path, info.layout) {
+            Some(key) => key,
+            None => {
+                self.insert_subtree_at_root(self.root_children_len(), subtree, focus);
+                return true;
+            }
+        };
+
+        let node_key = self.insert_subtree(subtree);
+        if let Some(container) = self.get_container_mut(container_key) {
+            container.insert_child(info.insert_idx, node_key);
+            if info.child_percents.len() == container.child_percents.len() {
+                container.child_percents = info.child_percents.clone();
+                container.normalize_child_percents();
+            }
+        }
+        self.set_parent(node_key, Some(container_key));
+
+        if focus {
+            self.focus_node_key(node_key);
         } else if let Some(key) = self.focused_key {
             self.sync_container_focus_from_key(key);
         } else {

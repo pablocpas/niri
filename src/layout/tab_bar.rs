@@ -6,9 +6,9 @@ use pangocairo::cairo::{self, ImageSurface};
 use pangocairo::pango::{self, Alignment, EllipsizeMode, FontDescription};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::reexports::gbm::Format as Fourcc;
-use smithay::utils::{Logical, Rectangle, Transform};
+use smithay::utils::{Logical, Rectangle, Size, Transform};
 
-use super::container::{Layout, TabBarTab};
+use super::container::{Layout, TabBarInfo, TabBarTab};
 use crate::render_helpers::texture::TextureBuffer;
 use crate::render_helpers::RenderTarget;
 use crate::utils::{round_logical_in_physical_max1, to_physical_precise_round};
@@ -118,6 +118,63 @@ fn tab_colors(
         (config.active_bg, config.active_fg, config.active_border)
     } else {
         (config.inactive_bg, config.inactive_fg, config.inactive_border)
+    }
+}
+
+/// Common tab state for caching
+#[derive(Debug, Clone, PartialEq)]
+pub struct TabBarTabState {
+    pub title: String,
+    pub is_focused: bool,
+    pub is_urgent: bool,
+    pub block_out: bool,
+}
+
+/// Common tab bar state for caching
+#[derive(Debug, Clone, PartialEq)]
+pub struct TabBarState {
+    pub layout: Layout,
+    pub size: Size<f64, Logical>,
+    pub row_height: f64,
+    pub scale: f64,
+    pub config: TabBar,
+    pub tabs: Vec<TabBarTabState>,
+}
+
+/// Common tab bar cache entry
+#[derive(Debug, Clone)]
+pub struct TabBarCacheEntry {
+    pub state: TabBarState,
+    pub buffer: TextureBuffer<GlesTexture>,
+    pub tab_widths_px: Vec<i32>,
+}
+
+/// Helper to create tab bar state from info
+pub fn tab_bar_state_from_info(
+    info: &TabBarInfo,
+    config: &TabBar,
+    is_active: bool,
+    scale: f64,
+    target: RenderTarget,
+) -> TabBarState {
+    let tabs = info
+        .tabs
+        .iter()
+        .map(|tab| TabBarTabState {
+            title: tab.title.clone(),
+            is_focused: tab.is_focused && is_active,
+            is_urgent: tab.is_urgent,
+            block_out: target.should_block_out(tab.block_out_from),
+        })
+        .collect();
+
+    TabBarState {
+        layout: info.layout,
+        size: info.rect.size,
+        row_height: info.row_height,
+        scale,
+        config: config.clone(),
+        tabs,
     }
 }
 

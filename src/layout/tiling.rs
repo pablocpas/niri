@@ -18,12 +18,12 @@ use niri_config::utils::MergeWith as _;
 use niri_config::{Border, PresetSize, TabBar};
 use niri_ipc::{ColumnDisplay, LayoutTreeNode, SizeChange};
 use smithay::backend::renderer::element::Kind;
-use smithay::backend::renderer::gles::GlesTexture;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
 
 use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
-    ContainerTree, DetachedContainer, DetachedNode, Direction, Layout, LeafLayoutInfo, TabBarInfo,
+    ContainerTree, DetachedContainer, DetachedNode, Direction, InsertParentInfo, Layout,
+    LeafLayoutInfo,
 };
 use super::monitor::{InsertPosition, SplitIndicator};
 use super::tile::{Tile, TileRenderElement};
@@ -33,11 +33,14 @@ use crate::niri_render_elements;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::RenderTarget;
-use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
+use crate::render_helpers::texture::TextureRenderElement;
 use crate::utils::transaction::Transaction;
 use crate::utils::ResizeEdge;
 use crate::window::ResolvedWindowRules;
-use crate::layout::tab_bar::{render_tab_bar, TabBarRenderOutput};
+use crate::layout::tab_bar::{
+    render_tab_bar, tab_bar_state_from_info, TabBarCacheEntry, TabBarRenderOutput,
+};
+use super::tile::{TilePtrIter, TilePtrIterMut};
 use log::warn;
 use crate::utils::{round_logical_in_physical_max1, to_physical_precise_round};
 
@@ -70,59 +73,6 @@ pub struct TilingSpace<W: LayoutElement> {
     fullscreen_window: Option<W::Id>,
     /// Windows in the closing animation.
     closing_windows: Vec<ClosingWindow>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct TabBarTabState {
-    title: String,
-    is_focused: bool,
-    is_urgent: bool,
-    block_out: bool,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct TabBarState {
-    layout: Layout,
-    size: Size<f64, Logical>,
-    row_height: f64,
-    scale: f64,
-    config: TabBar,
-    tabs: Vec<TabBarTabState>,
-}
-
-#[derive(Debug, Clone)]
-struct TabBarCacheEntry {
-    state: TabBarState,
-    buffer: TextureBuffer<GlesTexture>,
-    tab_widths_px: Vec<i32>,
-}
-
-fn tab_bar_state_from_info(
-    info: &TabBarInfo,
-    config: &TabBar,
-    is_active: bool,
-    scale: f64,
-    target: RenderTarget,
-) -> TabBarState {
-    let tabs = info
-        .tabs
-        .iter()
-        .map(|tab| TabBarTabState {
-            title: tab.title.clone(),
-            is_focused: tab.is_focused && is_active,
-            is_urgent: tab.is_urgent,
-            block_out: target.should_block_out(tab.block_out_from),
-        })
-        .collect();
-
-    TabBarState {
-        layout: info.layout,
-        size: info.rect.size,
-        row_height: info.row_height,
-        scale,
-        config: config.clone(),
-        tabs,
-    }
 }
 
 niri_render_elements! {
@@ -165,68 +115,6 @@ pub enum ScrollDirection {
     Down,
 }
 
-struct TileIter<'a, W: LayoutElement> {
-    tiles: Vec<*const Tile<W>>,
-    index: usize,
-    _marker: PhantomData<&'a Tile<W>>,
-}
-
-impl<'a, W: LayoutElement> TileIter<'a, W> {
-    fn new(tree: &'a ContainerTree<W>) -> Self {
-        Self {
-            tiles: tree.tile_ptrs(),
-            index: 0,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<'a, W: LayoutElement> Iterator for TileIter<'a, W> {
-    type Item = &'a Tile<W>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.tiles.len() {
-            return None;
-        }
-
-        let ptr = self.tiles[self.index];
-        self.index += 1;
-
-        unsafe { ptr.as_ref() }
-    }
-}
-
-struct TileIterMut<'a, W: LayoutElement> {
-    tiles: Vec<*mut Tile<W>>,
-    index: usize,
-    _marker: PhantomData<&'a mut Tile<W>>,
-}
-
-impl<'a, W: LayoutElement> TileIterMut<'a, W> {
-    fn new(tree: &'a mut ContainerTree<W>) -> Self {
-        let tiles = tree.tile_ptrs_mut();
-        Self {
-            tiles,
-            index: 0,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<'a, W: LayoutElement> Iterator for TileIterMut<'a, W> {
-    type Item = &'a mut Tile<W>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.tiles.len() {
-            return None;
-        }
-
-        let ptr = self.tiles[self.index];
-        self.index += 1;
-
-        unsafe { ptr.as_mut() }
-    }
-}
 
 struct TileRenderPositions<'a, W: LayoutElement> {
     entries: Vec<(*const Tile<W>, Point<f64, Logical>, bool)>,
@@ -433,14 +321,14 @@ impl<W: LayoutElement> TilingSpace<W> {
         if let Some(id) = window {
             self.tree.find_window(id)
         } else {
-            let focus_path = self.tree.focus_path();
-            if focus_path.is_empty() {
+            let selected_path = self.tree.selected_path();
+            if selected_path.is_empty() {
                 self.tree
                     .focused_window()
                     .is_some()
-                    .then(|| focus_path)
+                    .then(|| selected_path)
             } else {
-                Some(focus_path)
+                Some(selected_path)
             }
         }
     }
@@ -468,6 +356,35 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
 
         Some((parent_path, child_idx, available, child_count, rect))
+    }
+
+    fn selected_geometry(&self) -> Option<Rectangle<f64, Logical>> {
+        if self.display_layouts().is_empty() {
+            return None;
+        }
+        let path = self.tree.selected_path();
+
+        if self.tree.is_leaf_at_path(&path) {
+            let info = self.display_layouts().iter().find(|info| info.path == path)?;
+            return Some(info.rect);
+        }
+
+        self.tree
+            .container_info(&path)
+            .map(|(_, rect, _)| rect)
+    }
+
+    pub fn selected_is_container(&self) -> bool {
+        self.tree.selected_is_container()
+    }
+
+    pub(super) fn take_selected_subtree(
+        &mut self,
+    ) -> Option<(DetachedNode<W>, Option<InsertParentInfo>, Rectangle<f64, Logical>)> {
+        let path = self.tree.selected_path();
+        let rect = self.selected_geometry()?;
+        let (subtree, origin) = self.tree.take_subtree_at_path(&path)?;
+        Some((subtree, origin, rect))
     }
     pub fn new(
         view_size: Size<f64, Logical>,
@@ -499,7 +416,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn tiles(&self) -> impl Iterator<Item = &Tile<W>> + '_ {
-        TileIter::new(&self.tree)
+        TilePtrIter::new(self.tree.tile_ptrs())
     }
 
     pub fn active_tile(&self) -> Option<&Tile<W>> {
@@ -781,7 +698,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn advance_animations(&mut self) {
-        for tile in TileIterMut::new(&mut self.tree) {
+        for tile in self.tiles_mut() {
             tile.advance_animations();
         }
 
@@ -792,7 +709,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn are_animations_ongoing(&self) -> bool {
-        TileIter::new(&self.tree).any(|tile| tile.are_animations_ongoing())
+        self.tiles().any(|tile| tile.are_animations_ongoing())
             || !self.closing_windows.is_empty()
     }
 
@@ -924,19 +841,11 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn focus_parent(&mut self) -> bool {
-        let focused = self.tree.focus_parent();
-        if focused {
-            self.tree.layout();
-        }
-        focused
+        self.tree.select_parent()
     }
 
     pub fn focus_child(&mut self) -> bool {
-        let focused = self.tree.focus_child();
-        if focused {
-            self.tree.layout();
-        }
-        focused
+        self.tree.select_child()
     }
 
     // Move operations using ContainerTree
@@ -1564,7 +1473,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     // Additional methods needed by workspace.rs
     pub fn tiles_mut(&mut self) -> impl Iterator<Item = &mut Tile<W>> + '_ {
-        TileIterMut::new(&mut self.tree)
+        TilePtrIterMut::new(self.tree.tile_ptrs_mut())
     }
 
     pub fn tiles_with_render_positions(
@@ -1607,12 +1516,12 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn are_transitions_ongoing(&self) -> bool {
-        TileIter::new(&self.tree).any(|tile| tile.are_transitions_ongoing())
+        self.tiles().any(|tile| tile.are_transitions_ongoing())
             || !self.closing_windows.is_empty()
     }
 
     pub fn update_shaders(&mut self) {
-        for tile in TileIterMut::new(&mut self.tree) {
+        for tile in self.tiles_mut() {
             tile.update_shaders();
         }
     }
@@ -1682,6 +1591,22 @@ impl<W: LayoutElement> TilingSpace<W> {
             self.sync_fullscreen_window();
             self.tree.layout();
         }
+    }
+
+    pub(super) fn insert_subtree_with_parent_info(
+        &mut self,
+        info: &InsertParentInfo,
+        subtree: DetachedNode<W>,
+        focus: bool,
+    ) {
+        self.tree
+            .insert_subtree_with_parent_info(info, subtree, focus);
+        self.tree.layout();
+    }
+
+    pub fn insert_subtree_at_root(&mut self, index: usize, subtree: DetachedNode<W>, focus: bool) {
+        self.tree.insert_subtree_at_root(index, subtree, focus);
+        self.tree.layout();
     }
 
     pub(super) fn insert_parent_info_for_window(
