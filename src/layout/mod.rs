@@ -95,6 +95,9 @@ mod tests;
 /// Size changes up to this many pixels don't animate.
 pub const RESIZE_ANIMATION_THRESHOLD: f64 = 10.;
 
+/// Pointer distance to count as a resize edge.
+const RESIZE_EDGE_THRESHOLD: f64 = 10.;
+
 /// Pointer needs to move this far to pull a window from the layout.
 const INTERACTIVE_MOVE_START_THRESHOLD: f64 = 256. * 256.;
 
@@ -117,6 +120,30 @@ niri_render_elements! {
         Wayland = WaylandSurfaceRenderElement<R>,
         SolidColor = SolidColorRenderElement,
     }
+}
+
+fn resize_edges_for_point(
+    pos: Point<f64, Logical>,
+    size: Size<f64, Logical>,
+    border_width: Option<f64>,
+) -> ResizeEdge {
+    let border = border_width.unwrap_or(0.0) * 2.0;
+    let threshold = RESIZE_EDGE_THRESHOLD.max(border);
+    let threshold_x = threshold.min(size.w / 2.0);
+    let threshold_y = threshold.min(size.h / 2.0);
+
+    let mut edges = ResizeEdge::empty();
+    if pos.x <= threshold_x {
+        edges |= ResizeEdge::LEFT;
+    } else if pos.x >= size.w - threshold_x {
+        edges |= ResizeEdge::RIGHT;
+    }
+    if pos.y <= threshold_y {
+        edges |= ResizeEdge::TOP;
+    } else if pos.y >= size.h - threshold_y {
+        edges |= ResizeEdge::BOTTOM;
+    }
+    edges
 }
 
 pub type LayoutElementRenderSnapshot =
@@ -2457,11 +2484,11 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn resize_edges_under(
-        &self,
+        &mut self,
         output: &Output,
         pos_within_output: Point<f64, Logical>,
     ) -> Option<ResizeEdge> {
-        let mon = self.monitor_for_output(output)?;
+        let mon = self.monitor_for_output_mut(output)?;
         mon.resize_edges_under(pos_within_output)
     }
 
@@ -2870,7 +2897,7 @@ impl<W: LayoutElement> Layout<W> {
                 }
 
                 // Keep advancing animations if we might need to scroll the view.
-                if !move_.is_floating {
+                if !move_.is_floating || self.overview_open {
                     return true;
                 }
             }
@@ -4282,7 +4309,6 @@ impl<W: LayoutElement> Layout<W> {
                 } else {
                     ws.scrolling_insert_parent_info(&window_id)
                 };
-
                 let RemovedTile {
                     mut tile,
                     width,

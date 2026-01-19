@@ -1,0 +1,167 @@
+{"run_id":"1767947866-372578749","line":1303,"new":{"module_name":"niri__tests__floating","snapshot_name":"repeated_size_request","metadata":{"source":"src/tests/floating.rs","assertion_line":1303,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1920 × 1080, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 936 × 1048, bounds: 1920 × 1080, states: [Activated]"}}
+{"run_id":"1767947866-372578749","line":729,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_restores_floating_size_when_set_to_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":729,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767947866-372578749","line":396,"new":{"module_name":"niri__tests__floating","snapshot_name":"moving_to_floating_doesnt_cancel_resize","metadata":{"source":"src/tests/floating.rs","assertion_line":396,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":""},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 500 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767947866-372578749","line":483,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_unmaximize_to_floating_restores_size","metadata":{"source":"src/tests/floating.rs","assertion_line":483,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"}}
+{"run_id":"1767947866-372578749","line":380,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":589,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":604,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":950,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":618,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":434,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_unfullscreen_to_floating_restores_size","metadata":{"source":"src/tests/floating.rs","assertion_line":434,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"}}
+{"run_id":"1767947866-372578749","line":635,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":541,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":553,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":563,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":191,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":247,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":262,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":280,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":95,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":104,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":117,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":128,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":137,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":57,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":1277,"new":{"module_name":"niri__tests__floating","snapshot_name":"unmaximize_to_same_size_same_bounds_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":1277,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Maximized]"}}
+{"run_id":"1767947866-372578749","line":306,"new":{"module_name":"niri__tests__floating","snapshot_name":"restore_floating_size","metadata":{"source":"src/tests/floating.rs","assertion_line":306,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767947866-372578749","line":1087,"new":{"module_name":"niri__tests__floating","snapshot_name":"unmaximize_to_same_size_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":1087,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"}}
+{"run_id":"1767947866-372578749","line":658,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":75,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":671,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":1128,"new":{"module_name":"niri__tests__floating","snapshot_name":"unfullscreen_to_same_size_windowed_fullscreen_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":1128,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"}}
+{"run_id":"1767947866-372578749","line":222,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":685,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":1169,"new":{"module_name":"niri__tests__floating","snapshot_name":"unmaximize_to_same_size_windowed_fullscreen_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":1169,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"}}
+{"run_id":"1767947866-372578749","line":163,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":1049,"new":{"module_name":"niri__tests__floating","snapshot_name":"unfullscreen_to_same_size_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":1049,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"}}
+{"run_id":"1767947866-372578749","line":703,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":1233,"new":null,"old":null}
+{"run_id":"1767947866-372578749","line":1243,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":870,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":925,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":810,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":589,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":396,"new":{"module_name":"niri__tests__floating","snapshot_name":"moving_to_floating_doesnt_cancel_resize","metadata":{"source":"src/tests/floating.rs","assertion_line":396,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":""},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 500 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767947878-35951770","line":1303,"new":{"module_name":"niri__tests__floating","snapshot_name":"repeated_size_request","metadata":{"source":"src/tests/floating.rs","assertion_line":1303,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1920 × 1080, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 936 × 1048, bounds: 1920 × 1080, states: [Activated]"}}
+{"run_id":"1767947878-35951770","line":541,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":434,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_unfullscreen_to_floating_restores_size","metadata":{"source":"src/tests/floating.rs","assertion_line":434,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"}}
+{"run_id":"1767947878-35951770","line":604,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":349,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":483,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_unmaximize_to_floating_restores_size","metadata":{"source":"src/tests/floating.rs","assertion_line":483,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"}}
+{"run_id":"1767947878-35951770","line":553,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":618,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":563,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":362,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":635,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":950,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":380,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":729,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_restores_floating_size_when_set_to_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":729,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767947878-35951770","line":95,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":222,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":104,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":163,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":247,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":117,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":262,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":128,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":191,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":57,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":137,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":280,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":75,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":306,"new":{"module_name":"niri__tests__floating","snapshot_name":"restore_floating_size","metadata":{"source":"src/tests/floating.rs","assertion_line":306,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767947878-35951770","line":1087,"new":{"module_name":"niri__tests__floating","snapshot_name":"unmaximize_to_same_size_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":1087,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"}}
+{"run_id":"1767947878-35951770","line":658,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":1128,"new":{"module_name":"niri__tests__floating","snapshot_name":"unfullscreen_to_same_size_windowed_fullscreen_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":1128,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"}}
+{"run_id":"1767947878-35951770","line":671,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":1233,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":1243,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":685,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":1049,"new":{"module_name":"niri__tests__floating","snapshot_name":"unfullscreen_to_same_size_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":1049,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"}}
+{"run_id":"1767947878-35951770","line":703,"new":null,"old":null}
+{"run_id":"1767947878-35951770","line":1277,"new":{"module_name":"niri__tests__floating","snapshot_name":"unmaximize_to_same_size_same_bounds_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":1277,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Maximized]"}}
+{"run_id":"1767947878-35951770","line":1169,"new":{"module_name":"niri__tests__floating","snapshot_name":"unmaximize_to_same_size_windowed_fullscreen_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":1169,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"}}
+{"run_id":"1767947889-265190476","line":810,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":870,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":925,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":950,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":729,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_restores_floating_size_when_set_to_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":729,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767947889-265190476","line":434,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_unfullscreen_to_floating_restores_size","metadata":{"source":"src/tests/floating.rs","assertion_line":434,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"}}
+{"run_id":"1767947889-265190476","line":483,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_unmaximize_to_floating_restores_size","metadata":{"source":"src/tests/floating.rs","assertion_line":483,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"}}
+{"run_id":"1767947889-265190476","line":349,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":362,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":380,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":396,"new":{"module_name":"niri__tests__floating","snapshot_name":"moving_to_floating_doesnt_cancel_resize","metadata":{"source":"src/tests/floating.rs","assertion_line":396,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":""},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 500 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767947889-265190476","line":1303,"new":{"module_name":"niri__tests__floating","snapshot_name":"repeated_size_request","metadata":{"source":"src/tests/floating.rs","assertion_line":1303,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1920 × 1080, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 936 × 1048, bounds: 1920 × 1080, states: [Activated]"}}
+{"run_id":"1767947889-265190476","line":541,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":553,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":563,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":589,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":604,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":618,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":635,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":95,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":104,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":117,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":128,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":137,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":247,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":262,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":280,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":222,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":306,"new":{"module_name":"niri__tests__floating","snapshot_name":"restore_floating_size","metadata":{"source":"src/tests/floating.rs","assertion_line":306,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767947889-265190476","line":191,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":163,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":658,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":671,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":685,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":703,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":57,"new":null,"old":null}
+{"run_id":"1767947889-265190476","line":75,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":810,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":870,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":925,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":950,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":729,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_restores_floating_size_when_set_to_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":729,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767947897-693900516","line":434,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_unfullscreen_to_floating_restores_size","metadata":{"source":"src/tests/floating.rs","assertion_line":434,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"}}
+{"run_id":"1767947897-693900516","line":483,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_unmaximize_to_floating_restores_size","metadata":{"source":"src/tests/floating.rs","assertion_line":483,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"}}
+{"run_id":"1767947897-693900516","line":349,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":362,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":380,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":396,"new":{"module_name":"niri__tests__floating","snapshot_name":"moving_to_floating_doesnt_cancel_resize","metadata":{"source":"src/tests/floating.rs","assertion_line":396,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":""},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 500 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767947897-693900516","line":1303,"new":{"module_name":"niri__tests__floating","snapshot_name":"repeated_size_request","metadata":{"source":"src/tests/floating.rs","assertion_line":1303,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1920 × 1080, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 936 × 1048, bounds: 1920 × 1080, states: [Activated]"}}
+{"run_id":"1767947897-693900516","line":541,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":553,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":563,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":589,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":604,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":618,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":635,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":95,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":104,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":117,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":128,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":137,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":247,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":262,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":280,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":222,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":306,"new":{"module_name":"niri__tests__floating","snapshot_name":"restore_floating_size","metadata":{"source":"src/tests/floating.rs","assertion_line":306,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767947897-693900516","line":191,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":163,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":658,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":671,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":685,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":703,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":57,"new":null,"old":null}
+{"run_id":"1767947897-693900516","line":75,"new":null,"old":null}
+{"run_id":"1767947942-240741276","line":306,"new":{"module_name":"niri__tests__floating","snapshot_name":"restore_floating_size","metadata":{"source":"src/tests/floating.rs","assertion_line":306,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767948406-754337968","line":306,"new":{"module_name":"niri__tests__floating","snapshot_name":"restore_floating_size","metadata":{"source":"src/tests/floating.rs","assertion_line":306,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767948646-897632517","line":994,"new":{"module_name":"niri__tests__floating","snapshot_name":"unfullscreen_to_floating_doesnt_send_extra_configure","metadata":{"source":"src/tests/floating.rs","assertion_line":994,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":""},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 936 × 1048, bounds: 1920 × 1080, states: [Activated]"}}
+{"run_id":"1767948656-916649414","line":306,"new":{"module_name":"niri__tests__floating","snapshot_name":"restore_floating_size","metadata":{"source":"src/tests/floating.rs","assertion_line":306,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767950690-591369641","line":541,"new":null,"old":null}
+{"run_id":"1767950690-591369641","line":729,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_restores_floating_size_when_set_to_floating","metadata":{"source":"src/tests/floating.rs","assertion_line":729,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"}}
+{"run_id":"1767950690-591369641","line":483,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_unmaximize_to_floating_restores_size","metadata":{"source":"src/tests/floating.rs","assertion_line":483,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"}}
+{"run_id":"1767950690-591369641","line":434,"new":{"module_name":"niri__tests__floating","snapshot_name":"interactive_move_unfullscreen_to_floating_restores_size","metadata":{"source":"src/tests/floating.rs","assertion_line":434,"expression":"f.client(id).window(&surface).format_recent_configures()"},"snapshot":"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"},"old":{"module_name":"niri__tests__floating","metadata":{},"snapshot":"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"}}
+{"run_id":"1767950690-591369641","line":553,"new":null,"old":null}
+{"run_id":"1767950690-591369641","line":563,"new":null,"old":null}

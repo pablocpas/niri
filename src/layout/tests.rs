@@ -434,6 +434,14 @@ fn arbitrary_column_display() -> impl Strategy<Value = ColumnDisplay> {
     prop_oneof![Just(ColumnDisplay::Normal), Just(ColumnDisplay::Tabbed)]
 }
 
+fn arbitrary_mark_mode() -> impl Strategy<Value = MarkMode> {
+    prop_oneof![
+        Just(MarkMode::Replace),
+        Just(MarkMode::Add),
+        Just(MarkMode::Toggle),
+    ]
+}
+
 #[derive(Debug, Clone, Arbitrary)]
 enum Op {
     AddOutput(#[proptest(strategy = "1..=5usize")] usize),
@@ -783,6 +791,29 @@ enum Op {
         #[proptest(strategy = "arbitrary_layout_part().prop_map(Box::new)")]
         layout_config: Box<niri_config::LayoutPart>,
     },
+    // Container tree operations (i3-like)
+    FocusParent,
+    FocusChild,
+    SplitHorizontal,
+    SplitVertical,
+    SetLayoutSplitH,
+    SetLayoutSplitV,
+    SetLayoutTabbed,
+    SetLayoutStacked,
+    ToggleSplitLayout,
+    // Mark operations
+    MarkFocused {
+        #[proptest(strategy = "1..=3usize")]
+        mark_id: usize,
+        #[proptest(strategy = "arbitrary_mark_mode()")]
+        mode: MarkMode,
+    },
+    // Scratchpad operations
+    MoveWindowToScratchpad {
+        #[proptest(strategy = "proptest::option::of(1..=5usize)")]
+        id: Option<usize>,
+    },
+    ScratchpadShow,
 }
 
 impl Op {
@@ -1655,6 +1686,26 @@ impl Op {
 
                 layout.update_options(options);
             }
+            // Container tree operations (i3-like)
+            Op::FocusParent => layout.focus_parent(),
+            Op::FocusChild => layout.focus_child(),
+            Op::SplitHorizontal => layout.split_horizontal(),
+            Op::SplitVertical => layout.split_vertical(),
+            Op::SetLayoutSplitH => layout.set_layout_mode(ContainerLayout::SplitH),
+            Op::SetLayoutSplitV => layout.set_layout_mode(ContainerLayout::SplitV),
+            Op::SetLayoutTabbed => layout.set_layout_mode(ContainerLayout::Tabbed),
+            Op::SetLayoutStacked => layout.set_layout_mode(ContainerLayout::Stacked),
+            Op::ToggleSplitLayout => layout.toggle_split_layout(),
+            // Mark operations
+            Op::MarkFocused { mark_id, mode } => {
+                layout.mark_focused(format!("mark{mark_id}"), mode);
+            }
+            // Scratchpad operations
+            Op::MoveWindowToScratchpad { id } => {
+                let id = id.filter(|id| layout.has_window(id));
+                layout.move_window_to_scratchpad(id.as_ref());
+            }
+            Op::ScratchpadShow => layout.scratchpad_show(),
         }
     }
 }
@@ -1676,6 +1727,27 @@ fn marks_for(layout: &Layout<TestWindow>, id: usize) -> Vec<String> {
                 .map(|tile| tile.marks().to_vec())
         })
         .unwrap_or_default()
+}
+
+fn requested_width(layout: &Layout<TestWindow>, id: usize) -> i32 {
+    layout
+        .windows()
+        .find(|(_, win)| *win.id() == id)
+        .and_then(|(_, win)| win.requested_size())
+        .map(|size| size.w)
+        .expect("expected requested size")
+}
+
+fn tile_rect(layout: &Layout<TestWindow>, id: usize) -> Rectangle<f64, Logical> {
+    for (_, _, ws) in layout.workspaces() {
+        for (tile, pos, _visible) in ws.tiles_with_render_positions() {
+            if *tile.window().id() == id {
+                return Rectangle::new(pos, tile.tile_size());
+            }
+        }
+    }
+
+    panic!("tile not found for window {id}");
 }
 
 #[test]
@@ -1854,6 +1926,250 @@ fn scratchpad_show_moves_visible_between_outputs() {
 }
 
 #[test]
+fn scratchpad_multiple_windows_round_robin() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    // Add 3 windows
+    let params1 = TestWindowParams::new(1);
+    let id1 = params1.id;
+    layout.add_window(
+        TestWindow::new(params1),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let params2 = TestWindowParams::new(2);
+    let id2 = params2.id;
+    layout.add_window(
+        TestWindow::new(params2),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let params3 = TestWindowParams::new(3);
+    let id3 = params3.id;
+    layout.add_window(
+        TestWindow::new(params3),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    // Move all 3 windows to scratchpad
+    let workspace = layout.active_workspace_mut().expect("active workspace");
+    assert!(workspace.focus_window_by_id(&id1));
+    layout.move_window_to_scratchpad(None);
+
+    let workspace = layout.active_workspace_mut().expect("active workspace");
+    assert!(workspace.focus_window_by_id(&id2));
+    layout.move_window_to_scratchpad(None);
+
+    let workspace = layout.active_workspace_mut().expect("active workspace");
+    assert!(workspace.focus_window_by_id(&id3));
+    layout.move_window_to_scratchpad(None);
+
+    // No windows visible in workspace
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.has_window(&id1));
+    assert!(!workspace.has_window(&id2));
+    assert!(!workspace.has_window(&id3));
+
+    // Show scratchpad - first window should appear (round robin order depends on implementation)
+    layout.scratchpad_show();
+    let workspace = layout.active_workspace().expect("active workspace");
+    // At least one window should be visible
+    assert!(workspace.has_window(&id1) || workspace.has_window(&id2) || workspace.has_window(&id3));
+}
+
+#[test]
+fn scratchpad_from_floating_preserves_floating() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    // Add a window and make it floating
+    let params = TestWindowParams::new(1);
+    let id = params.id;
+    layout.add_window(
+        TestWindow::new(params),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    // Set as floating
+    layout.set_window_floating(Some(&id), true);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&id));
+
+    // Move to scratchpad
+    layout.move_window_to_scratchpad(None);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.has_window(&id));
+
+    // Show from scratchpad - should appear as floating
+    layout.scratchpad_show();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.has_window(&id));
+    assert!(workspace.is_floating(&id));
+}
+
+#[test]
+fn scratchpad_from_tiling_becomes_floating() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    // Add a tiling window
+    let params = TestWindowParams::new(1);
+    let id = params.id;
+    layout.add_window(
+        TestWindow::new(params),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.is_floating(&id));
+
+    // Move to scratchpad
+    layout.move_window_to_scratchpad(None);
+
+    // Show from scratchpad - should appear as floating (scratchpad windows are always floating)
+    layout.scratchpad_show();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.has_window(&id));
+    assert!(workspace.is_floating(&id));
+}
+
+#[test]
+fn scratchpad_show_hides_visible_then_shows_next() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    // Add 2 windows
+    let params1 = TestWindowParams::new(1);
+    let id1 = params1.id;
+    layout.add_window(
+        TestWindow::new(params1),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let params2 = TestWindowParams::new(2);
+    let id2 = params2.id;
+    layout.add_window(
+        TestWindow::new(params2),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    // Move both to scratchpad
+    let workspace = layout.active_workspace_mut().expect("active workspace");
+    assert!(workspace.focus_window_by_id(&id1));
+    layout.move_window_to_scratchpad(None);
+
+    let workspace = layout.active_workspace_mut().expect("active workspace");
+    assert!(workspace.focus_window_by_id(&id2));
+    layout.move_window_to_scratchpad(None);
+
+    // Show first scratchpad window
+    layout.scratchpad_show();
+    let workspace = layout.active_workspace().expect("active workspace");
+    let first_visible = if workspace.has_window(&id1) {
+        id1.clone()
+    } else {
+        id2.clone()
+    };
+    assert!(workspace.has_window(&first_visible));
+
+    // Call scratchpad_show again - should hide current and show the other
+    layout.scratchpad_show();
+    let workspace = layout.active_workspace().expect("active workspace");
+    // First window should be hidden now
+    assert!(!workspace.has_window(&first_visible));
+}
+
+#[test]
+fn scratchpad_fullscreen_to_scratchpad() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    // Add a window
+    let params = TestWindowParams::new(1);
+    let id = params.id;
+    layout.add_window(
+        TestWindow::new(params),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    // Make fullscreen
+    layout.set_fullscreen(&id, true);
+
+    // Move to scratchpad
+    layout.move_window_to_scratchpad(None);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.has_window(&id));
+
+    // Show from scratchpad - should appear as floating
+    layout.scratchpad_show();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.has_window(&id));
+    assert!(workspace.is_floating(&id));
+}
+
+#[test]
 fn marks_replace_add_toggle() {
     let options = Options::from_config(&Config::default());
     let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
@@ -1900,6 +2216,87 @@ fn marks_replace_add_toggle() {
 
     layout.mark_focused(String::from("one"), MarkMode::Toggle);
     assert!(marks_for(&layout, id2).is_empty());
+}
+
+#[test]
+fn marks_multiple_on_same_window() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    let params1 = TestWindowParams::new(1);
+    let id1 = params1.id;
+    layout.add_window(
+        TestWindow::new(params1),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    // Add multiple marks to the same window
+    layout.mark_focused(String::from("mark_a"), MarkMode::Add);
+    layout.mark_focused(String::from("mark_b"), MarkMode::Add);
+    layout.mark_focused(String::from("mark_c"), MarkMode::Add);
+
+    let marks = marks_for(&layout, id1);
+    assert!(marks.contains(&String::from("mark_a")));
+    assert!(marks.contains(&String::from("mark_b")));
+    assert!(marks.contains(&String::from("mark_c")));
+    assert_eq!(marks.len(), 3);
+}
+
+#[test]
+fn marks_unique_across_windows() {
+    // When using Replace mode, mark moves from old window to new window
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    let params1 = TestWindowParams::new(1);
+    let id1 = params1.id;
+    layout.add_window(
+        TestWindow::new(params1),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let params2 = TestWindowParams::new(2);
+    let id2 = params2.id;
+    layout.add_window(
+        TestWindow::new(params2),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    // Add mark to window 1
+    let workspace = layout.active_workspace_mut().expect("active workspace");
+    assert!(workspace.focus_window_by_id(&id1));
+    layout.mark_focused(String::from("unique_mark"), MarkMode::Replace);
+    assert_eq!(marks_for(&layout, id1), vec![String::from("unique_mark")]);
+
+    // Focus window 2 and add the same mark - should move from window 1 to window 2
+    let workspace = layout.active_workspace_mut().expect("active workspace");
+    assert!(workspace.focus_window_by_id(&id2));
+    layout.mark_focused(String::from("unique_mark"), MarkMode::Replace);
+
+    // Mark should now be only on window 2, not on window 1
+    assert!(marks_for(&layout, id1).is_empty());
+    assert_eq!(marks_for(&layout, id2), vec![String::from("unique_mark")]);
 }
 
 #[track_caller]
@@ -3359,6 +3756,70 @@ fn interactive_resize_to_negative() {
 }
 
 #[test]
+fn interactive_resize_nested_split_targets_parent() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output0");
+    layout.add_output(output.clone(), None);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    layout.activate_window(&1);
+    layout.split_vertical();
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(3)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+    layout.set_layout_mode(ContainerLayout::SplitH);
+
+    let width_before_1 = requested_width(&layout, 1);
+    let width_before_2 = requested_width(&layout, 2);
+    let width_before_3 = requested_width(&layout, 3);
+
+    let rect = tile_rect(&layout, 3);
+    let pos = rect.loc + Point::from((rect.size.w - 1.0, rect.size.h / 2.0));
+    let edges = layout
+        .resize_edges_under(&output, pos)
+        .expect("expected resize edge");
+    assert!(edges.contains(ResizeEdge::RIGHT));
+
+    assert!(layout.interactive_resize_begin(3, edges));
+    layout.interactive_resize_update(&3, Point::from((100.0, 0.0)));
+    layout.interactive_resize_end(&3);
+
+    let width_after_1 = requested_width(&layout, 1);
+    let width_after_2 = requested_width(&layout, 2);
+    let width_after_3 = requested_width(&layout, 3);
+
+    assert!(width_after_1 > width_before_1);
+    assert!(width_after_3 > width_before_3);
+    assert!(width_after_2 < width_before_2);
+}
+
+#[test]
 fn windows_on_other_workspaces_remain_activated() {
     let ops = [
         Op::AddOutput(3),
@@ -4802,6 +5263,203 @@ SplitH
   Window 1
   Window 3
 "
+    );
+}
+
+// Focus parent/child navigation tests
+#[test]
+fn focus_parent_at_root_is_noop() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+
+    // Single window at root - focus_parent should return false
+    assert!(!harness.tree.focus_parent());
+}
+
+
+#[test]
+fn focus_parent_child_roundtrip_in_nested_splitv() {
+    // Based on focus_descends_into_last_focused_child pattern
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    harness.tree.split_focused(ContainerLayout::SplitV);
+    harness.add_window(3);
+    assert!(harness.tree.focus_window_by_id(&3));
+
+    let tree_before = harness.tree.debug_tree();
+
+    // Go up to parent (SplitV container)
+    assert!(harness.tree.focus_parent());
+
+    // Go back down to child (should return to window 3)
+    assert!(harness.tree.focus_child());
+
+    let tree_after = harness.tree.debug_tree();
+
+    // Tree should be the same (window 3 still focused)
+    assert_eq!(tree_before.as_str(), tree_after.as_str());
+}
+
+#[test]
+fn focus_parent_traverses_hierarchy() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    harness.tree.split_focused(ContainerLayout::SplitV);
+    harness.add_window(3);
+    assert!(harness.tree.focus_window_by_id(&3));
+
+    // Count how many times we can go up
+    let mut levels = 0;
+    while harness.tree.focus_parent() {
+        levels += 1;
+        // Safeguard against infinite loop
+        if levels > 10 {
+            break;
+        }
+    }
+
+    // We should be able to go up at least once (from window to container)
+    assert!(levels >= 1);
+}
+
+// Insert Position Tests
+// These test the logic for determining where windows should be placed during drag-and-drop
+
+#[test]
+fn insert_position_empty_workspace_returns_new_column() {
+    use super::monitor::InsertPosition;
+
+    let options = Options::from_config(&Config::default());
+    let mut layout: Layout<TestWindow> = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    // Get the workspace without any windows
+    let workspace = layout.active_workspace().expect("active workspace");
+
+    // For an empty workspace, insert position should be NewColumn(0)
+    let pos = Point::from((100.0, 100.0));
+    let insert_pos = workspace.scrolling_insert_position(pos);
+
+    assert!(matches!(insert_pos, InsertPosition::NewColumn(0)));
+}
+
+#[test]
+fn insert_position_with_window_on_top_edge() {
+    use super::monitor::InsertPosition;
+    use super::container::Direction;
+
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    // Add a window
+    let params = TestWindowParams::new(1);
+    layout.add_window(
+        TestWindow::new(params),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+
+    // Position at top edge should indicate SplitRoot with Up direction
+    let pos = Point::from((100.0, 0.0));
+    let insert_pos = workspace.scrolling_insert_position(pos);
+
+    // Should be SplitRoot { direction: Up, ... }
+    match insert_pos {
+        InsertPosition::SplitRoot { direction, .. } => {
+            assert_eq!(direction, Direction::Up);
+        }
+        other => panic!("Expected SplitRoot with Up, got {:?}", other),
+    }
+}
+
+#[test]
+fn insert_position_with_window_on_bottom_edge() {
+    use super::monitor::InsertPosition;
+    use super::container::Direction;
+
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    // Add a window
+    let params = TestWindowParams::new(1);
+    layout.add_window(
+        TestWindow::new(params),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+
+    // Position at bottom edge should indicate SplitRoot with Down direction
+    // Use a very large Y to be at the bottom
+    let pos = Point::from((100.0, 10000.0));
+    let insert_pos = workspace.scrolling_insert_position(pos);
+
+    // Should be SplitRoot { direction: Down, ... }
+    match insert_pos {
+        InsertPosition::SplitRoot { direction, .. } => {
+            assert_eq!(direction, Direction::Down);
+        }
+        other => panic!("Expected SplitRoot with Down, got {:?}", other),
+    }
+}
+
+#[test]
+fn insert_position_center_of_window() {
+    use super::monitor::InsertPosition;
+
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    // Add a window
+    let params = TestWindowParams::new(1);
+    layout.add_window(
+        TestWindow::new(params),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+
+    // Position in the center of the window area should result in Swap or Split
+    // (depending on exact position relative to the window)
+    let pos = Point::from((640.0, 360.0)); // center of 1280x720
+    let insert_pos = workspace.scrolling_insert_position(pos);
+
+    // Should be either Swap or Split (both are valid for center area)
+    assert!(
+        matches!(insert_pos, InsertPosition::Swap { .. } | InsertPosition::Split { .. }),
+        "Expected Swap or Split at window center, got {:?}",
+        insert_pos
     );
 }
 

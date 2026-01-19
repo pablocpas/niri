@@ -38,8 +38,6 @@ use smithay::utils::{Logical, Point, Rectangle, Transform, SERIAL_COUNTER};
 use smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitor;
 use smithay::wayland::pointer_constraints::{with_pointer_constraint, PointerConstraint};
 use smithay::wayland::tablet_manager::{TabletDescriptor, TabletSeatTrait};
-#[allow(unused_imports)]
-use touch_move_grab::TouchMoveGrab;
 use touch_overview_grab::TouchOverviewGrab;
 
 use self::move_grab::MoveGrab;
@@ -65,7 +63,6 @@ pub mod resize_grab;
 // REMOVED for i3-conversion: pub mod scroll_tracker;
 pub mod spatial_movement_grab;
 pub mod swipe_tracker;
-pub mod touch_move_grab;
 pub mod touch_overview_grab;
 pub mod touch_resize_grab;
 
@@ -748,7 +745,7 @@ impl State {
                 self.open_screenshot_ui(show_cursor, path);
                 self.niri.cancel_mru();
             }
-            Action::ScreenshotWindow(write_to_disk, path) => {
+            Action::ScreenshotWindow(write_to_disk, show_pointer, path) => {
                 let focus = self.niri.layout.focus_with_output();
                 if let Some((mapped, output)) = focus {
                     self.backend.with_primary_renderer(|renderer| {
@@ -757,6 +754,7 @@ impl State {
                             output,
                             mapped,
                             write_to_disk,
+                            show_pointer,
                             path,
                         ) {
                             warn!("error taking screenshot: {err:?}");
@@ -767,6 +765,7 @@ impl State {
             Action::ScreenshotWindowById {
                 id,
                 write_to_disk,
+                show_pointer,
                 path,
             } => {
                 let mut windows = self.niri.layout.windows();
@@ -779,6 +778,7 @@ impl State {
                             output,
                             mapped,
                             write_to_disk,
+                            show_pointer,
                             path,
                         ) {
                             warn!("error taking screenshot: {err:?}");
@@ -2930,6 +2930,25 @@ impl State {
             self.niri.tablet_cursor_location = None;
 
             let is_overview_open = self.niri.layout.is_overview_open();
+            let resize_edges = if button == Some(MouseButton::Right) && !pointer.is_grabbed() {
+                let mod_down = modifiers_from_state(mods).contains(mod_key.to_modifiers());
+                if mod_down {
+                    let location = pointer.current_location();
+                    let (output, pos_within_output) =
+                        self.niri.output_under(location).unwrap();
+                    let output = output.clone();
+                    Some(
+                        self.niri
+                            .layout
+                            .resize_edges_under(&output, pos_within_output)
+                            .unwrap_or(ResizeEdge::empty()),
+                    )
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
             // TODO i3-conversion: Re-implement for i3-style layout
             /*
@@ -3046,17 +3065,9 @@ impl State {
                 }
                 // Check if we need to start an interactive resize.
                 else if button == Some(MouseButton::Right) && !pointer.is_grabbed() {
-                    let mod_down = modifiers_from_state(mods).contains(mod_key.to_modifiers());
-                    if mod_down {
-                        let location = pointer.current_location();
-                        let (output, pos_within_output) = self.niri.output_under(location).unwrap();
-                        let edges = self
-                            .niri
-                            .layout
-                            .resize_edges_under(output, pos_within_output)
-                            .unwrap_or(ResizeEdge::empty());
-
+                    if let Some(edges) = resize_edges {
                         if !edges.is_empty() {
+                            let location = pointer.current_location();
                             // See if we got a double resize-click gesture.
                             // FIXME: deduplicate with resize_request in xdg-shell somehow.
                             let time = get_monotonic_time();
@@ -3225,6 +3236,8 @@ impl State {
         } else {
             false
         };
+
+        let _is_mru_open = self.niri.window_mru_ui.is_open();
 
         // Handle wheel scroll bindings.
         if source == AxisSource::Wheel {
