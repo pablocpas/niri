@@ -23,8 +23,8 @@ use super::shadow::Shadow;
 use super::tile::{Tile, TileRenderSnapshot};
 use super::tiling::{Column, ColumnWidth, ScrollDirection, TilingSpace, TilingSpaceRenderElement};
 use super::{
-    ActivateWindow, HitType, InsertPosition, InteractiveResizeData, LayoutElement, Options,
-    RemovedTile, SizeFrac,
+    resize_edges_for_point, ActivateWindow, HitType, InsertPosition, InteractiveResizeData,
+    LayoutElement, Options, RemovedTile, SizeFrac,
 };
 use crate::animation::Clock;
 use crate::niri_render_elements;
@@ -1974,36 +1974,29 @@ impl<W: LayoutElement> Workspace<W> {
         self.scrolling.window_under(pos)
     }
 
-    pub fn resize_edges_under(&self, pos: Point<f64, Logical>) -> Option<ResizeEdge> {
-        self.tiles_with_render_positions()
-            .find_map(|(tile, tile_pos, visible)| {
-                // This logic should be consistent with window_under() in when it returns Some vs.
-                // None.
-                if !visible {
-                    return None;
-                }
-
-                let pos_within_tile = pos - tile_pos;
-
-                if tile.hit(pos_within_tile).is_some() {
-                    let size = tile.tile_size().to_f64();
-
-                    let mut edges = ResizeEdge::empty();
-                    if pos_within_tile.x < size.w / 3. {
-                        edges |= ResizeEdge::LEFT;
-                    } else if 2. * size.w / 3. < pos_within_tile.x {
-                        edges |= ResizeEdge::RIGHT;
+    pub fn resize_edges_under(&mut self, pos: Point<f64, Logical>) -> Option<ResizeEdge> {
+        if self.is_floating_visible() {
+            if let Some(edges) = self
+                .floating
+                .tiles_with_render_positions()
+                .find_map(|(tile, tile_pos)| {
+                    let pos_within_tile = pos - tile_pos;
+                    if tile.hit(pos_within_tile).is_some() {
+                        let size = tile.tile_size();
+                        return Some(resize_edges_for_point(
+                            pos_within_tile,
+                            size,
+                            tile.effective_border_width(),
+                        ));
                     }
-                    if pos_within_tile.y < size.h / 3. {
-                        edges |= ResizeEdge::TOP;
-                    } else if 2. * size.h / 3. < pos_within_tile.y {
-                        edges |= ResizeEdge::BOTTOM;
-                    }
-                    return Some(edges);
-                }
+                    None
+                })
+            {
+                return Some(edges);
+            }
+        }
 
-                None
-            })
+        self.scrolling.resize_edges_under(pos)
     }
 
     pub fn descendants_added(&mut self, id: &W::Id) -> bool {

@@ -2930,6 +2930,25 @@ impl State {
             self.niri.tablet_cursor_location = None;
 
             let is_overview_open = self.niri.layout.is_overview_open();
+            let resize_edges = if button == Some(MouseButton::Right) && !pointer.is_grabbed() {
+                let mod_down = modifiers_from_state(mods).contains(mod_key.to_modifiers());
+                if mod_down {
+                    let location = pointer.current_location();
+                    let (output, pos_within_output) =
+                        self.niri.output_under(location).unwrap();
+                    let output = output.clone();
+                    Some(
+                        self.niri
+                            .layout
+                            .resize_edges_under(&output, pos_within_output)
+                            .unwrap_or(ResizeEdge::empty()),
+                    )
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
             // TODO i3-conversion: Re-implement for i3-style layout
             /*
@@ -3046,17 +3065,9 @@ impl State {
                 }
                 // Check if we need to start an interactive resize.
                 else if button == Some(MouseButton::Right) && !pointer.is_grabbed() {
-                    let mod_down = modifiers_from_state(mods).contains(mod_key.to_modifiers());
-                    if mod_down {
-                        let location = pointer.current_location();
-                        let (output, pos_within_output) = self.niri.output_under(location).unwrap();
-                        let edges = self
-                            .niri
-                            .layout
-                            .resize_edges_under(output, pos_within_output)
-                            .unwrap_or(ResizeEdge::empty());
-
+                    if let Some(edges) = resize_edges {
                         if !edges.is_empty() {
+                            let location = pointer.current_location();
                             // See if we got a double resize-click gesture.
                             // FIXME: deduplicate with resize_request in xdg-shell somehow.
                             let time = get_monotonic_time();

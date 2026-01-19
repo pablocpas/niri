@@ -1729,6 +1729,27 @@ fn marks_for(layout: &Layout<TestWindow>, id: usize) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn requested_width(layout: &Layout<TestWindow>, id: usize) -> i32 {
+    layout
+        .windows()
+        .find(|(_, win)| *win.id() == id)
+        .and_then(|(_, win)| win.requested_size())
+        .map(|size| size.w)
+        .expect("expected requested size")
+}
+
+fn tile_rect(layout: &Layout<TestWindow>, id: usize) -> Rectangle<f64, Logical> {
+    for (_, _, ws) in layout.workspaces() {
+        for (tile, pos, _visible) in ws.tiles_with_render_positions() {
+            if *tile.window().id() == id {
+                return Rectangle::new(pos, tile.tile_size());
+            }
+        }
+    }
+
+    panic!("tile not found for window {id}");
+}
+
 #[test]
 fn auto_insertion_respects_split_containers() {
     let options = Options::from_config(&Config::default());
@@ -3732,6 +3753,70 @@ fn interactive_resize_to_negative() {
         },
     ];
     check_ops(ops);
+}
+
+#[test]
+fn interactive_resize_nested_split_targets_parent() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output0");
+    layout.add_output(output.clone(), None);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    layout.activate_window(&1);
+    layout.split_vertical();
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(3)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+    layout.set_layout_mode(ContainerLayout::SplitH);
+
+    let width_before_1 = requested_width(&layout, 1);
+    let width_before_2 = requested_width(&layout, 2);
+    let width_before_3 = requested_width(&layout, 3);
+
+    let rect = tile_rect(&layout, 3);
+    let pos = rect.loc + Point::from((rect.size.w - 1.0, rect.size.h / 2.0));
+    let edges = layout
+        .resize_edges_under(&output, pos)
+        .expect("expected resize edge");
+    assert!(edges.contains(ResizeEdge::RIGHT));
+
+    assert!(layout.interactive_resize_begin(3, edges));
+    layout.interactive_resize_update(&3, Point::from((100.0, 0.0)));
+    layout.interactive_resize_end(&3);
+
+    let width_after_1 = requested_width(&layout, 1);
+    let width_after_2 = requested_width(&layout, 2);
+    let width_after_3 = requested_width(&layout, 3);
+
+    assert!(width_after_1 > width_before_1);
+    assert!(width_after_3 > width_before_3);
+    assert!(width_after_2 < width_before_2);
 }
 
 #[test]

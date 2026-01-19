@@ -27,7 +27,10 @@ use super::container::{
 };
 use super::monitor::{InsertPosition, SplitIndicator};
 use super::tile::{Tile, TileRenderElement};
-use super::{ConfigureIntent, LayoutElement, Options, RemovedTile};
+use super::{
+    resize_edges_for_point, ConfigureIntent, InteractiveResizeData, LayoutElement, Options,
+    RemovedTile,
+};
 use crate::animation::{Animation, Clock};
 use crate::niri_render_elements;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
@@ -58,6 +61,10 @@ pub struct TilingSpace<W: LayoutElement> {
     scale: f64,
     /// Animation clock
     clock: Clock,
+    /// Ongoing interactive resize.
+    interactive_resize: Option<InteractiveResizeState<W>>,
+    /// Resize target picked by the last resize_edges_under() query.
+    pending_resize_target: Option<PendingResizeTarget<W>>,
     /// Layout options
     options: Rc<Options>,
     /// Cached tab bar textures keyed by container path.
@@ -95,6 +102,43 @@ struct TabBarCacheEntry {
     state: TabBarState,
     buffer: TextureBuffer<GlesTexture>,
     tab_widths_px: Vec<i32>,
+}
+
+#[derive(Debug, Clone)]
+struct ResizeTarget {
+    parent_path: Vec<usize>,
+    child_idx: usize,
+    neighbor_idx: usize,
+    original_span: f64,
+}
+
+#[derive(Debug, Clone)]
+struct PendingResizeTarget<W: LayoutElement> {
+    window: W::Id,
+    horizontal: Option<ResizeTarget>,
+    vertical: Option<ResizeTarget>,
+}
+
+#[derive(Debug, Clone)]
+struct InteractiveResizeState<W: LayoutElement> {
+    window: W::Id,
+    data: InteractiveResizeData,
+    horizontal: Option<ResizeTarget>,
+    vertical: Option<ResizeTarget>,
+}
+
+fn path_matches_resize_target(path: &[usize], target: &ResizeTarget) -> bool {
+    if !path.starts_with(&target.parent_path) {
+        return false;
+    }
+
+    let next_idx = target.parent_path.len();
+    if path.len() <= next_idx {
+        return false;
+    }
+
+    let child_idx = path[next_idx];
+    child_idx == target.child_idx || child_idx == target.neighbor_idx
 }
 
 fn tab_bar_state_from_info(
@@ -469,6 +513,174 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         Some((parent_path, child_idx, available, child_count, rect))
     }
+
+    fn container_available_span(
+        &self,
+        parent_path: &[usize],
+        layout: Layout,
+    ) -> Option<(f64, usize)> {
+        let (container_layout, rect, child_count) = self.tree.container_info(parent_path)?;
+        if container_layout != layout || child_count == 0 {
+            return None;
+        }
+
+        let available = match layout {
+            Layout::SplitH => self.available_span(rect.size.w, child_count),
+            Layout::SplitV => self.available_span(rect.size.h, child_count),
+            Layout::Tabbed | Layout::Stacked => return None,
+        };
+
+        if available <= 0.0 {
+            return None;
+        }
+
+        Some((available, child_count))
+    }
+
+    fn resize_target_for_edge(
+        &self,
+        path: &[usize],
+        pos: Point<f64, Logical>,
+        edge: ResizeEdge,
+        layout: Layout,
+    ) -> Option<ResizeTarget> {
+        let mut best: Option<(ResizeTarget, f64)> = None;
+        let mut current_path = path.to_vec();
+
+        while !current_path.is_empty() {
+            let child_idx = *current_path.last().unwrap();
+            let parent_path = &current_path[..current_path.len() - 1];
+
+            let Some((container_layout, _rect, child_count)) =
+                self.tree.container_info(parent_path)
+            else {
+                current_path.pop();
+                continue;
+            };
+
+            if container_layout == layout && child_count > 1 {
+                let neighbor_idx = if edge == ResizeEdge::LEFT || edge == ResizeEdge::TOP {
+                    child_idx.checked_sub(1)
+                } else if edge == ResizeEdge::RIGHT || edge == ResizeEdge::BOTTOM {
+                    (child_idx + 1 < child_count).then_some(child_idx + 1)
+                } else {
+                    None
+                };
+
+                if let Some(neighbor_idx) = neighbor_idx {
+                    if let Some(child_rect) = self.tree.child_rect_at(parent_path, child_idx) {
+                        let boundary = if edge == ResizeEdge::LEFT {
+                            child_rect.loc.x
+                        } else if edge == ResizeEdge::RIGHT {
+                            child_rect.loc.x + child_rect.size.w
+                        } else if edge == ResizeEdge::TOP {
+                            child_rect.loc.y
+                        } else if edge == ResizeEdge::BOTTOM {
+                            child_rect.loc.y + child_rect.size.h
+                        } else {
+                            0.0
+                        };
+
+                        let dist = if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT {
+                            (pos.x - boundary).abs()
+                        } else if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
+                            (pos.y - boundary).abs()
+                        } else {
+                            f64::MAX
+                        };
+
+                        let target = ResizeTarget {
+                            parent_path: parent_path.to_vec(),
+                            child_idx,
+                            neighbor_idx,
+                            original_span: if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT {
+                                child_rect.size.w
+                            } else if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
+                                child_rect.size.h
+                            } else {
+                                0.0
+                            },
+                        };
+
+                        let should_update = match &best {
+                            None => true,
+                            Some((_, best_dist)) => dist + f64::EPSILON < *best_dist,
+                        };
+                        if should_update {
+                            best = Some((target, dist));
+                        }
+                    }
+                }
+            }
+
+            current_path.pop();
+        }
+
+        best.map(|(target, _)| target)
+    }
+
+    fn fallback_resize_target(
+        &self,
+        path: &[usize],
+        edge: ResizeEdge,
+        layout: Layout,
+    ) -> Option<ResizeTarget> {
+        let mut current_path = path.to_vec();
+
+        while !current_path.is_empty() {
+            let child_idx = *current_path.last().unwrap();
+            let parent_path = &current_path[..current_path.len() - 1];
+
+            let Some((container_layout, _rect, child_count)) =
+                self.tree.container_info(parent_path)
+            else {
+                current_path.pop();
+                continue;
+            };
+
+            if container_layout == layout && child_count > 1 {
+                let neighbor_idx = if edge == ResizeEdge::LEFT || edge == ResizeEdge::TOP {
+                    child_idx.checked_sub(1)
+                } else if edge == ResizeEdge::RIGHT || edge == ResizeEdge::BOTTOM {
+                    (child_idx + 1 < child_count).then_some(child_idx + 1)
+                } else {
+                    None
+                };
+
+                if let Some(neighbor_idx) = neighbor_idx {
+                    if let Some(child_rect) = self.tree.child_rect_at(parent_path, child_idx) {
+                        return Some(ResizeTarget {
+                            parent_path: parent_path.to_vec(),
+                            child_idx,
+                            neighbor_idx,
+                            original_span: if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT {
+                                child_rect.size.w
+                            } else if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
+                                child_rect.size.h
+                            } else {
+                                0.0
+                            },
+                        });
+                    }
+                }
+            }
+
+            current_path.pop();
+        }
+
+        None
+    }
+
+    fn resize_affects_path(path: &[usize], resize: &InteractiveResizeState<W>) -> bool {
+        resize
+            .horizontal
+            .as_ref()
+            .is_some_and(|target| path_matches_resize_target(path, target))
+            || resize
+                .vertical
+                .as_ref()
+                .is_some_and(|target| path_matches_resize_target(path, target))
+    }
     pub fn new(
         view_size: Size<f64, Logical>,
         working_area: Rectangle<f64, Logical>,
@@ -484,6 +696,8 @@ impl<W: LayoutElement> TilingSpace<W> {
             working_area,
             scale,
             clock,
+            interactive_resize: None,
+            pending_resize_target: None,
             options,
             tab_bar_cache: RefCell::new(HashMap::new()),
             tab_bar_cache_alt: RefCell::new(HashMap::new()),
@@ -820,12 +1034,18 @@ impl<W: LayoutElement> TilingSpace<W> {
         for info in state_layouts {
             // Use O(1) key lookup instead of O(depth) path lookup.
             if let Some(tile) = self.tree.get_tile_mut(info.key) {
+                let resize = self.interactive_resize.as_ref().and_then(|resize| {
+                    let matches = &resize.window == tile.window().id()
+                        || Self::resize_affects_path(&info.path, resize);
+                    matches.then_some(resize.data)
+                });
                 Self::update_window_state(
                     tile,
                     &info,
                     &focus_path,
                     is_active,
                     self.options.deactivate_unfocused_windows,
+                    resize,
                     !has_pending,
                     self.working_area.size,
                     &self.options,
@@ -859,26 +1079,262 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
-    // Interactive resize - not implemented for i3-style tiling
-    // In i3, window sizing is done via keyboard commands, not interactive mouse resize
-    pub fn interactive_resize_begin(&mut self, _window: W::Id, _edges: ResizeEdge) -> bool {
-        false
+    pub fn interactive_resize_begin(&mut self, window: W::Id, edges: ResizeEdge) -> bool {
+        if self.interactive_resize.is_some() {
+            return false;
+        }
+
+        let pending = self
+            .pending_resize_target
+            .take()
+            .filter(|pending| pending.window == window);
+
+        let mut edges = edges;
+        let Some(path) = self.tree.find_window(&window) else {
+            return false;
+        };
+        let Some(tile) = self.tree.tile_at_path(&path) else {
+            return false;
+        };
+
+        if !tile.window().pending_sizing_mode().is_normal() {
+            return false;
+        }
+
+        let mut horizontal = None;
+        let mut vertical = None;
+
+        if edges.intersects(ResizeEdge::LEFT_RIGHT) {
+            let edge = if edges.contains(ResizeEdge::LEFT) {
+                ResizeEdge::LEFT
+            } else {
+                ResizeEdge::RIGHT
+            };
+            horizontal = pending
+                .as_ref()
+                .and_then(|pending| pending.horizontal.clone())
+                .or_else(|| self.fallback_resize_target(&path, edge, Layout::SplitH));
+            if horizontal.is_none() {
+                edges.remove(ResizeEdge::LEFT_RIGHT);
+            }
+        }
+
+        if edges.intersects(ResizeEdge::TOP_BOTTOM) {
+            let edge = if edges.contains(ResizeEdge::TOP) {
+                ResizeEdge::TOP
+            } else {
+                ResizeEdge::BOTTOM
+            };
+            vertical = pending
+                .as_ref()
+                .and_then(|pending| pending.vertical.clone())
+                .or_else(|| self.fallback_resize_target(&path, edge, Layout::SplitV));
+            if vertical.is_none() {
+                edges.remove(ResizeEdge::TOP_BOTTOM);
+            }
+        }
+
+        if edges.is_empty() {
+            return false;
+        }
+
+        self.interactive_resize = Some(InteractiveResizeState {
+            window,
+            data: InteractiveResizeData { edges },
+            horizontal,
+            vertical,
+        });
+        true
     }
 
     pub fn interactive_resize_update(
         &mut self,
-        _window: &W::Id,
-        _delta: Point<f64, Logical>,
+        window: &W::Id,
+        delta: Point<f64, Logical>,
     ) -> bool {
-        false
+        let Some(resize) = &self.interactive_resize else {
+            return false;
+        };
+
+        if window != &resize.window {
+            return false;
+        }
+
+        let mut changed = false;
+
+        if resize.data.edges.intersects(ResizeEdge::LEFT_RIGHT) {
+            if let Some(target) = resize.horizontal.as_ref() {
+                if let Some((available, _child_count)) =
+                    self.container_available_span(&target.parent_path, Layout::SplitH)
+                {
+                    let mut dx = delta.x;
+                    if resize.data.edges.contains(ResizeEdge::LEFT) {
+                        dx = -dx;
+                    }
+
+                    let base = target.original_span.max(1.0);
+                    let window_width = (base + dx).round() as i32;
+                    let current_percent = self
+                        .tree
+                        .child_percent_at(target.parent_path.as_slice(), target.child_idx)
+                        .unwrap_or(1.0);
+                    let percent = Self::percent_from_size_change(
+                        current_percent,
+                        available,
+                        SizeChange::SetFixed(window_width),
+                    );
+
+                    if self.tree.set_child_percent_pair_at(
+                        target.parent_path.as_slice(),
+                        target.child_idx,
+                        target.neighbor_idx,
+                        Layout::SplitH,
+                        percent,
+                    ) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        if resize.data.edges.intersects(ResizeEdge::TOP_BOTTOM) {
+            if let Some(target) = resize.vertical.as_ref() {
+                if let Some((available, _child_count)) =
+                    self.container_available_span(&target.parent_path, Layout::SplitV)
+                {
+                    let mut dy = delta.y;
+                    if resize.data.edges.contains(ResizeEdge::TOP) {
+                        dy = -dy;
+                    }
+
+                    let base = target.original_span.max(1.0);
+                    let window_height = (base + dy).round() as i32;
+                    let current_percent = self
+                        .tree
+                        .child_percent_at(target.parent_path.as_slice(), target.child_idx)
+                        .unwrap_or(1.0);
+                    let percent = Self::percent_from_size_change(
+                        current_percent,
+                        available,
+                        SizeChange::SetFixed(window_height),
+                    );
+
+                    if self.tree.set_child_percent_pair_at(
+                        target.parent_path.as_slice(),
+                        target.child_idx,
+                        target.neighbor_idx,
+                        Layout::SplitV,
+                        percent,
+                    ) {
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        if changed {
+            self.tree.layout();
+        }
+
+        true
     }
 
-    pub fn interactive_resize_end(&mut self, _window: Option<&W::Id>) {}
+    pub fn interactive_resize_end(&mut self, window: Option<&W::Id>) {
+        let Some(resize) = &self.interactive_resize else {
+            return;
+        };
 
-    pub fn cancel_resize_for_window(&mut self, _window: &W) {}
+        if let Some(window) = window {
+            if window != &resize.window {
+                return;
+            }
+        }
 
-    pub fn resize_edges_under(&self, _pos: Point<f64, Logical>) -> Option<ResizeEdge> {
-        None
+        self.interactive_resize = None;
+    }
+
+    pub fn cancel_resize_for_window(&mut self, window: &W) {
+        if self
+            .interactive_resize
+            .as_ref()
+            .is_some_and(|resize| &resize.window == window.id())
+        {
+            self.interactive_resize = None;
+        }
+        if self
+            .pending_resize_target
+            .as_ref()
+            .is_some_and(|pending| &pending.window == window.id())
+        {
+            self.pending_resize_target = None;
+        }
+    }
+
+    pub fn resize_edges_under(&mut self, pos: Point<f64, Logical>) -> Option<ResizeEdge> {
+        let result = self
+            .tiles_with_render_positions()
+            .find_map(|(tile, tile_pos, visible)| {
+                if !visible {
+                    return None;
+                }
+
+                let pos_within_tile = pos - tile_pos;
+                if tile.hit(pos_within_tile).is_some() {
+                    let size = tile.tile_size();
+                    let edges = resize_edges_for_point(
+                        pos_within_tile,
+                        size,
+                        tile.effective_border_width(),
+                    );
+                    let pending = if edges.is_empty() {
+                        None
+                    } else {
+                        let window_id = tile.window().id().clone();
+                        let path = self.tree.find_window(&window_id)?;
+                        let horizontal = if edges.intersects(ResizeEdge::LEFT_RIGHT) {
+                            let edge = if edges.contains(ResizeEdge::LEFT) {
+                                ResizeEdge::LEFT
+                            } else {
+                                ResizeEdge::RIGHT
+                            };
+                            self.resize_target_for_edge(&path, pos, edge, Layout::SplitH)
+                        } else {
+                            None
+                        };
+                        let vertical = if edges.intersects(ResizeEdge::TOP_BOTTOM) {
+                            let edge = if edges.contains(ResizeEdge::TOP) {
+                                ResizeEdge::TOP
+                            } else {
+                                ResizeEdge::BOTTOM
+                            };
+                            self.resize_target_for_edge(&path, pos, edge, Layout::SplitV)
+                        } else {
+                            None
+                        };
+
+                        Some(PendingResizeTarget {
+                            window: window_id,
+                            horizontal,
+                            vertical,
+                        })
+                    };
+
+                    return Some((edges, pending));
+                }
+
+                None
+            });
+
+        match result {
+            Some((edges, pending)) => {
+                self.pending_resize_target = pending;
+                Some(edges)
+            }
+            None => {
+                self.pending_resize_target = None;
+                None
+            }
+        }
     }
 
     // Focus operations using ContainerTree
@@ -2392,12 +2848,18 @@ impl<W: LayoutElement> TilingSpace<W> {
             if let Some(tile) = self.tree.get_tile_mut(info.key) {
                 let deactivate_unfocused = self.options.deactivate_unfocused_windows && !is_focused;
 
+                let resize = self.interactive_resize.as_ref().and_then(|resize| {
+                    let matches = &resize.window == tile.window().id()
+                        || Self::resize_affects_path(&info.path, resize);
+                    matches.then_some(resize.data)
+                });
                 Self::update_window_state(
                     tile,
                     &info,
                     &focus_path,
                     is_active,
                     deactivate_unfocused,
+                    resize,
                     !has_pending,
                     self.working_area.size,
                     &self.options,
@@ -2470,6 +2932,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         focus_path: &[usize],
         workspace_active: bool,
         deactivate_unfocused: bool,
+        interactive_resize: Option<InteractiveResizeData>,
         request_size: bool,
         working_area_size: Size<f64, Logical>,
         options: &Options,
@@ -2504,7 +2967,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         window.set_active_in_column(active_in_column);
         window.set_floating(false);
         window.set_activated(active);
-        window.set_interactive_resize(None);
+        window.set_interactive_resize(interactive_resize);
 
         let border_config = options.layout.border.merged_with(&window.rules().border);
 

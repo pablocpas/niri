@@ -472,6 +472,41 @@ impl ContainerData {
         self.normalize_child_percents();
     }
 
+    pub fn set_child_percent_pair(&mut self, idx: usize, neighbor_idx: usize, percent: f64) -> bool {
+        if self.child_percents.len() != self.children.len() {
+            self.recalculate_percentages();
+        }
+
+        let len = self.child_percents.len();
+        if len < 2 || idx >= len || neighbor_idx >= len || idx == neighbor_idx {
+            return false;
+        }
+
+        let total = self.child_percents[idx] + self.child_percents[neighbor_idx];
+        if total <= f64::EPSILON {
+            return false;
+        }
+
+        let min = MIN_CHILD_PERCENT;
+        if total < min * 2.0 {
+            return false;
+        }
+
+        let max_target = total - min;
+        let new_percent = percent.clamp(min, max_target);
+        let neighbor_percent = total - new_percent;
+
+        if (self.child_percents[idx] - new_percent).abs() <= f64::EPSILON
+            && (self.child_percents[neighbor_idx] - neighbor_percent).abs() <= f64::EPSILON
+        {
+            return false;
+        }
+
+        self.child_percents[idx] = new_percent;
+        self.child_percents[neighbor_idx] = neighbor_percent;
+        true
+    }
+
     /// Check if container is empty
     pub fn is_empty(&self) -> bool {
         self.children.is_empty()
@@ -3098,6 +3133,39 @@ impl<W: LayoutElement> ContainerTree<W> {
         ))
     }
 
+    pub fn child_rect_at(
+        &self,
+        parent_path: &[usize],
+        child_idx: usize,
+    ) -> Option<Rectangle<f64, Logical>> {
+        let container_key = if parent_path.is_empty() {
+            self.root?
+        } else {
+            self.get_node_key_at_path(parent_path)?
+        };
+
+        let container = self.get_container(container_key)?;
+        if child_idx >= container.child_count() {
+            return None;
+        }
+
+        let child_key = container.child_key(child_idx)?;
+        let child_is_leaf = matches!(self.get_node(child_key), Some(NodeData::Leaf(_)));
+        let child_count = container.child_count();
+        let percents_sum: f64 = container.child_percents_slice().iter().copied().sum();
+        let percents = self.get_normalized_child_percents(container_key, child_count, percents_sum);
+        let (rect, _) = self.preview_child_rect(
+            container.layout(),
+            container.geometry(),
+            child_count,
+            &percents,
+            child_idx,
+            child_is_leaf,
+        );
+
+        Some(rect)
+    }
+
     pub fn find_parent_with_layout(
         &self,
         mut path: Vec<usize>,
@@ -3165,6 +3233,39 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
             container.set_child_percent(child_idx, percent);
             true
+        } else {
+            false
+        }
+    }
+
+    pub fn set_child_percent_pair_at(
+        &mut self,
+        parent_path: &[usize],
+        child_idx: usize,
+        neighbor_idx: usize,
+        layout: Layout,
+        percent: f64,
+    ) -> bool {
+        let container_key = if parent_path.is_empty() {
+            match self.root {
+                Some(key) => key,
+                None => return false,
+            }
+        } else {
+            match self.get_node_key_at_path(parent_path) {
+                Some(key) => key,
+                None => return false,
+            }
+        };
+
+        if let Some(container) = self.get_container_mut(container_key) {
+            if container.layout() != layout
+                || child_idx >= container.child_count()
+                || neighbor_idx >= container.child_count()
+            {
+                return false;
+            }
+            container.set_child_percent_pair(child_idx, neighbor_idx, percent)
         } else {
             false
         }
