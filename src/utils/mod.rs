@@ -73,10 +73,8 @@ impl From<xdg_toplevel::ResizeEdge> for ResizeEdge {
 impl ResizeEdge {
     pub fn cursor_icon(self) -> CursorIcon {
         match self {
-            Self::LEFT => CursorIcon::WResize,
-            Self::RIGHT => CursorIcon::EResize,
-            Self::TOP => CursorIcon::NResize,
-            Self::BOTTOM => CursorIcon::SResize,
+            Self::LEFT | Self::RIGHT | Self::LEFT_RIGHT => CursorIcon::EwResize,
+            Self::TOP | Self::BOTTOM | Self::TOP_BOTTOM => CursorIcon::NsResize,
             Self::TOP_LEFT => CursorIcon::NwResize,
             Self::TOP_RIGHT => CursorIcon::NeResize,
             Self::BOTTOM_RIGHT => CursorIcon::SeResize,

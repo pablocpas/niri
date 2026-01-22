@@ -46,6 +46,7 @@ use self::spatial_movement_grab::SpatialMovementGrab;
 #[cfg(feature = "dbus")]
 use crate::dbus::freedesktop_a11y::KbMonBlock;
 use crate::layout::tiling::ScrollDirection;
+use crate::cursor::CursorOverride;
 use crate::layout::{ActivateWindow, ContainerLayout, LayoutElement as _};
 use crate::niri::{CastTarget, PointerVisibility, State};
 use crate::ui::mru::{WindowMru, WindowMruUi};
@@ -74,6 +75,12 @@ const RESIZE_STEP: i32 = 40;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TabletData {
     pub aspect_ratio: f64,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ResizeAxis {
+    Horizontal,
+    Vertical,
 }
 
 pub enum PointerOrTouchStartData<D: SeatHandler> {
@@ -511,8 +518,12 @@ impl State {
 
                 let res = {
                     let config = this.niri.config.borrow();
-                    let bindings =
-                        make_binds_iter(&config, &mut this.niri.window_mru_ui, modifiers);
+                    let bindings = make_binds_iter(
+                        &config,
+                        &mut this.niri.window_mru_ui,
+                        modifiers,
+                        this.niri.binding_mode.as_str(),
+                    );
 
                     should_intercept_key(
                         &mut this.niri.suppressed_keys,
@@ -734,7 +745,7 @@ impl State {
                 self.niri.screenshot_ui.close();
                 self.niri
                     .cursor_manager
-                    .set_cursor_image(CursorImageStatus::default_named());
+                    .clear_override_cursor(CursorOverride::ScreenshotUi);
                 self.niri.queue_redraw_all();
             }
             Action::ScreenshotTogglePointer => {
@@ -2024,9 +2035,7 @@ impl State {
                         .set_width(SizeChange::AdjustFixed(RESIZE_STEP));
                     self.niri.queue_redraw_all();
                 } else {
-                    self.niri
-                        .layout
-                        .set_window_width(None, SizeChange::AdjustFixed(RESIZE_STEP));
+                    self.resize_focused_window_by_intent(ResizeAxis::Horizontal, true);
                 }
             }
             Action::ResizeShrinkWidth => {
@@ -2036,9 +2045,7 @@ impl State {
                         .set_width(SizeChange::AdjustFixed(-RESIZE_STEP));
                     self.niri.queue_redraw_all();
                 } else {
-                    self.niri
-                        .layout
-                        .set_window_width(None, SizeChange::AdjustFixed(-RESIZE_STEP));
+                    self.resize_focused_window_by_intent(ResizeAxis::Horizontal, false);
                 }
             }
             Action::ResizeGrowHeight => {
@@ -2048,9 +2055,7 @@ impl State {
                         .set_height(SizeChange::AdjustFixed(RESIZE_STEP));
                     self.niri.queue_redraw_all();
                 } else {
-                    self.niri
-                        .layout
-                        .set_window_height(None, SizeChange::AdjustFixed(RESIZE_STEP));
+                    self.resize_focused_window_by_intent(ResizeAxis::Vertical, true);
                 }
             }
             Action::ResizeShrinkHeight => {
@@ -2060,9 +2065,7 @@ impl State {
                         .set_height(SizeChange::AdjustFixed(-RESIZE_STEP));
                     self.niri.queue_redraw_all();
                 } else {
-                    self.niri
-                        .layout
-                        .set_window_height(None, SizeChange::AdjustFixed(-RESIZE_STEP));
+                    self.resize_focused_window_by_intent(ResizeAxis::Vertical, false);
                 }
             }
             Action::FocusParent => {
@@ -2148,6 +2151,11 @@ impl State {
             }
             Action::ExpandColumnToAvailableWidth => {
                 self.niri.layout.expand_column_to_available_width();
+            }
+            Action::Mode(mode) => {
+                let mod_key = self.backend.mod_key(&self.niri.config.borrow());
+                self.niri.set_binding_mode(mode, mod_key);
+                self.niri.queue_redraw_all();
             }
             Action::ShowHotkeyOverlay => {
                 if self.niri.hotkey_overlay.show() {
@@ -2757,6 +2765,8 @@ impl State {
             }
         }
 
+        self.update_resize_hover_cursor(new_pos);
+
         // Redraw to update the cursor position.
         // FIXME: redraw only outputs overlapping the cursor.
         self.niri.queue_redraw_all();
@@ -2855,9 +2865,101 @@ impl State {
             }
         }
 
+        self.update_resize_hover_cursor(pos);
+
         // Redraw to update the cursor position.
         // FIXME: redraw only outputs overlapping the cursor.
         self.niri.queue_redraw_all();
+    }
+
+    fn update_resize_hover_cursor(&mut self, pos: Point<f64, Logical>) {
+        let pointer = self.niri.seat.get_pointer().unwrap();
+        if pointer.is_grabbed() {
+            self.niri
+                .cursor_manager
+                .clear_override_cursor(CursorOverride::ResizeHover);
+            return;
+        }
+        if self.niri.screenshot_ui.is_open() || self.niri.pointer_contents.layer.is_some() {
+            self.niri
+                .cursor_manager
+                .clear_override_cursor(CursorOverride::ResizeHover);
+            return;
+        }
+
+        let (output, pos_within_output) = match self.niri.output_under(pos) {
+            Some((output, pos_within_output)) => (output.clone(), pos_within_output),
+            None => {
+                self.niri
+                    .cursor_manager
+                    .clear_override_cursor(CursorOverride::ResizeHover);
+                return;
+            }
+        };
+
+        let edges = self
+            .niri
+            .layout
+            .resize_edges_under(&output, pos_within_output)
+            .unwrap_or(ResizeEdge::empty());
+        if edges.is_empty() {
+            self.niri
+                .cursor_manager
+                .clear_override_cursor(CursorOverride::ResizeHover);
+            return;
+        }
+
+        self.niri.cursor_manager.set_override_cursor(
+            CursorOverride::ResizeHover,
+            CursorImageStatus::Named(edges.cursor_icon()),
+        );
+    }
+
+    fn resize_focused_window_by_intent(&mut self, axis: ResizeAxis, grow: bool) {
+        let Some(window_id) = self
+            .niri
+            .layout
+            .focus()
+            .map(|win| crate::layout::LayoutElement::id(win).clone())
+        else {
+            return;
+        };
+
+        let step = RESIZE_STEP as f64;
+        let candidates = match axis {
+            ResizeAxis::Horizontal => {
+                if grow {
+                    [(ResizeEdge::RIGHT, step), (ResizeEdge::LEFT, -step)]
+                } else {
+                    [(ResizeEdge::LEFT, step), (ResizeEdge::RIGHT, -step)]
+                }
+            }
+            ResizeAxis::Vertical => {
+                if grow {
+                    [(ResizeEdge::BOTTOM, step), (ResizeEdge::TOP, -step)]
+                } else {
+                    [(ResizeEdge::TOP, step), (ResizeEdge::BOTTOM, -step)]
+                }
+            }
+        };
+
+        for (edge, delta) in candidates {
+            let delta = match axis {
+                ResizeAxis::Horizontal => Point::from((delta, 0.0)),
+                ResizeAxis::Vertical => Point::from((0.0, delta)),
+            };
+            if self
+                .niri
+                .layout
+                .interactive_resize_begin(window_id.clone(), edge)
+            {
+                self.niri
+                    .layout
+                    .interactive_resize_update(&window_id, delta);
+                self.niri.layout.interactive_resize_end(&window_id);
+                break;
+            }
+        }
     }
 
     fn on_pointer_button<I: InputBackend>(&mut self, event: I::PointerButtonEvent) {
@@ -2916,7 +3018,12 @@ impl State {
                 .and_then(|trigger| {
                     let config = self.niri.config.borrow();
                     let bindings =
-                        make_binds_iter(&config, &mut self.niri.window_mru_ui, modifiers);
+                        make_binds_iter(
+                            &config,
+                            &mut self.niri.window_mru_ui,
+                            modifiers,
+                            self.niri.binding_mode.as_str(),
+                        );
                     find_configured_bind(bindings, mod_key, trigger, mods)
                 }) {
                     self.niri.suppressed_buttons.insert(button_code);
@@ -3058,7 +3165,10 @@ impl State {
                             if !is_overview_open {
                                 self.niri
                                     .cursor_manager
-                                    .set_cursor_image(CursorImageStatus::Named(icon));
+                                    .set_override_cursor(
+                                        CursorOverride::PointerGrab,
+                                        CursorImageStatus::Named(icon),
+                                    );
                             }
                         }
                     }
@@ -3118,7 +3228,8 @@ impl State {
                                 };
                                 let grab = ResizeGrab::new(start_data, window.clone());
                                 pointer.set_grab(self, grab, serial, Focus::Clear);
-                                self.niri.cursor_manager.set_cursor_image(
+                                self.niri.cursor_manager.set_override_cursor(
+                                    CursorOverride::PointerGrab,
                                     CursorImageStatus::Named(edges.cursor_icon()),
                                 );
                             }
@@ -3284,7 +3395,12 @@ impl State {
                         } else {
                             let config = self.niri.config.borrow();
                             let bindings =
-                                make_binds_iter(&config, &mut self.niri.window_mru_ui, modifiers);
+                                make_binds_iter(
+                                    &config,
+                                    &mut self.niri.window_mru_ui,
+                                    modifiers,
+                                    self.niri.binding_mode.as_str(),
+                                );
                             let bind_left = find_configured_bind(
                                 bindings.clone(),
                                 mod_key,
@@ -3371,7 +3487,12 @@ impl State {
                     } else {
                         let config = self.niri.config.borrow();
                         let bindings =
-                            make_binds_iter(&config, &mut self.niri.window_mru_ui, modifiers);
+                            make_binds_iter(
+                                &config,
+                                &mut self.niri.window_mru_ui,
+                                modifiers,
+                                self.niri.binding_mode.as_str(),
+                            );
                         let bind_up = find_configured_bind(
                             bindings.clone(),
                             mod_key,
@@ -3519,7 +3640,12 @@ impl State {
                 if ticks != 0 {
                     let config = self.niri.config.borrow();
                     let bindings =
-                        make_binds_iter(&config, &mut self.niri.window_mru_ui, modifiers);
+                        make_binds_iter(
+                            &config,
+                            &mut self.niri.window_mru_ui,
+                            modifiers,
+                            self.niri.binding_mode.as_str(),
+                        );
                     let bind_left = find_configured_bind(
                         bindings.clone(),
                         mod_key,
@@ -3549,7 +3675,12 @@ impl State {
                 if ticks != 0 {
                     let config = self.niri.config.borrow();
                     let bindings =
-                        make_binds_iter(&config, &mut self.niri.window_mru_ui, modifiers);
+                        make_binds_iter(
+                            &config,
+                            &mut self.niri.window_mru_ui,
+                            modifiers,
+                            self.niri.binding_mode.as_str(),
+                        );
                     let bind_up = find_configured_bind(
                         bindings.clone(),
                         mod_key,
@@ -5193,6 +5324,14 @@ fn grab_allows_hot_corner(grab: &(dyn PointerGrab<State> + 'static)) -> bool {
     true
 }
 
+pub(crate) fn binds_for_mode<'a>(config: &'a Config, mode: &str) -> &'a Binds {
+    if mode == "default" {
+        &config.binds
+    } else {
+        config.modes.get(mode).unwrap_or(&config.binds)
+    }
+}
+
 /// Returns an iterator over bindings.
 ///
 /// Includes dynamically populated bindings like the MRU UI.
@@ -5200,16 +5339,21 @@ fn make_binds_iter<'a>(
     config: &'a Config,
     mru: &'a mut WindowMruUi,
     mods: Modifiers,
+    mode: &str,
 ) -> impl Iterator<Item = &'a Bind> + Clone {
+    let is_default_mode = mode == "default";
+    let mode_binds = binds_for_mode(config, mode);
+
     // Figure out the binds to use depending on whether the MRU is enabled and/or open.
-    let general_binds = (!mru.is_open()).then_some(config.binds.0.iter());
+    let general_binds = (!mru.is_open()).then_some(mode_binds.0.iter());
     let general_binds = general_binds.into_iter().flatten();
 
     let mru_binds =
-        (config.recent_windows.on || mru.is_open()).then_some(config.recent_windows.binds.iter());
+        (is_default_mode && (config.recent_windows.on || mru.is_open()))
+            .then_some(config.recent_windows.binds.iter());
     let mru_binds = mru_binds.into_iter().flatten();
 
-    let mru_open_binds = mru.is_open().then(|| mru.opened_bindings(mods));
+    let mru_open_binds = (is_default_mode && mru.is_open()).then(|| mru.opened_bindings(mods));
     let mru_open_binds = mru_open_binds.into_iter().flatten();
 
     // General binds take precedence over the MRU binds.

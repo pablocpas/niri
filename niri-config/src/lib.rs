@@ -59,6 +59,7 @@ use crate::recent_windows::RecentWindowsPart;
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
 pub use crate::utils::FloatOrInt;
 use crate::utils::{Flag, MergeWith as _};
+use std::collections::HashMap;
 pub use crate::window_rule::{FloatingPosition, RelativeTo, WindowRule};
 pub use crate::workspace::{Workspace, WorkspaceLayoutPart};
 
@@ -85,6 +86,7 @@ pub struct Config {
     pub window_rules: Vec<WindowRule>,
     pub layer_rules: Vec<LayerRule>,
     pub binds: Binds,
+    pub modes: HashMap<String, Binds>,
     pub switch_events: SwitchBinds,
     pub debug: Debug,
     pub workspaces: Vec<Workspace>,
@@ -224,6 +226,20 @@ where
                     binds.retain(|bind| !part.0.iter().any(|new| new.key == bind.key));
                     // Add all new binds.
                     binds.extend(part.0);
+                }
+                "mode" => {
+                    let part = ModeBinds::decode_node(node, ctx)?;
+                    let mut config = config.borrow_mut();
+                    if part.name == "default" {
+                        let binds = &mut config.binds.0;
+                        binds.retain(|bind| !part.binds.0.iter().any(|new| new.key == bind.key));
+                        binds.extend(part.binds.0);
+                    } else {
+                        let entry = config.modes.entry(part.name).or_insert_with(Binds::default);
+                        let binds = &mut entry.0;
+                        binds.retain(|bind| !part.binds.0.iter().any(|new| new.key == bind.key));
+                        binds.extend(part.binds.0);
+                    }
                 }
                 "environment" => {
                     let part = Environment::decode_node(node, ctx)?;
@@ -1258,6 +1274,12 @@ mod tests {
                         b: 0.78431374,
                         a: 1.0,
                     },
+                    focused_inactive_color: Color {
+                        r: 1.0,
+                        g: 0.78431374,
+                        b: 0.39215687,
+                        a: 0.0,
+                    },
                     inactive_color: Color {
                         r: 1.0,
                         g: 0.78431374,
@@ -1265,6 +1287,30 @@ mod tests {
                         a: 0.0,
                     },
                     urgent_color: Color {
+                        r: 0.60784316,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    },
+                    active_indicator_color: Color {
+                        r: 0.0,
+                        g: 0.39215687,
+                        b: 0.78431374,
+                        a: 1.0,
+                    },
+                    focused_inactive_indicator_color: Color {
+                        r: 1.0,
+                        g: 0.78431374,
+                        b: 0.39215687,
+                        a: 0.0,
+                    },
+                    inactive_indicator_color: Color {
+                        r: 1.0,
+                        g: 0.78431374,
+                        b: 0.39215687,
+                        a: 0.0,
+                    },
+                    urgent_indicator_color: Color {
                         r: 0.60784316,
                         g: 0.0,
                         b: 0.0,
@@ -1292,8 +1338,13 @@ mod tests {
                             },
                         },
                     ),
+                    active_indicator_gradient: None,
+                    focused_inactive_gradient: None,
+                    focused_inactive_indicator_gradient: None,
                     inactive_gradient: None,
+                    inactive_indicator_gradient: None,
                     urgent_gradient: None,
+                    urgent_indicator_gradient: None,
                 },
                 border: Border {
                     off: false,
@@ -1303,6 +1354,12 @@ mod tests {
                         g: 0.78431374,
                         b: 0.49803922,
                         a: 1.0,
+                    },
+                    focused_inactive_color: Color {
+                        r: 1.0,
+                        g: 0.78431374,
+                        b: 0.39215687,
+                        a: 0.0,
                     },
                     inactive_color: Color {
                         r: 1.0,
@@ -1316,10 +1373,41 @@ mod tests {
                         b: 0.0,
                         a: 1.0,
                     },
+                    active_indicator_color: Color {
+                        r: 1.0,
+                        g: 0.78431374,
+                        b: 0.49803922,
+                        a: 1.0,
+                    },
+                    focused_inactive_indicator_color: Color {
+                        r: 1.0,
+                        g: 0.78431374,
+                        b: 0.39215687,
+                        a: 0.0,
+                    },
+                    inactive_indicator_color: Color {
+                        r: 1.0,
+                        g: 0.78431374,
+                        b: 0.39215687,
+                        a: 0.0,
+                    },
+                    urgent_indicator_color: Color {
+                        r: 0.60784316,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    },
                     active_gradient: None,
+                    active_indicator_gradient: None,
+                    focused_inactive_gradient: None,
+                    focused_inactive_indicator_gradient: None,
                     inactive_gradient: None,
+                    inactive_indicator_gradient: None,
                     urgent_gradient: None,
+                    urgent_indicator_gradient: None,
                 },
+                hide_edge_borders: HideEdgeBorders::None,
+                hide_edge_borders_smart: false,
                 shadow: Shadow {
                     on: false,
                     offset: ShadowOffset {
@@ -1779,11 +1867,21 @@ mod tests {
                             ),
                         ),
                         active_color: None,
+                        focused_inactive_color: None,
                         inactive_color: None,
                         urgent_color: None,
+                        active_indicator_color: None,
+                        focused_inactive_indicator_color: None,
+                        inactive_indicator_color: None,
+                        urgent_indicator_color: None,
                         active_gradient: None,
+                        active_indicator_gradient: None,
+                        focused_inactive_gradient: None,
+                        focused_inactive_indicator_gradient: None,
                         inactive_gradient: None,
+                        inactive_indicator_gradient: None,
                         urgent_gradient: None,
+                        urgent_indicator_gradient: None,
                     },
                     border: BorderRule {
                         off: false,
@@ -1794,11 +1892,21 @@ mod tests {
                             ),
                         ),
                         active_color: None,
+                        focused_inactive_color: None,
                         inactive_color: None,
                         urgent_color: None,
+                        active_indicator_color: None,
+                        focused_inactive_indicator_color: None,
+                        inactive_indicator_color: None,
+                        urgent_indicator_color: None,
                         active_gradient: None,
+                        active_indicator_gradient: None,
+                        focused_inactive_gradient: None,
+                        focused_inactive_indicator_gradient: None,
                         inactive_gradient: None,
+                        inactive_indicator_gradient: None,
                         urgent_gradient: None,
+                        urgent_indicator_gradient: None,
                     },
                     shadow: ShadowRule {
                         off: false,
