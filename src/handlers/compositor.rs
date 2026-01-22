@@ -401,7 +401,7 @@ impl CompositorHandler for State {
 
         // This might be a cursor surface.
         if matches!(
-            &self.niri.cursor_manager.cursor_image(),
+            &self.niri.cursor_manager.client_cursor_image(),
             CursorImageStatus::Surface(s) if s == &root_surface
         ) {
             // In case the cursor surface has been committed handle the role specific

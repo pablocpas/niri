@@ -1,9 +1,9 @@
 use smithay::backend::input::ButtonState;
 use smithay::input::pointer::{
-    AxisFrame, ButtonEvent, CursorImageStatus, GestureHoldBeginEvent, GestureHoldEndEvent,
-    GesturePinchBeginEvent, GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent,
-    GestureSwipeEndEvent, GestureSwipeUpdateEvent, GrabStartData as PointerGrabStartData,
-    MotionEvent, PointerGrab, PointerInnerHandle, RelativeMotionEvent,
+    AxisFrame, ButtonEvent, GestureHoldBeginEvent, GestureHoldEndEvent, GesturePinchBeginEvent,
+    GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent, GestureSwipeEndEvent,
+    GestureSwipeUpdateEvent, GrabStartData as PointerGrabStartData, MotionEvent, PointerGrab,
+    PointerInnerHandle, RelativeMotionEvent,
 };
 use smithay::input::SeatHandler;
 use smithay::utils::{Logical, Point};
@@ -27,7 +27,7 @@ impl PickWindowGrab {
         state
             .niri
             .cursor_manager
-            .set_cursor_image(CursorImageStatus::default_named());
+            .clear_override_cursor(crate::cursor::CursorOverride::PointerGrab);
         // Redraw to update the cursor.
         state.niri.queue_redraw_all();
     }
