@@ -117,6 +117,9 @@ impl TestCase for Tile {
 
         self.tile.update_render_elements(
             true,
+            true,
+            niri::layout::focus_ring::FocusRingEdges::all(),
+            None,
             Rectangle::new(Point::from((-location.x, -location.y)), size.to_logical(1.)),
         );
 

@@ -1562,9 +1562,21 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Calculate and apply layout to the tree
     pub fn layout(&mut self) {
-        let animate = !self.options.animations.off;
-        let animate_resize = true; // Keep resize snapshots even when animations are off.
+        self.layout_with_resize_animation(true);
+    }
 
+    /// Calculate and apply layout to the tree, with control over resize animation.
+    pub fn layout_with_resize_animation(&mut self, animate_resize: bool) {
+        let animate = !self.options.animations.off;
+        self.layout_with_animations(animate, animate_resize);
+    }
+
+    /// Calculate and apply layout to the tree with explicit animation flags.
+    pub fn layout_with_animation_flags(&mut self, animate: bool, animate_resize: bool) {
+        self.layout_with_animations(animate, animate_resize);
+    }
+
+    fn layout_with_animations(&mut self, animate: bool, animate_resize: bool) {
         // Increment generation for focus path caching.
         self.generation = self.generation.wrapping_add(1);
 
@@ -1629,7 +1641,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         !self.options.disable_transactions
     }
 
-    fn layout_area(&self) -> Rectangle<f64, Logical> {
+    pub fn layout_area(&self) -> Rectangle<f64, Logical> {
         let mut area = self.working_area;
         let gap = self.options.layout.gaps;
         if gap > 0.0 {
@@ -1653,6 +1665,29 @@ impl<W: LayoutElement> ContainerTree<W> {
             self.get_node_key_at_path(parent_path)?
         };
         self.get_container(parent_key).map(|c| c.layout())
+    }
+
+    pub(super) fn single_child_split_layout_for_path(&self, path: &[usize]) -> Option<Layout> {
+        if path.is_empty() {
+            return None;
+        }
+
+        let parent_path = &path[..path.len() - 1];
+        let parent_key = if parent_path.is_empty() {
+            self.root?
+        } else {
+            self.get_node_key_at_path(parent_path)?
+        };
+
+        let container = self.get_container(parent_key)?;
+        if container.child_count() != 1 || !container.preserve_on_single() {
+            return None;
+        }
+
+        match container.layout() {
+            Layout::SplitH | Layout::SplitV => Some(container.layout()),
+            _ => None,
+        }
     }
 
     fn layout_atomic(&mut self, animate_resize: bool) {

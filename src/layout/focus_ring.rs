@@ -9,6 +9,45 @@ use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FocusRingEdges {
+    pub top: bool,
+    pub bottom: bool,
+    pub left: bool,
+    pub right: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusRingIndicatorEdge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+impl FocusRingEdges {
+    pub const ALL: Self = Self {
+        top: true,
+        bottom: true,
+        left: true,
+        right: true,
+    };
+    pub const NONE: Self = Self {
+        top: false,
+        bottom: false,
+        left: false,
+        right: false,
+    };
+
+    pub fn all() -> Self {
+        Self::ALL
+    }
+
+    pub fn none() -> Self {
+        Self::NONE
+    }
+}
+
 #[derive(Debug)]
 pub struct FocusRing {
     buffers: [SolidColorBuffer; 8],
@@ -20,6 +59,7 @@ pub struct FocusRing {
     use_border_shader: bool,
     config: niri_config::FocusRing,
     thicken_corners: bool,
+    edges: FocusRingEdges,
 }
 
 niri_render_elements! {
@@ -27,6 +67,14 @@ niri_render_elements! {
         SolidColor = SolidColorRenderElement,
         Gradient = BorderRenderElement,
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusRingState {
+    Focused,
+    FocusedInactive,
+    Unfocused,
+    Urgent,
 }
 
 impl FocusRing {
@@ -41,6 +89,7 @@ impl FocusRing {
             use_border_shader: false,
             config,
             thicken_corners: true,
+            edges: FocusRingEdges::all(),
         }
     }
 
@@ -58,9 +107,10 @@ impl FocusRing {
     pub fn update_render_elements(
         &mut self,
         win_size: Size<f64, Logical>,
-        is_active: bool,
+        state: FocusRingState,
         is_border: bool,
-        is_urgent: bool,
+        edges: FocusRingEdges,
+        indicator_edge: Option<FocusRingIndicatorEdge>,
         view_rect: Rectangle<f64, Logical>,
         radius: CornerRadius,
         scale: f64,
@@ -69,36 +119,73 @@ impl FocusRing {
         let width = self.config.width;
         self.full_size = win_size + Size::from((width, width)).upscale(2.);
         self.is_border = is_border;
+        self.edges = edges;
 
-        let color = if is_urgent {
-            self.config.urgent_color
-        } else if is_active {
-            self.config.active_color
-        } else {
-            self.config.inactive_color
+        let (color, gradient, indicator_color, indicator_gradient) = match state {
+            FocusRingState::Urgent => (
+                self.config.urgent_color,
+                self.config.urgent_gradient,
+                self.config.urgent_indicator_color,
+                self.config.urgent_indicator_gradient,
+            ),
+            FocusRingState::Focused => (
+                self.config.active_color,
+                self.config.active_gradient,
+                self.config.active_indicator_color,
+                self.config.active_indicator_gradient,
+            ),
+            FocusRingState::FocusedInactive => (
+                self.config.focused_inactive_color,
+                self.config
+                    .focused_inactive_gradient
+                    .or(self.config.inactive_gradient),
+                self.config.focused_inactive_indicator_color,
+                self.config
+                    .focused_inactive_indicator_gradient
+                    .or(self.config.inactive_indicator_gradient),
+            ),
+            FocusRingState::Unfocused => (
+                self.config.inactive_color,
+                self.config.inactive_gradient,
+                self.config.inactive_indicator_color,
+                self.config.inactive_indicator_gradient,
+            ),
         };
 
-        for buf in &mut self.buffers {
-            buf.set_color(color);
+        let indicator_edge = if is_border { indicator_edge } else { None };
+        let is_indicator_segment = |idx| match indicator_edge {
+            Some(FocusRingIndicatorEdge::Top) => idx == 0,
+            Some(FocusRingIndicatorEdge::Bottom) => idx == 1,
+            Some(FocusRingIndicatorEdge::Left) => idx == 2,
+            Some(FocusRingIndicatorEdge::Right) => idx == 3,
+            None => false,
+        };
+
+        for (idx, buf) in self.buffers.iter_mut().enumerate() {
+            let segment_color = if is_indicator_segment(idx) {
+                indicator_color
+            } else {
+                color
+            };
+            buf.set_color(segment_color);
         }
 
         let radius = radius.fit_to(self.full_size.w as f32, self.full_size.h as f32);
 
-        let gradient = if is_urgent {
-            self.config.urgent_gradient
-        } else if is_active {
-            self.config.active_gradient
-        } else {
-            self.config.inactive_gradient
-        };
-
-        self.use_border_shader = radius != CornerRadius::default() || gradient.is_some();
+        self.use_border_shader =
+            radius != CornerRadius::default() || gradient.is_some() || indicator_gradient.is_some();
 
         // Set the defaults for solid color + rounded corners.
-        let gradient = gradient.unwrap_or_else(|| Gradient::from(color));
+        let base_gradient = gradient.unwrap_or_else(|| Gradient::from(color));
+        let indicator_gradient =
+            indicator_gradient.unwrap_or_else(|| Gradient::from(indicator_color));
 
         let full_rect = Rectangle::new(Point::from((-width, -width)), self.full_size);
-        let gradient_area = match gradient.relative_to {
+        let base_gradient_area = match base_gradient.relative_to {
+            GradientRelativeTo::Window => full_rect,
+            GradientRelativeTo::WorkspaceView => view_rect,
+        };
+        let indicator_gradient_area = match indicator_gradient.relative_to {
             GradientRelativeTo::Window => full_rect,
             GradientRelativeTo::WorkspaceView => view_rect,
         };
@@ -179,7 +266,14 @@ impl FocusRing {
                 buf.resize(size);
             }
 
-            for (border, (loc, size)) in zip(&mut self.borders, zip(self.locations, self.sizes)) {
+            for (idx, (border, (loc, size))) in
+                zip(&mut self.borders, zip(self.locations, self.sizes)).enumerate()
+            {
+                let (gradient, gradient_area) = if is_indicator_segment(idx) {
+                    (&indicator_gradient, indicator_gradient_area)
+                } else {
+                    (&base_gradient, base_gradient_area)
+                };
                 border.update(
                     size,
                     Rectangle::new(gradient_area.loc - loc, gradient_area.size),
@@ -201,11 +295,14 @@ impl FocusRing {
 
             self.borders[0].update(
                 self.sizes[0],
-                Rectangle::new(gradient_area.loc - self.locations[0], gradient_area.size),
-                gradient.in_,
-                gradient.from,
-                gradient.to,
-                ((gradient.angle as f32) - 90.).to_radians(),
+                Rectangle::new(
+                    base_gradient_area.loc - self.locations[0],
+                    base_gradient_area.size,
+                ),
+                base_gradient.in_,
+                base_gradient.from,
+                base_gradient.to,
+                ((base_gradient.angle as f32) - 90.).to_radians(),
                 Rectangle::new(full_rect.loc - self.locations[0], full_rect.size),
                 rounded_corner_border_width,
                 radius,
@@ -246,15 +343,35 @@ impl FocusRing {
         };
 
         if self.is_border {
-            for ((buf, border), loc) in zip(zip(&self.buffers, &self.borders), self.locations) {
+            let edges = self.edges;
+            let corner_visible = |top: bool, left: bool| top && left;
+            for (idx, ((buf, border), loc)) in
+                zip(zip(&self.buffers, &self.borders), self.locations).enumerate()
+            {
+                let visible = match idx {
+                    0 => edges.top,
+                    1 => edges.bottom,
+                    2 => edges.left,
+                    3 => edges.right,
+                    4 => corner_visible(edges.top, edges.left),
+                    5 => corner_visible(edges.top, edges.right),
+                    6 => corner_visible(edges.bottom, edges.right),
+                    7 => corner_visible(edges.bottom, edges.left),
+                    _ => true,
+                };
+                if !visible {
+                    continue;
+                }
                 push(buf, border, location + loc);
             }
         } else {
-            push(
-                &self.buffers[0],
-                &self.borders[0],
-                location + self.locations[0],
-            );
+            if self.edges != FocusRingEdges::none() {
+                push(
+                    &self.buffers[0],
+                    &self.borders[0],
+                    location + self.locations[0],
+                );
+            }
         }
     }
 
