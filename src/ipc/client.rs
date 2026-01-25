@@ -7,8 +7,9 @@ use anyhow::{anyhow, bail, Context};
 use niri_config::OutputName;
 use niri_ipc::socket::Socket;
 use niri_ipc::{
-    Action, Event, KeyboardLayouts, LayoutTree, LayoutTreeLayout, LogicalOutput, Mode, Output,
-    OutputConfigChanged, Overview, Request, Response, Transform, Window, WindowLayout,
+    Action, Cast, CastKind, CastTarget, Event, KeyboardLayouts, LayoutTree, LayoutTreeLayout,
+    LogicalOutput, Mode, Output, OutputConfigChanged, Overview, Request, Response, Transform,
+    Window, WindowLayout,
 };
 use serde_json::json;
 
@@ -49,6 +50,7 @@ pub fn handle_msg(mut msg: Msg, json: bool) -> anyhow::Result<()> {
         Msg::RequestError => Request::ReturnError,
         Msg::OverviewState => Request::OverviewState,
         Msg::LayoutTree => Request::LayoutTree,
+        Msg::Casts => Request::Casts,
     };
 
     let mut socket = Socket::connect().context("error connecting to the niri socket")?;
@@ -497,6 +499,15 @@ pub fn handle_msg(mut msg: Msg, json: bool) -> anyhow::Result<()> {
                         let description = parts.join(" and ");
                         println!("Screenshot captured: {description}");
                     }
+                    Event::CastsChanged { casts } => {
+                        println!("Casts changed: {casts:?}");
+                    }
+                    Event::CastStartedOrChanged { cast } => {
+                        println!("Cast started or changed: {cast:?}");
+                    }
+                    Event::CastStopped { stream_id } => {
+                        println!("Cast stopped: stream id {stream_id}");
+                    }
                 }
             }
         }
@@ -531,6 +542,28 @@ pub fn handle_msg(mut msg: Msg, json: bool) -> anyhow::Result<()> {
             }
 
             print_layout_tree(&tree);
+        }
+        Msg::Casts => {
+            let Response::Casts(mut casts) = response else {
+                bail!("unexpected response: expected Casts, got {response:?}");
+            };
+
+            if json {
+                let casts = serde_json::to_string(&casts).context("error formatting response")?;
+                println!("{casts}");
+                return Ok(());
+            }
+
+            if casts.is_empty() {
+                println!("No screencasts.");
+                return Ok(());
+            }
+
+            casts.sort_by_key(|c| (c.session_id, c.stream_id));
+            for cast in casts {
+                print_cast(&cast);
+                println!();
+            }
         }
     }
 
@@ -758,6 +791,42 @@ fn print_window(window: &Window) {
         fmt_rounded(window_offset_in_tile.0),
         fmt_rounded(window_offset_in_tile.1)
     );
+}
+
+fn print_cast(cast: &Cast) {
+    let active = if cast.is_active { "" } else { " (inactive)" };
+    println!("Cast stream ID {}:{active}", cast.stream_id);
+    println!("  Session ID: {}", cast.session_id);
+
+    let kind = match cast.kind {
+        CastKind::PipeWire => "PipeWire",
+        CastKind::WlrScreencopy => "wlr-screencopy",
+    };
+    println!("  Kind: {kind}");
+
+    match &cast.target {
+        CastTarget::Nothing {} => {
+            println!("  Target: nothing (cleared)");
+        }
+        CastTarget::Output { name } => {
+            println!("  Target: output \"{name}\"");
+        }
+        CastTarget::Window { id } => {
+            println!("  Target: window {id}");
+        }
+    }
+
+    if cast.is_dynamic_target {
+        println!("  Dynamic cast target");
+    }
+
+    if let Some(pid) = cast.pid {
+        println!("  PID: {pid}");
+    }
+
+    if let Some(node_id) = cast.pw_node_id {
+        println!("  PipeWire node ID: {node_id}");
+    }
 }
 
 fn fmt_rounded(x: f64) -> String {

@@ -110,6 +110,8 @@ pub enum Msg {
     /// Print the tiling layout tree for the focused workspace.
     #[command(name = "tree")]
     LayoutTree,
+    /// List screencasts.
+    Casts,
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]
