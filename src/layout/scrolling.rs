@@ -13,6 +13,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size};
 
 use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
+use super::focus_ring::FocusRingEdges;
 use super::monitor::InsertPosition;
 use super::tab_indicator::{TabIndicator, TabIndicatorRenderElement, TabInfo};
 use super::tile::{Tile, TileRenderElement, TileRenderSnapshot};
@@ -401,12 +402,13 @@ impl<W: LayoutElement> ScrollingSpace<W> {
         let view_pos = Point::from((self.view_pos(), 0.));
         let view_size = self.view_size;
         let active_idx = self.active_column_idx;
+        let is_active_workspace = is_active;
         for (col_idx, (col, col_x)) in self.columns_mut().enumerate() {
-            let is_active = is_active && col_idx == active_idx;
+            let is_focused_column = is_active && col_idx == active_idx;
             let col_off = Point::from((col_x, 0.));
             let col_pos = view_pos - col_off - col.render_offset();
             let view_rect = Rectangle::new(col_pos, view_size);
-            col.update_render_elements(is_active, view_rect);
+            col.update_render_elements(is_active_workspace, is_focused_column, view_rect);
         }
     }
 
@@ -4106,14 +4108,25 @@ impl<W: LayoutElement> Column<W> {
             || self.tiles.iter().any(Tile::are_transitions_ongoing)
     }
 
-    pub fn update_render_elements(&mut self, is_active: bool, view_rect: Rectangle<f64, Logical>) {
+    pub fn update_render_elements(
+        &mut self,
+        is_active_workspace: bool,
+        is_focused_column: bool,
+        view_rect: Rectangle<f64, Logical>,
+    ) {
         let active_idx = self.active_tile_idx;
         for (tile_idx, (tile, tile_off)) in self.tiles_mut().enumerate() {
-            let is_active = is_active && tile_idx == active_idx;
+            let is_focused = is_active_workspace && is_focused_column && tile_idx == active_idx;
 
             let mut tile_view_rect = view_rect;
             tile_view_rect.loc -= tile_off + tile.render_offset();
-            tile.update_render_elements(is_active, tile_view_rect);
+            tile.update_render_elements(
+                is_active_workspace,
+                is_focused,
+                FocusRingEdges::all(),
+                None,
+                tile_view_rect,
+            );
         }
 
         let config = self.tab_indicator.config();
@@ -4139,7 +4152,7 @@ impl<W: LayoutElement> Column<W> {
             view_rect,
             self.tiles.len(),
             tabs,
-            is_active,
+            is_active_workspace && is_focused_column,
             self.scale,
         );
     }

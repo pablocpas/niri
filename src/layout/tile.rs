@@ -11,7 +11,9 @@ use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 use smithay::wayland::compositor::{Blocker, BlockerState};
 
 use super::container::{Layout, TabBarTab};
-use super::focus_ring::{FocusRing, FocusRingRenderElement};
+use super::focus_ring::{
+    FocusRing, FocusRingEdges, FocusRingIndicatorEdge, FocusRingRenderElement, FocusRingState,
+};
 use super::opening_window::{OpenAnimation, OpeningWindowRenderElement};
 use super::shadow::Shadow;
 use super::tab_bar::{render_tab_bar, TabBarRenderOutput};
@@ -406,8 +408,12 @@ impl<W: LayoutElement> Tile<W> {
         let prev_sizing_mode = self.sizing_mode;
         self.sizing_mode = self.window.sizing_mode();
 
+        let is_interactive_resize = self.window.interactive_resize_data().is_some();
         let animation_snapshot = self.window.take_animation_snapshot();
         if self.is_scratchpad {
+            self.resize_animation = None;
+        } else if is_interactive_resize {
+            // Avoid resize animations during interactive resize.
             self.resize_animation = None;
         } else if let Some(animate_from) = animation_snapshot {
             let params = if let Some(resize) = self.resize_animation.take() {
@@ -607,17 +613,52 @@ impl<W: LayoutElement> Tile<W> {
                 .is_some_and(|alpha| !alpha.anim.is_done())
     }
 
-    pub fn update_render_elements(&mut self, is_active: bool, view_rect: Rectangle<f64, Logical>) {
-        self.render_active = is_active;
+    pub fn update_render_elements(
+        &mut self,
+        is_active_workspace: bool,
+        is_focused: bool,
+        edges: FocusRingEdges,
+        indicator_edge: Option<FocusRingIndicatorEdge>,
+        view_rect: Rectangle<f64, Logical>,
+    ) {
+        self.render_active = is_active_workspace;
         let rules = self.window.rules();
         let animated_tile_size = self.animated_tile_size();
         let expanded_progress = self.expanded_progress();
+        let state = if self.window.is_urgent() {
+            FocusRingState::Urgent
+        } else if is_focused {
+            FocusRingState::Focused
+        } else if is_active_workspace {
+            FocusRingState::FocusedInactive
+        } else {
+            FocusRingState::Unfocused
+        };
 
         let mut draw_border_with_background = rules
             .draw_border_with_background
             .unwrap_or_else(|| !self.window.has_ssd());
         if self.tab_bar_offset > 0.0 {
             draw_border_with_background = false;
+        }
+        let mut draw_focus_ring_with_background = if self.border.is_off() {
+            draw_border_with_background
+        } else {
+            false
+        };
+        if self.tab_bar_offset > 0.0 {
+            draw_focus_ring_with_background = false;
+        }
+        let border_is_border = !draw_border_with_background && !self.border.is_off();
+        let focus_ring_is_border = !draw_focus_ring_with_background && !self.focus_ring.is_off();
+        let mut border_indicator_edge = None;
+        let mut focus_ring_indicator_edge = None;
+        if let Some(edge) = indicator_edge {
+            if focus_ring_is_border {
+                focus_ring_indicator_edge = Some(edge);
+            } else if border_is_border {
+                border_indicator_edge = Some(edge);
+            }
         }
         let border_width = self.visual_border_width().unwrap_or(0.);
 
@@ -636,9 +677,10 @@ impl<W: LayoutElement> Tile<W> {
             .scaled_by(1. - expanded_progress as f32);
         self.border.update_render_elements(
             border_window_size,
-            is_active,
+            state,
             !draw_border_with_background,
-            self.window.is_urgent(),
+            edges,
+            border_indicator_edge,
             Rectangle::new(
                 view_rect.loc - Point::from((border_width, border_width)),
                 view_rect.size,
@@ -658,26 +700,19 @@ impl<W: LayoutElement> Tile<W> {
         };
         self.shadow.update_render_elements(
             animated_tile_size,
-            is_active,
+            is_focused,
             radius,
             self.scale,
             1. - expanded_progress as f32,
         );
 
-        let mut draw_focus_ring_with_background = if self.border.is_off() {
-            draw_border_with_background
-        } else {
-            false
-        };
-        if self.tab_bar_offset > 0.0 {
-            draw_focus_ring_with_background = false;
-        }
         let radius = radius.expanded_by(self.focus_ring.width() as f32);
         self.focus_ring.update_render_elements(
             animated_tile_size,
-            is_active,
+            state,
             !draw_focus_ring_with_background,
-            self.window.is_urgent(),
+            edges,
+            focus_ring_indicator_edge,
             view_rect,
             radius,
             self.scale,

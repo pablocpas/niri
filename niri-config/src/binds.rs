@@ -15,8 +15,14 @@ use smithay::input::keyboard::Keysym;
 use crate::recent_windows::{MruDirection, MruFilter, MruScope};
 use crate::utils::{expect_only_children, MergeWith};
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Binds(pub Vec<Bind>);
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModeBinds {
+    pub name: String,
+    pub binds: Binds,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bind {
@@ -346,6 +352,7 @@ pub enum Action {
     SetColumnWidth(#[knuffel(argument, str)] SizeChange),
     ExpandColumnToAvailableWidth,
     SwitchLayout(#[knuffel(argument, str)] LayoutSwitchTarget),
+    Mode(#[knuffel(argument)] String),
     ShowHotkeyOverlay,
     MoveWorkspaceToMonitorLeft,
     MoveWorkspaceToMonitorRight,
@@ -852,6 +859,91 @@ where
         }
 
         Ok(Self(binds))
+    }
+}
+
+impl<S> knuffel::Decode<S> for ModeBinds
+where
+    S: knuffel::traits::ErrorSpan,
+{
+    fn decode_node(
+        node: &knuffel::ast::SpannedNode<S>,
+        ctx: &mut knuffel::decode::Context<S>,
+    ) -> Result<Self, DecodeError<S>> {
+        if let Some(type_name) = &node.type_name {
+            ctx.emit_error(DecodeError::unexpected(
+                type_name,
+                "type name",
+                "no type name expected for this node",
+            ));
+        }
+
+        let mut args = node.arguments.iter();
+        let name_val = args.next().ok_or_else(|| {
+            DecodeError::missing(node, "mode name argument is required")
+        })?;
+        let name: String = knuffel::traits::DecodeScalar::decode(name_val, ctx)?;
+
+        if let Some(extra) = args.next() {
+            ctx.emit_error(DecodeError::unexpected(
+                &extra.literal,
+                "argument",
+                "unexpected extra argument",
+            ));
+        }
+
+        for (name, _) in &node.properties {
+            ctx.emit_error(DecodeError::unexpected(
+                name,
+                "property",
+                "no properties expected for this node",
+            ));
+        }
+
+        let mut seen_keys = HashSet::new();
+        let mut binds = Vec::new();
+
+        for child in node.children() {
+            if &**child.node_name == "binds" {
+                match Binds::decode_node(child, ctx) {
+                    Err(e) => ctx.emit_error(e),
+                    Ok(part) => {
+                        for bind in part.0 {
+                            if seen_keys.insert(bind.key) {
+                                binds.push(bind);
+                            } else {
+                                ctx.emit_error(DecodeError::unexpected(
+                                    &child.node_name,
+                                    "keybind",
+                                    "duplicate keybind",
+                                ));
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+
+            match Bind::decode_node(child, ctx) {
+                Err(e) => ctx.emit_error(e),
+                Ok(bind) => {
+                    if seen_keys.insert(bind.key) {
+                        binds.push(bind);
+                    } else {
+                        ctx.emit_error(DecodeError::unexpected(
+                            &child.node_name,
+                            "keybind",
+                            "duplicate keybind",
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(Self {
+            name,
+            binds: Binds(binds),
+        })
     }
 }
 

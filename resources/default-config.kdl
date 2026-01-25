@@ -168,6 +168,8 @@ layout {
 
         // Color of the ring on the active monitor.
         active-color "#7fc8ff"
+        // Color of the split indicator for the focused window.
+        active-indicator-color "#2e9ef4"
 
         // Color of the ring on inactive monitors.
         //
@@ -199,6 +201,10 @@ layout {
 
         width 4
         active-color "#ffc87f"
+        // Color of the split indicator for the focused window.
+        active-indicator-color "#ffb347"
+        // Color of borders for non-focused windows on the active workspace.
+        // focused-inactive-color "#505050"
         inactive-color "#505050"
 
         // Color of the border around windows that request your attention.
@@ -211,6 +217,12 @@ layout {
 
         // inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view"
     }
+
+    // Hide borders that touch the workspace edge.
+    // Options: "none", "horizontal", "vertical", "both".
+    // hide-edge-borders "none"
+    // Hide borders when there is only one tiled window.
+    // hide-edge-borders-smart false
 
     // You can enable drop shadows for windows.
     shadow {

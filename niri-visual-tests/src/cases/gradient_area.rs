@@ -1,7 +1,7 @@
 use std::f32::consts::{FRAC_PI_4, PI};
 use std::time::Duration;
 
-use niri::layout::focus_ring::FocusRing;
+use niri::layout::focus_ring::{FocusRing, FocusRingEdges, FocusRingState};
 use niri::render_helpers::border::BorderRenderElement;
 use niri_config::{Color, CornerRadius, GradientInterpolation};
 use smithay::backend::renderer::element::RenderElement;
@@ -22,9 +22,11 @@ impl GradientArea {
             off: false,
             width: 1.,
             active_color: Color::from_rgba8_unpremul(255, 255, 255, 128),
+            focused_inactive_color: Color::default(),
             inactive_color: Color::default(),
             urgent_color: Color::default(),
             active_gradient: None,
+            focused_inactive_gradient: None,
             inactive_gradient: None,
             urgent_gradient: None,
         });
@@ -81,9 +83,10 @@ impl TestCase for GradientArea {
 
         self.border.update_render_elements(
             g_size,
+            FocusRingState::Focused,
             true,
-            true,
-            false,
+            FocusRingEdges::all(),
+            None,
             Rectangle::default(),
             CornerRadius::default(),
             1.,

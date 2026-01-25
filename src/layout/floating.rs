@@ -15,6 +15,7 @@ use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
     ContainerTree, DetachedNode, Direction, InsertParentInfo, Layout, LeafLayoutInfo, TabBarInfo,
 };
+use super::focus_ring::FocusRingEdges;
 use super::tile::{Tile, TileRenderElement, TileRenderSnapshot};
 use super::tiling::ColumnWidth;
 use super::workspace::{InteractiveResize, ResolvedSize};
@@ -380,8 +381,14 @@ impl<W: LayoutElement> FloatingSpace<W> {
                     let mut tile_view_rect = view_rect;
                     tile_view_rect.loc -= pos;
 
-                    let render_active = is_active && Some(tile.window().id()) == active.as_ref();
-                    tile.update_render_elements(render_active, tile_view_rect);
+                    let is_focused = is_active && Some(tile.window().id()) == active.as_ref();
+                    tile.update_render_elements(
+                        is_active,
+                        is_focused,
+                        FocusRingEdges::all(),
+                        None,
+                        tile_view_rect,
+                    );
                 }
             }
         }
@@ -1704,7 +1711,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 continue;
             }
 
-            let is_focused = Some(tile.window().id()) == active.as_ref();
+            let is_focused = self.is_active && Some(tile.window().id()) == active.as_ref();
             let draw_focus = focus_ring && is_focused;
 
             tile.render(

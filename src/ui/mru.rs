@@ -23,7 +23,9 @@ use smithay::output::Output;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size, Transform};
 
 use crate::animation::{Animation, Clock};
-use crate::layout::focus_ring::{FocusRing, FocusRingRenderElement};
+use crate::layout::focus_ring::{
+    FocusRing, FocusRingEdges, FocusRingRenderElement, FocusRingState,
+};
 use crate::layout::tile::clip_layout_element;
 use crate::layout::{Layout, LayoutElement as _, LayoutElementRenderElement};
 use crate::niri::Niri;
@@ -502,9 +504,10 @@ impl Thumbnail {
             background.update_config(config);
             background.update_render_elements(
                 size,
-                true,
+                FocusRingState::Focused,
                 false,
-                false,
+                FocusRingEdges::all(),
+                None,
                 Rectangle::default(),
                 radius,
                 scale,
@@ -523,9 +526,10 @@ impl Thumbnail {
             border.set_thicken_corners(false);
             border.update_render_elements(
                 size,
+                FocusRingState::Focused,
                 true,
-                true,
-                false,
+                FocusRingEdges::all(),
+                None,
                 Rectangle::default(),
                 radius.expanded_by(config.width as f32),
                 scale,

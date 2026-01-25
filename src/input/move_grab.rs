@@ -108,7 +108,7 @@ impl MoveGrab {
         if self.start_data.is_pointer() {
             data.niri
                 .cursor_manager
-                .set_cursor_image(CursorImageStatus::default_named());
+                .clear_override_cursor(crate::cursor::CursorOverride::PointerGrab);
         }
 
         // FIXME: only redraw the window output.
@@ -128,9 +128,10 @@ impl MoveGrab {
         self.gesture = GestureState::Move;
 
         if self.start_data.is_pointer() {
-            data.niri
-                .cursor_manager
-                .set_cursor_image(CursorImageStatus::Named(self.move_icon));
+            data.niri.cursor_manager.set_override_cursor(
+                crate::cursor::CursorOverride::PointerGrab,
+                CursorImageStatus::Named(self.move_icon),
+            );
         }
 
         true
@@ -161,9 +162,10 @@ impl MoveGrab {
         self.gesture = GestureState::ViewOffset;
 
         if self.start_data.is_pointer() {
-            data.niri
-                .cursor_manager
-                .set_cursor_image(CursorImageStatus::Named(CursorIcon::AllScroll));
+            data.niri.cursor_manager.set_override_cursor(
+                crate::cursor::CursorOverride::PointerGrab,
+                CursorImageStatus::Named(CursorIcon::AllScroll),
+            );
         }
 
         true

@@ -1,5 +1,7 @@
 use knuffel::errors::DecodeError;
+use miette::miette;
 use niri_ipc::{ColumnDisplay, SizeChange};
+use std::str::FromStr;
 
 use crate::appearance::{
     Border, FocusRing, InsertHint, Shadow, TabBar, TabIndicator, DEFAULT_BACKGROUND_COLOR,
@@ -13,6 +15,8 @@ use crate::{
 pub struct Layout {
     pub focus_ring: FocusRing,
     pub border: Border,
+    pub hide_edge_borders: HideEdgeBorders,
+    pub hide_edge_borders_smart: bool,
     pub shadow: Shadow,
     pub tab_indicator: TabIndicator,
     pub tab_bar: TabBar,
@@ -34,6 +38,8 @@ impl Default for Layout {
         Self {
             focus_ring: FocusRing::default(),
             border: Border::default(),
+            hide_edge_borders: HideEdgeBorders::default(),
+            hide_edge_borders_smart: false,
             shadow: Shadow::default(),
             tab_indicator: TabIndicator::default(),
             tab_bar: TabBar::default(),
@@ -88,6 +94,12 @@ impl MergeWith<LayoutPart> for Layout {
         if let Some(x) = part.default_column_width {
             self.default_column_width = x.0;
         }
+        if let Some(x) = part.hide_edge_borders {
+            self.hide_edge_borders = x;
+        }
+        if let Some(x) = part.hide_edge_borders_smart {
+            self.hide_edge_borders_smart.merge_with(&x);
+        }
 
         if self.preset_column_widths.is_empty() {
             self.preset_column_widths = Layout::default().preset_column_widths;
@@ -105,6 +117,10 @@ pub struct LayoutPart {
     pub focus_ring: Option<BorderRule>,
     #[knuffel(child)]
     pub border: Option<BorderRule>,
+    #[knuffel(child, unwrap(argument, str))]
+    pub hide_edge_borders: Option<HideEdgeBorders>,
+    #[knuffel(child)]
+    pub hide_edge_borders_smart: Option<Flag>,
     #[knuffel(child)]
     pub shadow: Option<ShadowRule>,
     #[knuffel(child)]
@@ -175,6 +191,29 @@ pub enum CenterFocusedColumn {
     /// Focusing a column will center it if it doesn't fit on the screen together with the
     /// previously focused column.
     OnOverflow,
+}
+
+#[derive(knuffel::DecodeScalar, Debug, Default, PartialEq, Eq, Clone, Copy)]
+pub enum HideEdgeBorders {
+    #[default]
+    None,
+    Horizontal,
+    Vertical,
+    Both,
+}
+
+impl FromStr for HideEdgeBorders {
+    type Err = miette::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "none" => Ok(Self::None),
+            "horizontal" => Ok(Self::Horizontal),
+            "vertical" => Ok(Self::Vertical),
+            "both" => Ok(Self::Both),
+            _ => Err(miette!("invalid hide-edge-borders value: {s}")),
+        }
+    }
 }
 
 impl<S> knuffel::Decode<S> for DefaultPresetSize

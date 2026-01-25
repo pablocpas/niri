@@ -23,8 +23,32 @@ type XCursorCache = HashMap<(CursorIcon, i32), Option<Rc<XCursor>>>;
 pub struct CursorManager {
     theme: CursorTheme,
     size: u8,
-    current_cursor: CursorImageStatus,
+    client_cursor: CursorImageStatus,
+    override_cursors: [Option<CursorImageStatus>; 3],
     named_cursor_cache: RefCell<XCursorCache>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CursorOverride {
+    ScreenshotUi,
+    PointerGrab,
+    ResizeHover,
+}
+
+impl CursorOverride {
+    const PRIORITY_ORDER: [CursorOverride; 3] = [
+        CursorOverride::ScreenshotUi,
+        CursorOverride::PointerGrab,
+        CursorOverride::ResizeHover,
+    ];
+
+    fn index(self) -> usize {
+        match self {
+            CursorOverride::ScreenshotUi => 0,
+            CursorOverride::PointerGrab => 1,
+            CursorOverride::ResizeHover => 2,
+        }
+    }
 }
 
 impl CursorManager {
@@ -36,7 +60,8 @@ impl CursorManager {
         Self {
             theme,
             size,
-            current_cursor: CursorImageStatus::default_named(),
+            client_cursor: CursorImageStatus::default_named(),
+            override_cursors: [None, None, None],
             named_cursor_cache: Default::default(),
         }
     }
@@ -51,16 +76,25 @@ impl CursorManager {
 
     /// Checks if the cursor WlSurface is alive, and if not, cleans it up.
     pub fn check_cursor_image_surface_alive(&mut self) {
-        if let CursorImageStatus::Surface(surface) = &self.current_cursor {
+        if let CursorImageStatus::Surface(surface) = &self.client_cursor {
             if !surface.alive() {
-                self.current_cursor = CursorImageStatus::default_named();
+                self.client_cursor = CursorImageStatus::default_named();
+            }
+        }
+        for cursor in &mut self.override_cursors {
+            let remove = matches!(
+                cursor.as_ref(),
+                Some(CursorImageStatus::Surface(surface)) if !surface.alive()
+            );
+            if remove {
+                *cursor = None;
             }
         }
     }
 
     /// Get the current rendering cursor.
     pub fn get_render_cursor(&self, scale: i32) -> RenderCursor {
-        match self.current_cursor.clone() {
+        match self.cursor_image().clone() {
             CursorImageStatus::Hidden => RenderCursor::Hidden,
             CursorImageStatus::Surface(surface) => {
                 let hotspot = with_states(&surface, |states| {
@@ -94,7 +128,7 @@ impl CursorManager {
     }
 
     pub fn is_current_cursor_animated(&self, scale: i32) -> bool {
-        match &self.current_cursor {
+        match self.cursor_image() {
             CursorImageStatus::Hidden => false,
             CursorImageStatus::Surface(_) => false,
             CursorImageStatus::Named(icon) => self
@@ -146,12 +180,29 @@ impl CursorManager {
 
     /// Currently used cursor_image as a cursor provider.
     pub fn cursor_image(&self) -> &CursorImageStatus {
-        &self.current_cursor
+        for source in CursorOverride::PRIORITY_ORDER {
+            if let Some(cursor) = &self.override_cursors[source.index()] {
+                return cursor;
+            }
+        }
+        &self.client_cursor
+    }
+
+    pub fn client_cursor_image(&self) -> &CursorImageStatus {
+        &self.client_cursor
     }
 
     /// Set new cursor image provider.
-    pub fn set_cursor_image(&mut self, cursor: CursorImageStatus) {
-        self.current_cursor = cursor;
+    pub fn set_client_cursor(&mut self, cursor: CursorImageStatus) {
+        self.client_cursor = cursor;
+    }
+
+    pub fn set_override_cursor(&mut self, source: CursorOverride, cursor: CursorImageStatus) {
+        self.override_cursors[source.index()] = Some(cursor);
+    }
+
+    pub fn clear_override_cursor(&mut self, source: CursorOverride) {
+        self.override_cursors[source.index()] = None;
     }
 
     /// Load the cursor with the given `name` from the file system picking the closest

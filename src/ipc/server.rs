@@ -31,6 +31,7 @@ use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::shell::wlr_layer::{KeyboardInteractivity, Layer};
 
 use crate::backend::IpcOutputMap;
+use crate::cursor::CursorOverride;
 use crate::input::pick_window_grab::PickWindowGrab;
 use crate::layout::workspace::WorkspaceId;
 use crate::niri::State;
@@ -354,10 +355,10 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
                 // any.
                 pointer.set_grab(state, grab, SERIAL_COUNTER.next_serial(), Focus::Clear);
                 state.niri.pick_window = Some(tx);
-                state
-                    .niri
-                    .cursor_manager
-                    .set_cursor_image(CursorImageStatus::Named(CursorIcon::Crosshair));
+                state.niri.cursor_manager.set_override_cursor(
+                    CursorOverride::PointerGrab,
+                    CursorImageStatus::Named(CursorIcon::Crosshair),
+                );
                 // Redraw to update the cursor.
                 state.niri.queue_redraw_all();
             });

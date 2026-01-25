@@ -15,7 +15,7 @@ use anyhow::{bail, ensure, Context};
 use calloop::futures::Scheduler;
 use niri_config::debug::PreviewRender;
 use niri_config::{
-    Config, FloatOrInt, Key, Modifiers, OutputName, TrackLayout, WarpMouseToFocusMode,
+    Config, FloatOrInt, Key, ModKey, Modifiers, OutputName, TrackLayout, WarpMouseToFocusMode,
     WorkspaceReference, Xkb,
 };
 use smithay::backend::allocator::Fourcc;
@@ -114,7 +114,7 @@ use crate::a11y::A11y;
 use crate::animation::Clock;
 use crate::backend::tty::SurfaceDmabufFeedback;
 use crate::backend::{Backend, Headless, RenderResult, Tty, Winit};
-use crate::cursor::{CursorManager, CursorTextureCache, RenderCursor, XCursor};
+use crate::cursor::{CursorManager, CursorOverride, CursorTextureCache, RenderCursor, XCursor};
 #[cfg(feature = "dbus")]
 use crate::dbus::freedesktop_locale1::Locale1ToNiri;
 #[cfg(feature = "dbus")]
@@ -419,6 +419,7 @@ pub struct Niri {
     pub vertical_finger_scroll_tracker: ScrollTracker,
     pub horizontal_finger_scroll_tracker: ScrollTracker,
     pub mods_with_finger_scroll_binds: HashSet<Modifiers>,
+    pub binding_mode: String,
 
     pub lock_state: LockState,
 
@@ -1556,15 +1557,22 @@ impl State {
         }
 
         let binds_changed = config.binds != old_config.binds;
+        let modes_changed = config.modes != old_config.modes;
         let new_mod_key = self.backend.mod_key(&config);
-        if new_mod_key != self.backend.mod_key(&old_config) || binds_changed {
+        if new_mod_key != self.backend.mod_key(&old_config) || binds_changed || modes_changed {
+            if self.niri.binding_mode != "default"
+                && !config.modes.contains_key(&self.niri.binding_mode)
+            {
+                self.niri.binding_mode = String::from("default");
+            }
             self.niri
                 .hotkey_overlay
                 .on_hotkey_config_updated(new_mod_key);
-            self.niri.mods_with_mouse_binds = mods_with_mouse_binds(new_mod_key, &config.binds);
-            self.niri.mods_with_wheel_binds = mods_with_wheel_binds(new_mod_key, &config.binds);
+            let active_binds = crate::input::binds_for_mode(&config, &self.niri.binding_mode);
+            self.niri.mods_with_mouse_binds = mods_with_mouse_binds(new_mod_key, active_binds);
+            self.niri.mods_with_wheel_binds = mods_with_wheel_binds(new_mod_key, active_binds);
             self.niri.mods_with_finger_scroll_binds =
-                mods_with_finger_scroll_binds(new_mod_key, &config.binds);
+                mods_with_finger_scroll_binds(new_mod_key, active_binds);
         }
 
         if config.window_rules != old_config.window_rules {
@@ -2031,7 +2039,10 @@ impl State {
 
         self.niri
             .cursor_manager
-            .set_cursor_image(CursorImageStatus::Named(CursorIcon::Crosshair));
+            .set_override_cursor(
+                CursorOverride::ScreenshotUi,
+                CursorImageStatus::Named(CursorIcon::Crosshair),
+            );
         self.niri.queue_redraw_all();
     }
 
@@ -2047,7 +2058,10 @@ impl State {
         self.niri.pick_color = Some(tx);
         self.niri
             .cursor_manager
-            .set_cursor_image(CursorImageStatus::Named(CursorIcon::Crosshair));
+            .set_override_cursor(
+                CursorOverride::PointerGrab,
+                CursorImageStatus::Named(CursorIcon::Crosshair),
+            );
         self.niri.queue_redraw_all();
     }
 
@@ -2073,7 +2087,7 @@ impl State {
         self.niri.screenshot_ui.close();
         self.niri
             .cursor_manager
-            .set_cursor_image(CursorImageStatus::default_named());
+            .clear_override_cursor(CursorOverride::ScreenshotUi);
         self.niri.queue_redraw_all();
     }
 
@@ -2391,10 +2405,12 @@ impl Niri {
         let cursor_manager =
             CursorManager::new(&config_.cursor.xcursor_theme, config_.cursor.xcursor_size);
 
+        let binding_mode = String::from("default");
         let mod_key = backend.mod_key(&config.borrow());
-        let mods_with_mouse_binds = mods_with_mouse_binds(mod_key, &config_.binds);
-        let mods_with_wheel_binds = mods_with_wheel_binds(mod_key, &config_.binds);
-        let mods_with_finger_scroll_binds = mods_with_finger_scroll_binds(mod_key, &config_.binds);
+        let active_binds = crate::input::binds_for_mode(&config_, &binding_mode);
+        let mods_with_mouse_binds = mods_with_mouse_binds(mod_key, active_binds);
+        let mods_with_wheel_binds = mods_with_wheel_binds(mod_key, active_binds);
+        let mods_with_finger_scroll_binds = mods_with_finger_scroll_binds(mod_key, active_binds);
 
         let screenshot_ui = ScreenshotUi::new(animation_clock.clone(), config.clone());
         let window_mru_ui = WindowMruUi::new(config.clone());
@@ -2581,6 +2597,7 @@ impl Niri {
             vertical_finger_scroll_tracker: ScrollTracker::new(10),
             horizontal_finger_scroll_tracker: ScrollTracker::new(10),
             mods_with_finger_scroll_binds,
+            binding_mode,
 
             lock_state: LockState::Unlocked,
             locked_hint: None,
@@ -2937,7 +2954,7 @@ impl Niri {
 
         if self.screenshot_ui.close() {
             self.cursor_manager
-                .set_cursor_image(CursorImageStatus::default_named());
+                .clear_override_cursor(CursorOverride::ScreenshotUi);
             self.queue_redraw_all();
         }
 
@@ -2987,7 +3004,7 @@ impl Niri {
             if old_size != size || old_scale != scale || old_transform != transform {
                 self.screenshot_ui.close();
                 self.cursor_manager
-                    .set_cursor_image(CursorImageStatus::default_named());
+                    .clear_override_cursor(CursorOverride::ScreenshotUi);
                 self.queue_redraw_all();
                 return;
             }
@@ -5515,6 +5532,26 @@ impl Niri {
         }
     }
 
+    pub fn set_binding_mode(&mut self, mode: String, mod_key: ModKey) {
+        let mut new_mode = mode;
+        let config = self.config.borrow();
+        if new_mode != "default" && !config.modes.contains_key(&new_mode) {
+            warn!("unknown binding mode `{new_mode}`, falling back to default");
+            new_mode = String::from("default");
+        }
+
+        if self.binding_mode == new_mode {
+            return;
+        }
+
+        self.binding_mode = new_mode;
+
+        let active_binds = crate::input::binds_for_mode(&config, &self.binding_mode);
+        self.mods_with_mouse_binds = mods_with_mouse_binds(mod_key, active_binds);
+        self.mods_with_wheel_binds = mods_with_wheel_binds(mod_key, active_binds);
+        self.mods_with_finger_scroll_binds = mods_with_finger_scroll_binds(mod_key, active_binds);
+    }
+
     pub fn lock(&mut self, confirmation: SessionLocker) {
         // Check if another client is in the process of locking.
         if matches!(
@@ -5550,7 +5587,7 @@ impl Niri {
             // There are no outputs, lock the session right away.
             self.screenshot_ui.close();
             self.cursor_manager
-                .set_cursor_image(CursorImageStatus::default_named());
+                .clear_override_cursor(CursorOverride::ScreenshotUi);
 
             let lock = confirmation.ext_session_lock().clone();
             confirmation.lock();
@@ -5610,7 +5647,7 @@ impl Niri {
 
                 self.screenshot_ui.close();
                 self.cursor_manager
-                    .set_cursor_image(CursorImageStatus::default_named());
+                    .clear_override_cursor(CursorOverride::ScreenshotUi);
                 self.cancel_mru();
 
                 if self.output_state.is_empty() {

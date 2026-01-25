@@ -15,7 +15,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use niri_config::utils::MergeWith as _;
-use niri_config::{Border, PresetSize, TabBar};
+use niri_config::{Border, HideEdgeBorders, PresetSize, TabBar};
 use niri_ipc::{ColumnDisplay, LayoutTreeNode, SizeChange};
 use smithay::backend::renderer::element::Kind;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
@@ -26,6 +26,7 @@ use super::container::{
     LeafLayoutInfo,
 };
 use super::monitor::{InsertPosition, SplitIndicator};
+use super::focus_ring::{FocusRingEdges, FocusRingIndicatorEdge};
 use super::tile::{Tile, TileRenderElement};
 use super::{
     resize_edges_for_point, ConfigureIntent, InteractiveResizeData, LayoutElement, Options,
@@ -780,7 +781,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                     pos = Point::from((0.0, 0.0));
                 }
 
-                let is_focused = info.path == focus_path;
+                let is_focused = self.is_active && info.path == focus_path;
                 let draw_focus = scrolling_focus_ring && is_focused;
                 let target_elements = if info.path == focus_path {
                     &mut active_elements
@@ -940,12 +941,28 @@ impl<W: LayoutElement> TilingSpace<W> {
         } else {
             self.tree.leaf_layouts_cloned()
         };
-        // Clone here because we need mutable access to tree in the loop below.
-        let render_layouts = self.display_layouts().to_vec();
         let workspace_view = Rectangle::from_size(self.view_size);
         let focus_path = self.tree.focus_path();
         let scale = Scale::from(self.scale);
         let fullscreen_id = self.fullscreen_window.as_ref();
+        let layout_rect = self.tree.layout_area();
+        let is_single_window = self.tree.window_count() <= 1;
+        // Clone here because we need mutable access to tree in the loop below.
+        let render_layouts = self.display_layouts().to_vec();
+        let render_edges: Vec<(FocusRingEdges, Option<FocusRingIndicatorEdge>)> = render_layouts
+            .iter()
+            .map(|info| {
+                let edges = edge_visibility_for_tile(
+                    &self.options,
+                    layout_rect,
+                    info.rect,
+                    self.scale,
+                    is_single_window,
+                );
+                let indicator_edge = split_indicator_edge_for_tile(&self.tree, &info.path, edges);
+                (edges, indicator_edge)
+            })
+            .collect();
 
         for info in state_layouts {
             // Use O(1) key lookup instead of O(depth) path lookup.
@@ -971,7 +988,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             }
         }
 
-        for info in render_layouts {
+        for (info, (edges, indicator_edge)) in render_layouts.into_iter().zip(render_edges) {
             // Use O(1) key lookup instead of O(depth) path lookup.
             if let Some(tile) = self.tree.get_tile_mut(info.key) {
                 let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
@@ -988,8 +1005,14 @@ impl<W: LayoutElement> TilingSpace<W> {
 
                 let show_tile = fullscreen_id.map_or(info.visible, |_| is_fullscreen_tile);
                 if show_tile {
-                    let render_active = is_active && (info.visible || is_fullscreen_tile);
-                    tile.update_render_elements(render_active, tile_view_rect);
+                    let is_focused = is_active && info.path == focus_path;
+                    tile.update_render_elements(
+                        is_active,
+                        is_focused,
+                        edges,
+                        indicator_edge,
+                        tile_view_rect,
+                    );
                 }
             }
         }
@@ -1149,7 +1172,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
 
         if changed {
-            self.tree.layout();
+            self.tree.layout_with_animation_flags(false, false);
         }
 
         true
@@ -1194,51 +1217,57 @@ impl<W: LayoutElement> TilingSpace<W> {
                     return None;
                 }
 
-                let pos_within_tile = pos - tile_pos;
-                if tile.hit(pos_within_tile).is_some() {
-                    let size = tile.tile_size();
-                    let edges = resize_edges_for_point(
-                        pos_within_tile,
-                        size,
-                        tile.effective_border_width(),
-                    );
-                    let pending = if edges.is_empty() {
-                        None
-                    } else {
-                        let window_id = tile.window().id().clone();
-                        let path = self.tree.find_window(&window_id)?;
-                        let horizontal = if edges.intersects(ResizeEdge::LEFT_RIGHT) {
-                            let edge = if edges.contains(ResizeEdge::LEFT) {
-                                ResizeEdge::LEFT
-                            } else {
-                                ResizeEdge::RIGHT
-                            };
-                            self.resize_target_for_edge(&path, pos, edge, Layout::SplitH)
-                        } else {
-                            None
-                        };
-                        let vertical = if edges.intersects(ResizeEdge::TOP_BOTTOM) {
-                            let edge = if edges.contains(ResizeEdge::TOP) {
-                                ResizeEdge::TOP
-                            } else {
-                                ResizeEdge::BOTTOM
-                            };
-                            self.resize_target_for_edge(&path, pos, edge, Layout::SplitV)
-                        } else {
-                            None
-                        };
+                let size = tile.tile_size();
+                let border = tile.effective_border_width().unwrap_or(0.0) * 2.0;
+                let threshold = super::RESIZE_EDGE_THRESHOLD.max(border);
+                let threshold_x = threshold.min(size.w / 2.0);
+                let threshold_y = threshold.min(size.h / 2.0);
+                let expanded_bounds = Rectangle::new(
+                    Point::from((tile_pos.x - threshold_x, tile_pos.y - threshold_y)),
+                    Size::from((size.w + threshold_x * 2.0, size.h + threshold_y * 2.0)),
+                );
 
-                        Some(PendingResizeTarget {
-                            window: window_id,
-                            horizontal,
-                            vertical,
-                        })
-                    };
-
-                    return Some((edges, pending));
+                if !expanded_bounds.contains(pos) {
+                    return None;
                 }
 
-                None
+                let pos_within_tile = pos - tile_pos;
+                let edges =
+                    resize_edges_for_point(pos_within_tile, size, tile.effective_border_width());
+                let pending = if edges.is_empty() {
+                    None
+                } else {
+                    let window_id = tile.window().id().clone();
+                    let path = self.tree.find_window(&window_id)?;
+                    let horizontal = if edges.intersects(ResizeEdge::LEFT_RIGHT) {
+                        let edge = if edges.contains(ResizeEdge::LEFT) {
+                            ResizeEdge::LEFT
+                        } else {
+                            ResizeEdge::RIGHT
+                        };
+                        self.resize_target_for_edge(&path, pos, edge, Layout::SplitH)
+                    } else {
+                        None
+                    };
+                    let vertical = if edges.intersects(ResizeEdge::TOP_BOTTOM) {
+                        let edge = if edges.contains(ResizeEdge::TOP) {
+                            ResizeEdge::TOP
+                        } else {
+                            ResizeEdge::BOTTOM
+                        };
+                        self.resize_target_for_edge(&path, pos, edge, Layout::SplitV)
+                    } else {
+                        None
+                    };
+
+                    Some(PendingResizeTarget {
+                        window: window_id,
+                        horizontal,
+                        vertical,
+                    })
+                };
+
+                return Some((edges, pending));
             });
 
         match result {
@@ -2986,4 +3015,70 @@ fn compute_toplevel_bounds(
         ),
     ))
     .to_i32_floor()
+}
+
+fn edge_visibility_for_tile(
+    options: &Options,
+    layout_rect: Rectangle<f64, Logical>,
+    tile_rect: Rectangle<f64, Logical>,
+    scale: f64,
+    is_single_window: bool,
+) -> FocusRingEdges {
+    if options.layout.hide_edge_borders_smart && is_single_window {
+        return FocusRingEdges::none();
+    }
+
+    let mut edges = FocusRingEdges::all();
+    let hide_mode = options.layout.hide_edge_borders;
+    if hide_mode == HideEdgeBorders::None {
+        return edges;
+    }
+
+    let eps = 0.5 / scale.max(1e-6);
+    let left = (tile_rect.loc.x - layout_rect.loc.x).abs() <= eps;
+    let right = (tile_rect.loc.x + tile_rect.size.w
+        - (layout_rect.loc.x + layout_rect.size.w))
+        .abs()
+        <= eps;
+    let top = (tile_rect.loc.y - layout_rect.loc.y).abs() <= eps;
+    let bottom = (tile_rect.loc.y + tile_rect.size.h
+        - (layout_rect.loc.y + layout_rect.size.h))
+        .abs()
+        <= eps;
+
+    let hide_horizontal = matches!(hide_mode, HideEdgeBorders::Horizontal | HideEdgeBorders::Both);
+    let hide_vertical = matches!(hide_mode, HideEdgeBorders::Vertical | HideEdgeBorders::Both);
+
+    if hide_horizontal {
+        if top {
+            edges.top = false;
+        }
+        if bottom {
+            edges.bottom = false;
+        }
+    }
+
+    if hide_vertical {
+        if left {
+            edges.left = false;
+        }
+        if right {
+            edges.right = false;
+        }
+    }
+
+    edges
+}
+
+fn split_indicator_edge_for_tile<W: LayoutElement>(
+    tree: &ContainerTree<W>,
+    path: &[usize],
+    edges: FocusRingEdges,
+) -> Option<FocusRingIndicatorEdge> {
+    let layout = tree.single_child_split_layout_for_path(path)?;
+    match layout {
+        Layout::SplitH => edges.right.then_some(FocusRingIndicatorEdge::Right),
+        Layout::SplitV => edges.bottom.then_some(FocusRingIndicatorEdge::Bottom),
+        _ => None,
+    }
 }

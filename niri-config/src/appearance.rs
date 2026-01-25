@@ -233,11 +233,21 @@ pub struct FocusRing {
     pub off: bool,
     pub width: f64,
     pub active_color: Color,
+    pub focused_inactive_color: Color,
     pub inactive_color: Color,
     pub urgent_color: Color,
+    pub active_indicator_color: Color,
+    pub focused_inactive_indicator_color: Color,
+    pub inactive_indicator_color: Color,
+    pub urgent_indicator_color: Color,
     pub active_gradient: Option<Gradient>,
+    pub active_indicator_gradient: Option<Gradient>,
+    pub focused_inactive_gradient: Option<Gradient>,
+    pub focused_inactive_indicator_gradient: Option<Gradient>,
     pub inactive_gradient: Option<Gradient>,
+    pub inactive_indicator_gradient: Option<Gradient>,
     pub urgent_gradient: Option<Gradient>,
+    pub urgent_indicator_gradient: Option<Gradient>,
 }
 
 impl Default for FocusRing {
@@ -246,11 +256,21 @@ impl Default for FocusRing {
             off: false,
             width: 4.,
             active_color: Color::from_rgba8_unpremul(127, 200, 255, 255),
+            focused_inactive_color: Color::from_rgba8_unpremul(80, 80, 80, 255),
             inactive_color: Color::from_rgba8_unpremul(80, 80, 80, 255),
             urgent_color: Color::from_rgba8_unpremul(155, 0, 0, 255),
+            active_indicator_color: Color::from_rgba8_unpremul(46, 158, 244, 255),
+            focused_inactive_indicator_color: Color::from_rgba8_unpremul(80, 80, 80, 255),
+            inactive_indicator_color: Color::from_rgba8_unpremul(80, 80, 80, 255),
+            urgent_indicator_color: Color::from_rgba8_unpremul(155, 0, 0, 255),
             active_gradient: None,
+            active_indicator_gradient: None,
+            focused_inactive_gradient: None,
+            focused_inactive_indicator_gradient: None,
             inactive_gradient: None,
+            inactive_indicator_gradient: None,
             urgent_gradient: None,
+            urgent_indicator_gradient: None,
         }
     }
 }
@@ -260,11 +280,21 @@ pub struct Border {
     pub off: bool,
     pub width: f64,
     pub active_color: Color,
+    pub focused_inactive_color: Color,
     pub inactive_color: Color,
     pub urgent_color: Color,
+    pub active_indicator_color: Color,
+    pub focused_inactive_indicator_color: Color,
+    pub inactive_indicator_color: Color,
+    pub urgent_indicator_color: Color,
     pub active_gradient: Option<Gradient>,
+    pub active_indicator_gradient: Option<Gradient>,
+    pub focused_inactive_gradient: Option<Gradient>,
+    pub focused_inactive_indicator_gradient: Option<Gradient>,
     pub inactive_gradient: Option<Gradient>,
+    pub inactive_indicator_gradient: Option<Gradient>,
     pub urgent_gradient: Option<Gradient>,
+    pub urgent_indicator_gradient: Option<Gradient>,
 }
 
 impl Default for Border {
@@ -273,11 +303,21 @@ impl Default for Border {
             off: true,
             width: 4.,
             active_color: Color::from_rgba8_unpremul(255, 200, 127, 255),
+            focused_inactive_color: Color::from_rgba8_unpremul(80, 80, 80, 255),
             inactive_color: Color::from_rgba8_unpremul(80, 80, 80, 255),
             urgent_color: Color::from_rgba8_unpremul(155, 0, 0, 255),
+            active_indicator_color: Color::from_rgba8_unpremul(255, 179, 71, 255),
+            focused_inactive_indicator_color: Color::from_rgba8_unpremul(80, 80, 80, 255),
+            inactive_indicator_color: Color::from_rgba8_unpremul(80, 80, 80, 255),
+            urgent_indicator_color: Color::from_rgba8_unpremul(155, 0, 0, 255),
             active_gradient: None,
+            active_indicator_gradient: None,
+            focused_inactive_gradient: None,
+            focused_inactive_indicator_gradient: None,
             inactive_gradient: None,
+            inactive_indicator_gradient: None,
             urgent_gradient: None,
+            urgent_indicator_gradient: None,
         }
     }
 }
@@ -288,11 +328,21 @@ impl From<Border> for FocusRing {
             off: value.off,
             width: value.width,
             active_color: value.active_color,
+            focused_inactive_color: value.focused_inactive_color,
             inactive_color: value.inactive_color,
             urgent_color: value.urgent_color,
+            active_indicator_color: value.active_indicator_color,
+            focused_inactive_indicator_color: value.focused_inactive_indicator_color,
+            inactive_indicator_color: value.inactive_indicator_color,
+            urgent_indicator_color: value.urgent_indicator_color,
             active_gradient: value.active_gradient,
+            active_indicator_gradient: value.active_indicator_gradient,
+            focused_inactive_gradient: value.focused_inactive_gradient,
+            focused_inactive_indicator_gradient: value.focused_inactive_indicator_gradient,
             inactive_gradient: value.inactive_gradient,
+            inactive_indicator_gradient: value.inactive_indicator_gradient,
             urgent_gradient: value.urgent_gradient,
+            urgent_indicator_gradient: value.urgent_indicator_gradient,
         }
     }
 }
@@ -303,11 +353,21 @@ impl From<FocusRing> for Border {
             off: value.off,
             width: value.width,
             active_color: value.active_color,
+            focused_inactive_color: value.focused_inactive_color,
             inactive_color: value.inactive_color,
             urgent_color: value.urgent_color,
+            active_indicator_color: value.active_indicator_color,
+            focused_inactive_indicator_color: value.focused_inactive_indicator_color,
+            inactive_indicator_color: value.inactive_indicator_color,
+            urgent_indicator_color: value.urgent_indicator_color,
             active_gradient: value.active_gradient,
+            active_indicator_gradient: value.active_indicator_gradient,
+            focused_inactive_gradient: value.focused_inactive_gradient,
+            focused_inactive_indicator_gradient: value.focused_inactive_indicator_gradient,
             inactive_gradient: value.inactive_gradient,
+            inactive_indicator_gradient: value.inactive_indicator_gradient,
             urgent_gradient: value.urgent_gradient,
+            urgent_indicator_gradient: value.urgent_indicator_gradient,
         }
     }
 }
@@ -324,8 +384,13 @@ impl MergeWith<BorderRule> for Border {
         merge_color_gradient!(
             (self, part),
             (active_color, active_gradient),
+            (active_indicator_color, active_indicator_gradient),
+            (focused_inactive_color, focused_inactive_gradient),
+            (focused_inactive_indicator_color, focused_inactive_indicator_gradient),
             (inactive_color, inactive_gradient),
+            (inactive_indicator_color, inactive_indicator_gradient),
             (urgent_color, urgent_gradient),
+            (urgent_indicator_color, urgent_indicator_gradient),
         );
     }
 }
@@ -755,15 +820,35 @@ pub struct BorderRule {
     #[knuffel(child)]
     pub active_color: Option<Color>,
     #[knuffel(child)]
+    pub focused_inactive_color: Option<Color>,
+    #[knuffel(child)]
     pub inactive_color: Option<Color>,
     #[knuffel(child)]
     pub urgent_color: Option<Color>,
     #[knuffel(child)]
+    pub active_indicator_color: Option<Color>,
+    #[knuffel(child)]
+    pub focused_inactive_indicator_color: Option<Color>,
+    #[knuffel(child)]
+    pub inactive_indicator_color: Option<Color>,
+    #[knuffel(child)]
+    pub urgent_indicator_color: Option<Color>,
+    #[knuffel(child)]
     pub active_gradient: Option<Gradient>,
+    #[knuffel(child)]
+    pub active_indicator_gradient: Option<Gradient>,
+    #[knuffel(child)]
+    pub focused_inactive_gradient: Option<Gradient>,
+    #[knuffel(child)]
+    pub focused_inactive_indicator_gradient: Option<Gradient>,
     #[knuffel(child)]
     pub inactive_gradient: Option<Gradient>,
     #[knuffel(child)]
+    pub inactive_indicator_gradient: Option<Gradient>,
+    #[knuffel(child)]
     pub urgent_gradient: Option<Gradient>,
+    #[knuffel(child)]
+    pub urgent_indicator_gradient: Option<Gradient>,
 }
 
 #[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
@@ -811,8 +896,13 @@ impl MergeWith<Self> for BorderRule {
         merge_color_gradient_opt!(
             (self, part),
             (active_color, active_gradient),
+            (active_indicator_color, active_indicator_gradient),
+            (focused_inactive_color, focused_inactive_gradient),
+            (focused_inactive_indicator_color, focused_inactive_indicator_gradient),
             (inactive_color, inactive_gradient),
+            (inactive_indicator_color, inactive_indicator_gradient),
             (urgent_color, urgent_gradient),
+            (urgent_indicator_color, urgent_indicator_gradient),
         );
     }
 }

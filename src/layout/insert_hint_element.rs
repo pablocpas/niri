@@ -1,7 +1,7 @@
 use niri_config::CornerRadius;
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
-use super::focus_ring::{FocusRing, FocusRingRenderElement};
+use super::focus_ring::{FocusRing, FocusRingEdges, FocusRingRenderElement, FocusRingState};
 use crate::render_helpers::renderer::NiriRenderer;
 
 #[derive(Debug)]
@@ -18,11 +18,21 @@ impl InsertHintElement {
                 off: config.off,
                 width: 0.,
                 active_color: config.color,
+                focused_inactive_color: config.color,
                 inactive_color: config.color,
                 urgent_color: config.color,
+                active_indicator_color: config.color,
+                focused_inactive_indicator_color: config.color,
+                inactive_indicator_color: config.color,
+                urgent_indicator_color: config.color,
                 active_gradient: config.gradient,
+                active_indicator_gradient: config.gradient,
+                focused_inactive_gradient: config.gradient,
+                focused_inactive_indicator_gradient: config.gradient,
                 inactive_gradient: config.gradient,
+                inactive_indicator_gradient: config.gradient,
                 urgent_gradient: config.gradient,
+                urgent_indicator_gradient: config.gradient,
             }),
         }
     }
@@ -32,11 +42,21 @@ impl InsertHintElement {
             off: config.off,
             width: 0.,
             active_color: config.color,
+            focused_inactive_color: config.color,
             inactive_color: config.color,
             urgent_color: config.color,
+            active_indicator_color: config.color,
+            focused_inactive_indicator_color: config.color,
+            inactive_indicator_color: config.color,
+            urgent_indicator_color: config.color,
             active_gradient: config.gradient,
+            active_indicator_gradient: config.gradient,
+            focused_inactive_gradient: config.gradient,
+            focused_inactive_indicator_gradient: config.gradient,
             inactive_gradient: config.gradient,
+            inactive_indicator_gradient: config.gradient,
             urgent_gradient: config.gradient,
+            urgent_indicator_gradient: config.gradient,
         });
     }
 
@@ -52,7 +72,17 @@ impl InsertHintElement {
         scale: f64,
     ) {
         self.inner
-            .update_render_elements(size, true, false, false, view_rect, radius, scale, 1.);
+            .update_render_elements(
+                size,
+                FocusRingState::Focused,
+                false,
+                FocusRingEdges::all(),
+                None,
+                view_rect,
+                radius,
+                scale,
+                1.,
+            );
     }
 
     pub fn render(
