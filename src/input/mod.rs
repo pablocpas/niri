@@ -2925,21 +2925,20 @@ impl State {
             }
         };
 
-        let edges = self
+        let hit = self
             .niri
             .layout
-            .resize_edges_under(&output, pos_within_output)
-            .unwrap_or(ResizeEdge::empty());
-        if edges.is_empty() {
+            .resize_hit_under(&output, pos_within_output);
+        let Some(hit) = hit else {
             self.niri
                 .cursor_manager
                 .clear_override_cursor(CursorOverride::ResizeHover);
             return;
-        }
+        };
 
         self.niri.cursor_manager.set_override_cursor(
             CursorOverride::ResizeHover,
-            CursorImageStatus::Named(edges.cursor_icon()),
+            CursorImageStatus::Named(hit.cursor),
         );
     }
 
@@ -3065,24 +3064,15 @@ impl State {
             self.niri.tablet_cursor_location = None;
 
             let is_overview_open = self.niri.layout.is_overview_open();
-            let resize_edges = if button == Some(MouseButton::Right) && !pointer.is_grabbed() {
-                let mod_down = modifiers_from_state(mods).contains(mod_key.to_modifiers());
-                if mod_down {
-                    let location = pointer.current_location();
-                    let (output, pos_within_output) =
-                        self.niri.output_under(location).unwrap();
-                    let output = output.clone();
-                    Some(
-                        self.niri
-                            .layout
-                            .resize_edges_under(&output, pos_within_output)
-                            .unwrap_or(ResizeEdge::empty()),
-                    )
-                } else {
-                    None
-                }
-            } else {
-                None
+            let resize_hit_at_pointer = |state: &mut State| {
+                let location = pointer.current_location();
+                let (output, pos_within_output) = state.niri.output_under(location)?;
+                let output = output.clone();
+                let hit = state
+                    .niri
+                    .layout
+                    .resize_hit_under(&output, pos_within_output)?;
+                Some((hit, output, pos_within_output, location))
             };
 
             // TODO i3-conversion: Re-implement for i3-style layout
@@ -3160,6 +3150,122 @@ impl State {
             }
             */
 
+            if button == Some(MouseButton::Left) && !pointer.is_grabbed() && !is_overview_open {
+                let mod_down = modifiers_from_state(mods).contains(mod_key.to_modifiers());
+                if !mod_down {
+                    if let Some((hit, output, pos_within_output, location)) =
+                        resize_hit_at_pointer(self)
+                    {
+                        if hit.is_floating {
+                            self.niri.layout.activate_window(&hit.window);
+                            if self.niri.layout.interactive_resize_begin_at(
+                                hit.window.clone(),
+                                hit.edges,
+                                &output,
+                                pos_within_output,
+                            ) {
+                                let start_data = PointerGrabStartData {
+                                    focus: None,
+                                    button: button_code,
+                                    location,
+                                };
+                                let grab = ResizeGrab::new(start_data, hit.window.clone());
+                                pointer.set_grab(self, grab, serial, Focus::Clear);
+                                self.niri.cursor_manager.set_override_cursor(
+                                    CursorOverride::PointerGrab,
+                                    CursorImageStatus::Named(hit.cursor),
+                                );
+                                // FIXME: granular.
+                                self.niri.queue_redraw_all();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if button == Some(MouseButton::Right) && !pointer.is_grabbed() {
+                let mod_down = modifiers_from_state(mods).contains(mod_key.to_modifiers());
+                if mod_down {
+                    if let Some((hit, output, pos_within_output, location)) =
+                        resize_hit_at_pointer(self)
+                    {
+                        let mut double_click_action = None;
+                        if let Some(mapped) = self.niri.layout.windows().find_map(|(_, mapped)| {
+                            (crate::layout::LayoutElement::id(mapped) == &hit.window)
+                                .then_some(mapped)
+                        }) {
+                            // See if we got a double resize-click gesture.
+                            // FIXME: deduplicate with resize_request in xdg-shell somehow.
+                            let time = get_monotonic_time();
+                            let last_cell = mapped.last_interactive_resize_start();
+                            let mut last = last_cell.get();
+                            last_cell.set(Some((time, hit.edges)));
+
+                            // Floating windows don't have either of the double-resize-click
+                            // gestures, so just allow it to resize.
+                            if mapped.is_floating() {
+                                last = None;
+                                last_cell.set(None);
+                            }
+
+                            if let Some((last_time, last_edges)) = last {
+                                if time.saturating_sub(last_time) <= DOUBLE_CLICK_TIME {
+                                    // Allow quick resize after a triple click.
+                                    last_cell.set(None);
+
+                                    let intersection = hit.edges.intersection(last_edges);
+                                    double_click_action = Some((
+                                        intersection.intersects(ResizeEdge::LEFT_RIGHT),
+                                        intersection.intersects(ResizeEdge::TOP_BOTTOM),
+                                    ));
+                                }
+                            }
+                        }
+
+                        if let Some((full_width, reset_height)) = double_click_action {
+                            if full_width {
+                                // FIXME: don't activate once we can pass specific windows
+                                // to actions.
+                                self.niri.layout.activate_window(&hit.window);
+                                self.niri.layout.toggle_full_width();
+                            }
+                            if reset_height {
+                                self.niri.layout.activate_window(&hit.window);
+                                self.niri.layout.reset_window_height(Some(&hit.window));
+                            }
+                            // FIXME: granular.
+                            self.niri.queue_redraw_all();
+                            return;
+                        }
+
+                        self.niri.layout.activate_window(&hit.window);
+
+                        if self.niri.layout.interactive_resize_begin_at(
+                            hit.window.clone(),
+                            hit.edges,
+                            &output,
+                            pos_within_output,
+                        ) {
+                            let start_data = PointerGrabStartData {
+                                focus: None,
+                                button: button_code,
+                                location,
+                            };
+                            let grab = ResizeGrab::new(start_data, hit.window.clone());
+                            pointer.set_grab(self, grab, serial, Focus::Clear);
+                            self.niri.cursor_manager.set_override_cursor(
+                                CursorOverride::PointerGrab,
+                                CursorImageStatus::Named(hit.cursor),
+                            );
+                            // FIXME: granular.
+                            self.niri.queue_redraw_all();
+                            return;
+                        }
+                    }
+                }
+            }
+
             if let Some(mapped) = self.niri.window_under_cursor() {
                 let window = mapped.window.clone();
 
@@ -3203,66 +3309,7 @@ impl State {
                 }
                 // Check if we need to start an interactive resize.
                 else if button == Some(MouseButton::Right) && !pointer.is_grabbed() {
-                    if let Some(edges) = resize_edges {
-                        if !edges.is_empty() {
-                            let location = pointer.current_location();
-                            // See if we got a double resize-click gesture.
-                            // FIXME: deduplicate with resize_request in xdg-shell somehow.
-                            let time = get_monotonic_time();
-                            let last_cell = mapped.last_interactive_resize_start();
-                            let mut last = last_cell.get();
-                            last_cell.set(Some((time, edges)));
-
-                            // Floating windows don't have either of the double-resize-click
-                            // gestures, so just allow it to resize.
-                            if mapped.is_floating() {
-                                last = None;
-                                last_cell.set(None);
-                            }
-
-                            if let Some((last_time, last_edges)) = last {
-                                if time.saturating_sub(last_time) <= DOUBLE_CLICK_TIME {
-                                    // Allow quick resize after a triple click.
-                                    last_cell.set(None);
-
-                                    let intersection = edges.intersection(last_edges);
-                                    if intersection.intersects(ResizeEdge::LEFT_RIGHT) {
-                                        // FIXME: don't activate once we can pass specific windows
-                                        // to actions.
-                                        self.niri.layout.activate_window(&window);
-                                        self.niri.layout.toggle_full_width();
-                                    }
-                                    if intersection.intersects(ResizeEdge::TOP_BOTTOM) {
-                                        self.niri.layout.activate_window(&window);
-                                        self.niri.layout.reset_window_height(Some(&window));
-                                    }
-                                    // FIXME: granular.
-                                    self.niri.queue_redraw_all();
-                                    return;
-                                }
-                            }
-
-                            self.niri.layout.activate_window(&window);
-
-                            if self
-                                .niri
-                                .layout
-                                .interactive_resize_begin(window.clone(), edges)
-                            {
-                                let start_data = PointerGrabStartData {
-                                    focus: None,
-                                    button: button_code,
-                                    location,
-                                };
-                                let grab = ResizeGrab::new(start_data, window.clone());
-                                pointer.set_grab(self, grab, serial, Focus::Clear);
-                                self.niri.cursor_manager.set_override_cursor(
-                                    CursorOverride::PointerGrab,
-                                    CursorImageStatus::Named(edges.cursor_icon()),
-                                );
-                            }
-                        }
-                    }
+                    // Resize handled above using resize-hit to ensure cursor and action match.
                 }
 
                 if !is_overview_open {

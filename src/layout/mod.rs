@@ -45,6 +45,7 @@ use niri_ipc::{ColumnDisplay, LayoutTree, PositionChange, SizeChange, WindowLayo
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::utils::RescaleRenderElement;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
+use smithay::input::pointer::CursorIcon;
 use smithay::output::{self, Output};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size, Transform};
@@ -489,6 +490,14 @@ enum DndHoldTarget<WindowId> {
 #[derive(Debug, Clone, Copy)]
 pub struct InteractiveResizeData {
     pub(self) edges: ResizeEdge,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResizeHit<WId> {
+    pub window: WId,
+    pub edges: ResizeEdge,
+    pub cursor: CursorIcon,
+    pub is_floating: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2490,6 +2499,15 @@ impl<W: LayoutElement> Layout<W> {
     ) -> Option<ResizeEdge> {
         let mon = self.monitor_for_output_mut(output)?;
         mon.resize_edges_under(pos_within_output)
+    }
+
+    pub fn resize_hit_under(
+        &mut self,
+        output: &Output,
+        pos_within_output: Point<f64, Logical>,
+    ) -> Option<ResizeHit<W::Id>> {
+        let mon = self.monitor_for_output_mut(output)?;
+        mon.resize_hit_under(pos_within_output)
     }
 
     pub fn workspace_under(
@@ -4870,6 +4888,41 @@ impl<W: LayoutElement> Layout<W> {
                 for ws in workspaces {
                     if ws.has_window(&window) {
                         return ws.interactive_resize_begin(window, edges);
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    pub fn interactive_resize_begin_at(
+        &mut self,
+        window: W::Id,
+        edges: ResizeEdge,
+        output: &Output,
+        pos_within_output: Point<f64, Logical>,
+    ) -> bool {
+        match &mut self.monitor_set {
+            MonitorSet::Normal { monitors, .. } => {
+                let mon = monitors.iter_mut().find(|mon| &mon.output == output);
+                let Some(mon) = mon else {
+                    return false;
+                };
+                for (ws, geo) in mon.workspaces_with_render_geo_mut(true) {
+                    if ws.has_window(&window) {
+                        return ws.interactive_resize_begin_at(
+                            window,
+                            edges,
+                            pos_within_output - geo.loc,
+                        );
+                    }
+                }
+            }
+            MonitorSet::NoOutputs { workspaces, .. } => {
+                for ws in workspaces {
+                    if ws.has_window(&window) {
+                        return ws.interactive_resize_begin_at(window, edges, pos_within_output);
                     }
                 }
             }

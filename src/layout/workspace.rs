@@ -10,6 +10,7 @@ use niri_ipc::{ColumnDisplay, LayoutTreeNode, PositionChange, SizeChange, Window
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::{layer_map_for_output, Window};
+use smithay::input::pointer::CursorIcon;
 use smithay::output::Output;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
@@ -18,13 +19,15 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
 
 use super::container::{Direction, InsertParentInfo, Layout};
-use super::floating::{compute_toplevel_bounds, FloatingSpace, FloatingSpaceRenderElement};
+use super::floating::{
+    compute_toplevel_bounds, FloatingResizeResult, FloatingSpace, FloatingSpaceRenderElement,
+};
 use super::shadow::Shadow;
 use super::tile::{Tile, TileRenderSnapshot};
 use super::tiling::{Column, ColumnWidth, ScrollDirection, TilingSpace, TilingSpaceRenderElement};
 use super::{
-    resize_edges_for_point, ActivateWindow, HitType, InsertPosition, InteractiveResizeData,
-    LayoutElement, Options, RemovedTile, SizeFrac,
+    ActivateWindow, HitType, InsertPosition, InteractiveResizeData, LayoutElement, Options,
+    RemovedTile, ResizeHit, SizeFrac,
 };
 use crate::animation::Clock;
 use crate::niri_render_elements;
@@ -151,6 +154,9 @@ niri_render_elements! {
 pub(super) struct InteractiveResize<W: LayoutElement> {
     pub window: W::Id,
     pub original_window_size: Size<f64, Logical>,
+    pub original_window_pos: Option<Point<f64, Logical>>,
+    pub original_container_size: Size<f64, Logical>,
+    pub resize_container_edges: ResizeEdge,
     pub data: InteractiveResizeData,
 }
 
@@ -201,6 +207,35 @@ impl FloatingActive {
     fn get(self) -> bool {
         self == Self::Yes
     }
+}
+
+fn external_resize_cursor_icon(edges: ResizeEdge) -> CursorIcon {
+    if edges.contains(ResizeEdge::TOP) && edges.contains(ResizeEdge::LEFT) {
+        return CursorIcon::NwResize;
+    }
+    if edges.contains(ResizeEdge::TOP) && edges.contains(ResizeEdge::RIGHT) {
+        return CursorIcon::NeResize;
+    }
+    if edges.contains(ResizeEdge::BOTTOM) && edges.contains(ResizeEdge::RIGHT) {
+        return CursorIcon::SeResize;
+    }
+    if edges.contains(ResizeEdge::BOTTOM) && edges.contains(ResizeEdge::LEFT) {
+        return CursorIcon::SwResize;
+    }
+    if edges.contains(ResizeEdge::LEFT) {
+        return CursorIcon::WResize;
+    }
+    if edges.contains(ResizeEdge::RIGHT) {
+        return CursorIcon::EResize;
+    }
+    if edges.contains(ResizeEdge::TOP) {
+        return CursorIcon::NResize;
+    }
+    if edges.contains(ResizeEdge::BOTTOM) {
+        return CursorIcon::SResize;
+    }
+
+    CursorIcon::Default
 }
 
 impl<W: LayoutElement> Workspace<W> {
@@ -2024,28 +2059,34 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn resize_edges_under(&mut self, pos: Point<f64, Logical>) -> Option<ResizeEdge> {
+        self.resize_hit_under(pos).map(|hit| hit.edges)
+    }
+
+    pub fn resize_hit_under(&mut self, pos: Point<f64, Logical>) -> Option<ResizeHit<W::Id>> {
         if self.is_floating_visible() {
-            if let Some(edges) = self
-                .floating
-                .tiles_with_render_positions()
-                .find_map(|(tile, tile_pos)| {
-                    let pos_within_tile = pos - tile_pos;
-                    if tile.hit(pos_within_tile).is_some() {
-                        let size = tile.tile_size();
-                        return Some(resize_edges_for_point(
-                            pos_within_tile,
-                            size,
-                            tile.effective_border_width(),
-                        ));
-                    }
-                    None
-                })
-            {
-                return Some(edges);
+            match self.floating.resize_hit_under(pos) {
+                FloatingResizeResult::Hit(hit) => {
+                    let cursor = if !hit.external_edges.is_empty() {
+                        external_resize_cursor_icon(hit.external_edges)
+                    } else {
+                        hit.edges.cursor_icon()
+                    };
+                    return Some(ResizeHit {
+                        window: hit.window,
+                        edges: hit.edges,
+                        cursor,
+                        is_floating: true,
+                    });
+                }
+                FloatingResizeResult::Blocked => return None,
+                FloatingResizeResult::None => {}
+            }
+            if self.floating_is_active() {
+                return None;
             }
         }
 
-        self.scrolling.resize_edges_under(pos)
+        self.scrolling.resize_hit_under(pos)
     }
 
     pub fn descendants_added(&mut self, id: &W::Id) -> bool {
@@ -2178,6 +2219,20 @@ impl<W: LayoutElement> Workspace<W> {
             self.floating.interactive_resize_begin(window, edges)
         } else {
             self.scrolling.interactive_resize_begin(window, edges)
+        }
+    }
+
+    pub fn interactive_resize_begin_at(
+        &mut self,
+        window: W::Id,
+        edges: ResizeEdge,
+        pos: Point<f64, Logical>,
+    ) -> bool {
+        if self.floating.has_window(&window) {
+            self.floating.interactive_resize_begin(window, edges)
+        } else {
+            self.scrolling
+                .interactive_resize_begin_at(window, edges, pos)
         }
     }
 

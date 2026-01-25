@@ -20,7 +20,8 @@ use super::tile::{Tile, TileRenderElement, TileRenderSnapshot};
 use super::tiling::ColumnWidth;
 use super::workspace::{InteractiveResize, ResolvedSize};
 use super::{
-    ConfigureIntent, InteractiveResizeData, LayoutElement, Options, RemovedTile, SizeFrac,
+    resize_edges_for_point, ConfigureIntent, InteractiveResizeData, LayoutElement, Options,
+    RemovedTile, SizeFrac,
 };
 use crate::animation::{Animation, Clock};
 use crate::niri_render_elements;
@@ -122,6 +123,20 @@ struct FloatingContainerData {
 
     /// Working area used for conversions.
     working_area: Rectangle<f64, Logical>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct FloatingResizeHit<WId> {
+    pub window: WId,
+    pub edges: ResizeEdge,
+    pub external_edges: ResizeEdge,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum FloatingResizeResult<WId> {
+    None,
+    Blocked,
+    Hit(FloatingResizeHit<WId>),
 }
 
 impl FloatingContainerData {
@@ -240,6 +255,30 @@ fn floating_tile_iter_mut<'a, W: LayoutElement>(
 }
 
 impl<W: LayoutElement> FloatingSpace<W> {
+    fn external_edges_for_rect(
+        container_size: Size<f64, Logical>,
+        rect: Rectangle<f64, Logical>,
+        edges: ResizeEdge,
+    ) -> ResizeEdge {
+        const EDGE_EPSILON: f64 = 0.5;
+
+        let mut external = ResizeEdge::empty();
+        if (rect.loc.x - 0.0).abs() <= EDGE_EPSILON {
+            external |= ResizeEdge::LEFT;
+        }
+        if (rect.loc.x + rect.size.w - container_size.w).abs() <= EDGE_EPSILON {
+            external |= ResizeEdge::RIGHT;
+        }
+        if (rect.loc.y - 0.0).abs() <= EDGE_EPSILON {
+            external |= ResizeEdge::TOP;
+        }
+        if (rect.loc.y + rect.size.h - container_size.h).abs() <= EDGE_EPSILON {
+            external |= ResizeEdge::BOTTOM;
+        }
+
+        external & edges
+    }
+
     fn display_layouts(tree: &ContainerTree<W>) -> &[LeafLayoutInfo] {
         if tree.leaf_layouts().is_empty() {
             tree.pending_leaf_layouts()
@@ -413,6 +452,62 @@ impl<W: LayoutElement> FloatingSpace<W> {
             }
         }
         tiles.into_iter()
+    }
+
+    pub(super) fn resize_hit_under(
+        &self,
+        pos: Point<f64, Logical>,
+    ) -> FloatingResizeResult<W::Id> {
+        for container in &self.containers {
+            let offset = container.data.logical_pos;
+            for info in Self::display_layouts(&container.tree)
+                .iter()
+                .filter(|info| info.visible)
+            {
+                let Some(tile) = container.tree.get_tile(info.key) else {
+                    continue;
+                };
+
+                let tile_pos = offset + info.rect.loc;
+                let tile_rect = Rectangle::new(tile_pos, info.rect.size);
+                let border = tile.effective_border_width().unwrap_or(0.0) * 2.0;
+                let threshold = super::RESIZE_EDGE_THRESHOLD.max(border);
+                let expanded_rect = Rectangle::new(
+                    Point::from((tile_rect.loc.x - threshold, tile_rect.loc.y - threshold)),
+                    Size::from((tile_rect.size.w + threshold * 2.0, tile_rect.size.h + threshold * 2.0)),
+                );
+
+                if !expanded_rect.contains(pos) {
+                    continue;
+                }
+
+                let pos_within_tile = pos - tile_pos;
+                let size = tile.tile_size();
+                let edges =
+                    resize_edges_for_point(pos_within_tile, size, tile.effective_border_width());
+                if edges.is_empty() {
+                    return FloatingResizeResult::Blocked;
+                }
+
+                let external_edges =
+                    Self::external_edges_for_rect(container.data.size, info.rect, edges);
+                return FloatingResizeResult::Hit(FloatingResizeHit {
+                    window: tile.window().id().clone(),
+                    edges,
+                    external_edges,
+                });
+            }
+        }
+
+        FloatingResizeResult::None
+    }
+
+    pub fn resize_edges_under(&self, pos: Point<f64, Logical>) -> Option<ResizeEdge> {
+        match self.resize_hit_under(pos) {
+            FloatingResizeResult::Hit(hit) => Some(hit.edges),
+            FloatingResizeResult::Blocked => Some(ResizeEdge::empty()),
+            FloatingResizeResult::None => None,
+        }
     }
 
     fn tiles_with_offsets_visible(
@@ -1274,12 +1369,16 @@ impl<W: LayoutElement> FloatingSpace<W> {
             tile.floating_preset_width_idx = None;
         }
 
-        let Some((parent_path, child_idx, available, _, _)) =
+        let Some((parent_path, child_idx, available, child_count, _)) =
             self.container_metrics(&self.containers[idx].tree, &path, Layout::SplitH)
         else {
             self.resize_container_dimension(idx, change, true);
             return;
         };
+        if child_count <= 1 {
+            self.resize_container_dimension(idx, change, true);
+            return;
+        }
 
         let current_percent = self
             .containers[idx]
@@ -1321,12 +1420,16 @@ impl<W: LayoutElement> FloatingSpace<W> {
             tile.floating_preset_height_idx = None;
         }
 
-        let Some((parent_path, child_idx, available, _, _)) =
+        let Some((parent_path, child_idx, available, child_count, _)) =
             self.container_metrics(&self.containers[idx].tree, &path, Layout::SplitV)
         else {
             self.resize_container_dimension(idx, change, false);
             return;
         };
+        if child_count <= 1 {
+            self.resize_container_dimension(idx, change, false);
+            return;
+        }
 
         let current_percent = self
             .containers[idx]
@@ -1629,10 +1732,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             return false;
         };
 
-        let container_pos = self.containers[container_idx].data.logical_pos;
-        let container_size = self.containers[container_idx].data.size;
-        let container_rect = Rectangle::new(container_pos, container_size);
-        let resize = {
+        {
             let container = &mut self.containers[container_idx];
             let Some(path) = container.tree.find_window(id) else {
                 return false;
@@ -1641,22 +1741,18 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 return false;
             };
 
-            let resize = tile.window_mut().interactive_resize_data();
-
             // Do this before calling update_window() so it can get up-to-date info.
             if let Some(serial) = serial {
                 tile.window_mut().on_commit(serial);
             }
 
             tile.update_window();
-            resize
-        };
+        }
 
         let container = &mut self.containers[container_idx];
         container.tree.layout();
 
         if container.tree.window_count() == 1 {
-            let prev_size = container.data.size;
             let Some(path) = container.tree.find_window(id) else {
                 return true;
             };
@@ -1665,21 +1761,8 @@ impl<W: LayoutElement> FloatingSpace<W> {
             };
             let tile_size = tile.tile_size();
             container.data.set_size(tile_size);
-
-            if let Some(resize) = resize {
-                let mut offset = Point::from((0., 0.));
-                if resize.edges.contains(ResizeEdge::LEFT) {
-                    offset.x += prev_size.w - tile_size.w;
-                }
-                if resize.edges.contains(ResizeEdge::TOP) {
-                    offset.y += prev_size.h - tile_size.h;
-                }
-                let new_pos = container_rect.loc + offset;
-                container.data.set_logical_pos(new_pos);
-            }
         }
 
-        // When resizing by top/left edge, update the position accordingly.
         true
     }
 
@@ -1835,15 +1918,33 @@ impl<W: LayoutElement> FloatingSpace<W> {
             return false;
         }
 
-        let Some(tile) = self.tile_at_mut(&window) else {
+        let Some(idx) = self.idx_of(&window) else {
+            return false;
+        };
+
+        let container = &self.containers[idx];
+        let Some(path) = container.tree.find_window(&window) else {
+            return false;
+        };
+        let Some(tile) = container.tree.tile_at_path(&path) else {
             return false;
         };
 
         let original_window_size = tile.window_size();
+        let original_window_pos = container.data.logical_pos;
+        let original_container_size = container.data.size;
+        let resize_container_edges = Self::display_layouts(&container.tree)
+            .iter()
+            .find(|info| info.path == path)
+            .map(|info| Self::external_edges_for_rect(container.data.size, info.rect, edges))
+            .unwrap_or(ResizeEdge::empty());
 
         let resize = InteractiveResize {
             window,
             original_window_size,
+            original_window_pos: Some(original_window_pos),
+            original_container_size,
+            resize_container_edges,
             data: InteractiveResizeData { edges },
         };
         self.interactive_resize = Some(resize);
@@ -1856,35 +1957,124 @@ impl<W: LayoutElement> FloatingSpace<W> {
         window: &W::Id,
         delta: Point<f64, Logical>,
     ) -> bool {
-        let Some(resize) = &self.interactive_resize else {
+        let Some(idx) = self.idx_of(window) else {
+            return false;
+        };
+        let Some(path) = self.containers[idx].tree.find_window(window) else {
             return false;
         };
 
-        if window != &resize.window {
-            return false;
+        let (original_window_size, original_container_size, edges, original_pos, resize_container_edges) = {
+            let Some(resize) = &self.interactive_resize else {
+                return false;
+            };
+            if window != &resize.window {
+                return false;
+            }
+            (
+                resize.original_window_size,
+                resize.original_container_size,
+                resize.data.edges,
+                resize.original_window_pos,
+                resize.resize_container_edges,
+            )
+        };
+        let (min_size, max_size, resize_container_h, resize_container_v) = {
+            let container = &self.containers[idx];
+            let Some(tile) = container.tree.tile_at_path(&path) else {
+                return false;
+            };
+            let resize_container_h = resize_container_edges.intersects(ResizeEdge::LEFT_RIGHT);
+            let resize_container_v = resize_container_edges.intersects(ResizeEdge::TOP_BOTTOM);
+            (
+                tile.window().min_size(),
+                tile.window().max_size(),
+                resize_container_h,
+                resize_container_v,
+            )
+        };
+
+        let mut mouse_move_x = delta.x;
+        let mut mouse_move_y = delta.y;
+        if edges == ResizeEdge::TOP || edges == ResizeEdge::BOTTOM {
+            mouse_move_x = 0.0;
+        }
+        if edges == ResizeEdge::LEFT || edges == ResizeEdge::RIGHT {
+            mouse_move_y = 0.0;
         }
 
-        let original_window_size = resize.original_window_size;
-        let edges = resize.data.edges;
+        let grow_width = if edges.contains(ResizeEdge::LEFT) {
+            -mouse_move_x
+        } else {
+            mouse_move_x
+        };
+        let grow_height = if edges.contains(ResizeEdge::TOP) {
+            -mouse_move_y
+        } else {
+            mouse_move_y
+        };
+
+        let base_width = if resize_container_h {
+            original_container_size.w
+        } else {
+            original_window_size.w
+        };
+        let base_height = if resize_container_v {
+            original_container_size.h
+        } else {
+            original_window_size.h
+        };
+
+        let mut target_width = (base_width + grow_width).round() as i32;
+        let mut target_height = (base_height + grow_height).round() as i32;
+        target_width = ensure_min_max_size_maybe_zero(target_width, min_size.w, max_size.w);
+        target_height = ensure_min_max_size_maybe_zero(target_height, min_size.h, max_size.h);
+        let effective_grow_width = f64::from(target_width) - base_width;
+        let effective_grow_height = f64::from(target_height) - base_height;
 
         if edges.intersects(ResizeEdge::LEFT_RIGHT) {
-            let mut dx = delta.x;
-            if edges.contains(ResizeEdge::LEFT) {
-                dx = -dx;
-            };
-
-            let window_width = (original_window_size.w + dx).round() as i32;
-            self.set_window_width(Some(window), SizeChange::SetFixed(window_width), false);
+            if resize_container_h {
+                self.resize_container_dimension(idx, SizeChange::SetFixed(target_width), true);
+            } else {
+                self.set_window_width(Some(window), SizeChange::SetFixed(target_width), false);
+            }
         }
 
         if edges.intersects(ResizeEdge::TOP_BOTTOM) {
-            let mut dy = delta.y;
-            if edges.contains(ResizeEdge::TOP) {
-                dy = -dy;
-            };
+            if resize_container_v {
+                self.resize_container_dimension(idx, SizeChange::SetFixed(target_height), false);
+            } else {
+                self.set_window_height(Some(window), SizeChange::SetFixed(target_height), false);
+            }
+        }
 
-            let window_height = (original_window_size.h + dy).round() as i32;
-            self.set_window_height(Some(window), SizeChange::SetFixed(window_height), false);
+        if let Some(original_pos) = original_pos {
+            let mut move_pos = Point::from((0., 0.));
+            if resize_container_h {
+                if edges.contains(ResizeEdge::LEFT) {
+                    move_pos.x = -effective_grow_width;
+                } else if edges.contains(ResizeEdge::RIGHT) {
+                    move_pos.x = 0.0;
+                } else {
+                    move_pos.x = -effective_grow_width / 2.0;
+                }
+            }
+            if resize_container_v {
+                if edges.contains(ResizeEdge::TOP) {
+                    move_pos.y = -effective_grow_height;
+                } else if edges.contains(ResizeEdge::BOTTOM) {
+                    move_pos.y = 0.0;
+                } else {
+                    move_pos.y = -effective_grow_height / 2.0;
+                }
+            }
+            if (resize_container_h && move_pos.x != 0.0)
+                || (resize_container_v && move_pos.y != 0.0)
+            {
+                self.containers[idx]
+                    .data
+                    .set_logical_pos(original_pos + move_pos);
+            }
         }
 
         true

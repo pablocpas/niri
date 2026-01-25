@@ -1689,6 +1689,27 @@ impl<W: LayoutElement> Monitor<W> {
         None
     }
 
+    pub fn resize_hit_under(
+        &mut self,
+        pos_within_output: Point<f64, Logical>,
+    ) -> Option<super::ResizeHit<W::Id>> {
+        if self.overview_progress.is_some() {
+            return None;
+        }
+
+        let view_width = self.view_size.w;
+        for (ws, geo) in self.workspaces_with_render_geo_mut(true) {
+            let loc = Point::from((0., geo.loc.y));
+            let size = Size::from((view_width, geo.size.h));
+            let bounds = Rectangle::new(loc, size);
+            if bounds.contains(pos_within_output) {
+                return ws.resize_hit_under(pos_within_output - geo.loc);
+            }
+        }
+
+        None
+    }
+
     pub(super) fn insert_position(
         &self,
         pos_within_output: Point<f64, Logical>,

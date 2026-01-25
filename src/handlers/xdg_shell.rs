@@ -277,11 +277,19 @@ impl XdgShellHandler for State {
             }
         }
 
-        if !self
-            .niri
-            .layout
-            .interactive_resize_begin(window.clone(), edges)
-        {
+        let location = start_data.location();
+        let began = if let Some((output, pos_within_output)) = self.niri.output_under(location) {
+            let output = output.clone();
+            self.niri.layout.interactive_resize_begin_at(
+                window.clone(),
+                edges,
+                &output,
+                pos_within_output,
+            )
+        } else {
+            self.niri.layout.interactive_resize_begin(window.clone(), edges)
+        };
+        if !began {
             return;
         }
 

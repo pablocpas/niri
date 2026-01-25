@@ -28,10 +28,7 @@ use super::container::{
 use super::monitor::{InsertPosition, SplitIndicator};
 use super::focus_ring::{FocusRingEdges, FocusRingIndicatorEdge};
 use super::tile::{Tile, TileRenderElement};
-use super::{
-    resize_edges_for_point, ConfigureIntent, InteractiveResizeData, LayoutElement, Options,
-    RemovedTile,
-};
+use super::{ConfigureIntent, InteractiveResizeData, LayoutElement, Options, RemovedTile, ResizeHit};
 use crate::animation::{Animation, Clock};
 use crate::niri_render_elements;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
@@ -67,8 +64,6 @@ pub struct TilingSpace<W: LayoutElement> {
     clock: Clock,
     /// Ongoing interactive resize.
     interactive_resize: Option<InteractiveResizeState<W>>,
-    /// Resize target picked by the last resize_edges_under() query.
-    pending_resize_target: Option<PendingResizeTarget<W>>,
     /// Layout options
     options: Rc<Options>,
     /// Cached tab bar textures keyed by container path.
@@ -91,11 +86,9 @@ struct ResizeTarget {
     original_span: f64,
 }
 
-#[derive(Debug, Clone)]
-struct PendingResizeTarget<W: LayoutElement> {
-    window: W::Id,
-    horizontal: Option<ResizeTarget>,
-    vertical: Option<ResizeTarget>,
+#[derive(Debug, Clone, Copy)]
+struct ResizeBoundary {
+    coord: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -460,7 +453,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         pos: Point<f64, Logical>,
         edge: ResizeEdge,
         layout: Layout,
-    ) -> Option<ResizeTarget> {
+    ) -> Option<(ResizeTarget, f64)> {
         let mut best: Option<(ResizeTarget, f64)> = None;
         let mut current_path = path.to_vec();
 
@@ -486,26 +479,6 @@ impl<W: LayoutElement> TilingSpace<W> {
 
                 if let Some(neighbor_idx) = neighbor_idx {
                     if let Some(child_rect) = self.tree.child_rect_at(parent_path, child_idx) {
-                        let boundary = if edge == ResizeEdge::LEFT {
-                            child_rect.loc.x
-                        } else if edge == ResizeEdge::RIGHT {
-                            child_rect.loc.x + child_rect.size.w
-                        } else if edge == ResizeEdge::TOP {
-                            child_rect.loc.y
-                        } else if edge == ResizeEdge::BOTTOM {
-                            child_rect.loc.y + child_rect.size.h
-                        } else {
-                            0.0
-                        };
-
-                        let dist = if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT {
-                            (pos.x - boundary).abs()
-                        } else if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
-                            (pos.y - boundary).abs()
-                        } else {
-                            f64::MAX
-                        };
-
                         let target = ResizeTarget {
                             parent_path: parent_path.to_vec(),
                             child_idx,
@@ -517,6 +490,19 @@ impl<W: LayoutElement> TilingSpace<W> {
                             } else {
                                 0.0
                             },
+                        };
+
+                        let Some(boundary) = self.resize_boundary_for_target(&target, edge) else {
+                            current_path.pop();
+                            continue;
+                        };
+
+                        let dist = if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT {
+                            (pos.x - boundary.coord).abs()
+                        } else if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
+                            (pos.y - boundary.coord).abs()
+                        } else {
+                            f64::MAX
                         };
 
                         let should_update = match &best {
@@ -533,7 +519,58 @@ impl<W: LayoutElement> TilingSpace<W> {
             current_path.pop();
         }
 
-        best.map(|(target, _)| target)
+        best
+    }
+
+    fn resize_boundary_for_target(
+        &self,
+        target: &ResizeTarget,
+        edge: ResizeEdge,
+    ) -> Option<ResizeBoundary> {
+        let child_rect = self
+            .tree
+            .child_rect_at(target.parent_path.as_slice(), target.child_idx)?;
+        let neighbor_rect = self
+            .tree
+            .child_rect_at(target.parent_path.as_slice(), target.neighbor_idx)?;
+
+        if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT {
+            let (left_edge, right_edge) = if neighbor_rect.loc.x < child_rect.loc.x {
+                (
+                    neighbor_rect.loc.x + neighbor_rect.size.w,
+                    child_rect.loc.x,
+                )
+            } else {
+                (
+                    child_rect.loc.x + child_rect.size.w,
+                    neighbor_rect.loc.x,
+                )
+            };
+            let coord = (left_edge + right_edge) / 2.0;
+            return Some(ResizeBoundary {
+                coord,
+            });
+        }
+
+        if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
+            let (top_edge, bottom_edge) = if neighbor_rect.loc.y < child_rect.loc.y {
+                (
+                    neighbor_rect.loc.y + neighbor_rect.size.h,
+                    child_rect.loc.y,
+                )
+            } else {
+                (
+                    child_rect.loc.y + child_rect.size.h,
+                    neighbor_rect.loc.y,
+                )
+            };
+            let coord = (top_edge + bottom_edge) / 2.0;
+            return Some(ResizeBoundary {
+                coord,
+            });
+        }
+
+        None
     }
 
     fn fallback_resize_target(
@@ -588,6 +625,67 @@ impl<W: LayoutElement> TilingSpace<W> {
         None
     }
 
+    fn compute_resize_targets(
+        &self,
+        window: &W::Id,
+        mut edges: ResizeEdge,
+        pos: Option<Point<f64, Logical>>,
+    ) -> Option<(ResizeEdge, Option<ResizeTarget>, Option<ResizeTarget>)> {
+        let Some(path) = self.tree.find_window(window) else {
+            return None;
+        };
+        let Some(tile) = self.tree.tile_at_path(&path) else {
+            return None;
+        };
+
+        if !tile.window().pending_sizing_mode().is_normal() {
+            return None;
+        }
+
+        let mut horizontal = None;
+        let mut vertical = None;
+
+        if edges.intersects(ResizeEdge::LEFT_RIGHT) {
+            let edge = if edges.contains(ResizeEdge::LEFT) {
+                ResizeEdge::LEFT
+            } else {
+                ResizeEdge::RIGHT
+            };
+            horizontal = pos
+                .and_then(|pos| {
+                    self.resize_target_for_edge(&path, pos, edge, Layout::SplitH)
+                        .map(|(target, _)| target)
+                })
+                .or_else(|| self.fallback_resize_target(&path, edge, Layout::SplitH));
+            if horizontal.is_none() {
+                edges.remove(ResizeEdge::LEFT_RIGHT);
+            }
+        }
+
+        if edges.intersects(ResizeEdge::TOP_BOTTOM) {
+            let edge = if edges.contains(ResizeEdge::TOP) {
+                ResizeEdge::TOP
+            } else {
+                ResizeEdge::BOTTOM
+            };
+            vertical = pos
+                .and_then(|pos| {
+                    self.resize_target_for_edge(&path, pos, edge, Layout::SplitV)
+                        .map(|(target, _)| target)
+                })
+                .or_else(|| self.fallback_resize_target(&path, edge, Layout::SplitV));
+            if vertical.is_none() {
+                edges.remove(ResizeEdge::TOP_BOTTOM);
+            }
+        }
+
+        if edges.is_empty() {
+            return None;
+        }
+
+        Some((edges, horizontal, vertical))
+    }
+
     fn resize_affects_path(path: &[usize], resize: &InteractiveResizeState<W>) -> bool {
         resize
             .horizontal
@@ -614,7 +712,6 @@ impl<W: LayoutElement> TilingSpace<W> {
             scale,
             clock,
             interactive_resize: None,
-            pending_resize_target: None,
             options,
             tab_bar_cache: RefCell::new(HashMap::new()),
             tab_bar_cache_alt: RefCell::new(HashMap::new()),
@@ -1019,63 +1116,33 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn interactive_resize_begin(&mut self, window: W::Id, edges: ResizeEdge) -> bool {
+        self.interactive_resize_begin_internal(window, edges, None)
+    }
+
+    pub fn interactive_resize_begin_at(
+        &mut self,
+        window: W::Id,
+        edges: ResizeEdge,
+        pos: Point<f64, Logical>,
+    ) -> bool {
+        self.interactive_resize_begin_internal(window, edges, Some(pos))
+    }
+
+    fn interactive_resize_begin_internal(
+        &mut self,
+        window: W::Id,
+        edges: ResizeEdge,
+        pos: Option<Point<f64, Logical>>,
+    ) -> bool {
         if self.interactive_resize.is_some() {
             return false;
         }
 
-        let pending = self
-            .pending_resize_target
-            .take()
-            .filter(|pending| pending.window == window);
-
-        let mut edges = edges;
-        let Some(path) = self.tree.find_window(&window) else {
+        let Some((edges, horizontal, vertical)) =
+            self.compute_resize_targets(&window, edges, pos)
+        else {
             return false;
         };
-        let Some(tile) = self.tree.tile_at_path(&path) else {
-            return false;
-        };
-
-        if !tile.window().pending_sizing_mode().is_normal() {
-            return false;
-        }
-
-        let mut horizontal = None;
-        let mut vertical = None;
-
-        if edges.intersects(ResizeEdge::LEFT_RIGHT) {
-            let edge = if edges.contains(ResizeEdge::LEFT) {
-                ResizeEdge::LEFT
-            } else {
-                ResizeEdge::RIGHT
-            };
-            horizontal = pending
-                .as_ref()
-                .and_then(|pending| pending.horizontal.clone())
-                .or_else(|| self.fallback_resize_target(&path, edge, Layout::SplitH));
-            if horizontal.is_none() {
-                edges.remove(ResizeEdge::LEFT_RIGHT);
-            }
-        }
-
-        if edges.intersects(ResizeEdge::TOP_BOTTOM) {
-            let edge = if edges.contains(ResizeEdge::TOP) {
-                ResizeEdge::TOP
-            } else {
-                ResizeEdge::BOTTOM
-            };
-            vertical = pending
-                .as_ref()
-                .and_then(|pending| pending.vertical.clone())
-                .or_else(|| self.fallback_resize_target(&path, edge, Layout::SplitV));
-            if vertical.is_none() {
-                edges.remove(ResizeEdge::TOP_BOTTOM);
-            }
-        }
-
-        if edges.is_empty() {
-            return false;
-        }
 
         self.interactive_resize = Some(InteractiveResizeState {
             window,
@@ -1200,87 +1267,82 @@ impl<W: LayoutElement> TilingSpace<W> {
         {
             self.interactive_resize = None;
         }
-        if self
-            .pending_resize_target
-            .as_ref()
-            .is_some_and(|pending| &pending.window == window.id())
-        {
-            self.pending_resize_target = None;
-        }
     }
 
     pub fn resize_edges_under(&mut self, pos: Point<f64, Logical>) -> Option<ResizeEdge> {
-        let result = self
-            .tiles_with_render_positions()
-            .find_map(|(tile, tile_pos, visible)| {
-                if !visible {
-                    return None;
-                }
-
-                let size = tile.tile_size();
-                let border = tile.effective_border_width().unwrap_or(0.0) * 2.0;
-                let threshold = super::RESIZE_EDGE_THRESHOLD.max(border);
-                let threshold_x = threshold.min(size.w / 2.0);
-                let threshold_y = threshold.min(size.h / 2.0);
-                let expanded_bounds = Rectangle::new(
-                    Point::from((tile_pos.x - threshold_x, tile_pos.y - threshold_y)),
-                    Size::from((size.w + threshold_x * 2.0, size.h + threshold_y * 2.0)),
-                );
-
-                if !expanded_bounds.contains(pos) {
-                    return None;
-                }
-
-                let pos_within_tile = pos - tile_pos;
-                let edges =
-                    resize_edges_for_point(pos_within_tile, size, tile.effective_border_width());
-                let pending = if edges.is_empty() {
-                    None
-                } else {
-                    let window_id = tile.window().id().clone();
-                    let path = self.tree.find_window(&window_id)?;
-                    let horizontal = if edges.intersects(ResizeEdge::LEFT_RIGHT) {
-                        let edge = if edges.contains(ResizeEdge::LEFT) {
-                            ResizeEdge::LEFT
-                        } else {
-                            ResizeEdge::RIGHT
-                        };
-                        self.resize_target_for_edge(&path, pos, edge, Layout::SplitH)
-                    } else {
-                        None
-                    };
-                    let vertical = if edges.intersects(ResizeEdge::TOP_BOTTOM) {
-                        let edge = if edges.contains(ResizeEdge::TOP) {
-                            ResizeEdge::TOP
-                        } else {
-                            ResizeEdge::BOTTOM
-                        };
-                        self.resize_target_for_edge(&path, pos, edge, Layout::SplitV)
-                    } else {
-                        None
-                    };
-
-                    Some(PendingResizeTarget {
-                        window: window_id,
-                        horizontal,
-                        vertical,
-                    })
-                };
-
-                return Some((edges, pending));
-            });
-
-        match result {
-            Some((edges, pending)) => {
-                self.pending_resize_target = pending;
-                Some(edges)
-            }
-            None => {
-                self.pending_resize_target = None;
-                None
-            }
-        }
+        self.resize_hit_under(pos).map(|hit| hit.edges)
     }
+
+    pub fn resize_hit_under(&mut self, pos: Point<f64, Logical>) -> Option<ResizeHit<W::Id>> {
+        let (path, rect) = self.closest_leaf_rect(pos)?;
+        let tile = self.tree.tile_at_path(&path)?;
+        if !tile.window().pending_sizing_mode().is_normal() {
+            return None;
+        }
+
+        let border = tile.effective_border_width().unwrap_or(0.0) * 2.0;
+        let threshold = super::RESIZE_EDGE_THRESHOLD.max(border);
+        let gap_half = self.options.layout.gaps / 2.0;
+        let edge_threshold = threshold.max(gap_half);
+        let cross_threshold = threshold;
+
+        let clamp_x = pos.x.clamp(rect.loc.x, rect.loc.x + rect.size.w);
+        let clamp_y = pos.y.clamp(rect.loc.y, rect.loc.y + rect.size.h);
+        let pos_within = Point::from((clamp_x - rect.loc.x, clamp_y - rect.loc.y));
+        let edges = super::resize_edges_for_point(
+            pos_within,
+            rect.size,
+            tile.effective_border_width(),
+        );
+
+        let mut best: Option<(ResizeEdge, f64)> = None;
+        let mut consider_edge =
+            |edge: ResizeEdge, dist: f64, cross_ok: bool, layout: Layout| {
+                if !edges.contains(edge) || !cross_ok || dist > edge_threshold {
+                    return;
+                }
+                if self
+                    .resize_target_for_edge(&path, pos, edge, layout)
+                    .is_none()
+                {
+                    return;
+                }
+                let score = dist / edge_threshold.max(1.0);
+                if best.map_or(true, |(_, best_score)| score < best_score) {
+                    best = Some((edge, score));
+                }
+            };
+
+        let left_dist = (pos.x - rect.loc.x).abs();
+        let right_dist = (pos.x - (rect.loc.x + rect.size.w)).abs();
+        let top_dist = (pos.y - rect.loc.y).abs();
+        let bottom_dist = (pos.y - (rect.loc.y + rect.size.h)).abs();
+
+        let cross_ok_y = pos.y + cross_threshold >= rect.loc.y
+            && pos.y - cross_threshold <= rect.loc.y + rect.size.h;
+        let cross_ok_x = pos.x + cross_threshold >= rect.loc.x
+            && pos.x - cross_threshold <= rect.loc.x + rect.size.w;
+
+        consider_edge(ResizeEdge::LEFT, left_dist, cross_ok_y, Layout::SplitH);
+        consider_edge(ResizeEdge::RIGHT, right_dist, cross_ok_y, Layout::SplitH);
+        consider_edge(ResizeEdge::TOP, top_dist, cross_ok_x, Layout::SplitV);
+        consider_edge(
+            ResizeEdge::BOTTOM,
+            bottom_dist,
+            cross_ok_x,
+            Layout::SplitV,
+        );
+
+        let (edge, _) = best?;
+
+        Some(ResizeHit {
+            window: tile.window().id().clone(),
+            edges: edge,
+            cursor: edge.cursor_icon(),
+            is_floating: false,
+        })
+    }
+
 
     // Focus operations using ContainerTree
     pub fn activate_window(&mut self, window: &W::Id) -> bool {
