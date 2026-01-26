@@ -24,7 +24,6 @@ pub struct Layout {
     pub preset_column_widths: Vec<PresetSize>,
     pub default_column_width: Option<PresetSize>,
     pub preset_window_heights: Vec<PresetSize>,
-    pub center_focused_column: CenterFocusedColumn,
     pub always_center_single_column: bool,
     pub empty_workspace_above_first: bool,
     pub default_column_display: ColumnDisplay,
@@ -50,7 +49,6 @@ impl Default for Layout {
                 PresetSize::Proportion(2. / 3.),
             ],
             default_column_width: Some(PresetSize::Proportion(0.5)),
-            center_focused_column: CenterFocusedColumn::Never,
             always_center_single_column: false,
             empty_workspace_above_first: false,
             default_column_display: ColumnDisplay::Normal,
@@ -85,7 +83,6 @@ impl MergeWith<LayoutPart> for Layout {
             (self, part),
             preset_column_widths,
             preset_window_heights,
-            center_focused_column,
             default_column_display,
             struts,
             background_color,
@@ -135,8 +132,6 @@ pub struct LayoutPart {
     pub default_column_width: Option<DefaultPresetSize>,
     #[knuffel(child, unwrap(children))]
     pub preset_window_heights: Option<Vec<PresetSize>>,
-    #[knuffel(child, unwrap(argument))]
-    pub center_focused_column: Option<CenterFocusedColumn>,
     #[knuffel(child)]
     pub always_center_single_column: Option<Flag>,
     #[knuffel(child)]
@@ -179,18 +174,6 @@ pub struct Struts {
     pub top: FloatOrInt<-65535, 65535>,
     #[knuffel(child, unwrap(argument), default)]
     pub bottom: FloatOrInt<-65535, 65535>,
-}
-
-#[derive(knuffel::DecodeScalar, Debug, Default, PartialEq, Eq, Clone, Copy)]
-pub enum CenterFocusedColumn {
-    /// Focusing a column will not center the column.
-    #[default]
-    Never,
-    /// The focused column will always be centered.
-    Always,
-    /// Focusing a column will center it if it doesn't fit on the screen together with the
-    /// previously focused column.
-    OnOverflow,
 }
 
 #[derive(knuffel::DecodeScalar, Debug, Default, PartialEq, Eq, Clone, Copy)]

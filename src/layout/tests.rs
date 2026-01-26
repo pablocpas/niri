@@ -3,7 +3,7 @@ use std::cell::{Cell, OnceCell, RefCell};
 use niri_config::utils::{Flag, MergeWith as _};
 use niri_config::workspace::WorkspaceName;
 use niri_config::{
-    CenterFocusedColumn, Config, FloatOrInt, OutputName, Struts, TabIndicatorLength,
+    Config, FloatOrInt, OutputName, Struts, TabIndicatorLength,
     TabIndicatorPosition, WorkspaceReference,
 };
 use insta::assert_snapshot;
@@ -4489,14 +4489,6 @@ fn arbitrary_struts() -> impl Strategy<Value = Struts> {
         })
 }
 
-fn arbitrary_center_focused_column() -> impl Strategy<Value = CenterFocusedColumn> {
-    prop_oneof![
-        Just(CenterFocusedColumn::Never),
-        Just(CenterFocusedColumn::OnOverflow),
-        Just(CenterFocusedColumn::Always),
-    ]
-}
-
 fn arbitrary_tab_indicator_position() -> impl Strategy<Value = TabIndicatorPosition> {
     prop_oneof![
         Just(TabIndicatorPosition::Left),
@@ -4581,14 +4573,12 @@ prop_compose! {
         border in prop::option::of(arbitrary_border()),
         shadow in prop::option::of(arbitrary_shadow()),
         tab_indicator in prop::option::of(arbitrary_tab_indicator()),
-        center_focused_column in prop::option::of(arbitrary_center_focused_column()),
         always_center_single_column in prop::option::of(any::<bool>().prop_map(Flag)),
         empty_workspace_above_first in prop::option::of(any::<bool>().prop_map(Flag)),
     ) -> niri_config::LayoutPart {
         niri_config::LayoutPart {
             gaps,
             struts,
-            center_focused_column,
             always_center_single_column,
             empty_workspace_above_first,
             focus_ring,

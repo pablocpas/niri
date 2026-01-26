@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use niri_config::utils::MergeWith as _;
 use niri_config::{
-    CenterFocusedColumn, CornerRadius, OutputName, PresetSize, Workspace as WorkspaceConfig,
+    CornerRadius, OutputName, PresetSize, Workspace as WorkspaceConfig,
 };
 use niri_ipc::{ColumnDisplay, LayoutTreeNode, PositionChange, SizeChange, WindowLayout};
 use smithay::backend::renderer::element::Kind;
@@ -1649,12 +1649,7 @@ impl<W: LayoutElement> Workspace<W> {
             // Come up with a default floating position close to the tile position.
             let stored_or_default = self.floating.stored_or_default_tile_pos(&removed.tile);
             if stored_or_default.is_none() {
-                let offset =
-                    if self.options.layout.center_focused_column == CenterFocusedColumn::Always {
-                        Point::from((0., 0.))
-                    } else {
-                        Point::from((50., 50.))
-                    };
+                let offset = Point::from((50., 50.));
                 if let Some(render_pos) = render_pos {
                     let pos = render_pos + offset;
                     let size = removed.tile.tile_size();

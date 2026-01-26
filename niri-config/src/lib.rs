@@ -1517,7 +1517,6 @@ mod tests {
                         1280,
                     ),
                 ],
-                center_focused_column: OnOverflow,
                 always_center_single_column: false,
                 empty_workspace_above_first: false,
                 default_column_display: Tabbed,
