@@ -30,10 +30,6 @@ animations {
         curve "ease-out-quad"
     }
 
-    horizontal-view-movement {
-        spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
-    }
-
     window-movement {
         spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
     }
@@ -279,22 +275,6 @@ animations {
 }
 ```
 
-#### `horizontal-view-movement`
-
-All horizontal camera view movement animations, such as:
-
-- When a window off-screen is focused and the camera scrolls to it.
-- When a new window appears off-screen and the camera scrolls to it.
-- After a horizontal touchpad gesture (a spring is recommended).
-
-```kdl
-animations {
-    horizontal-view-movement {
-        spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
-    }
-}
-```
-
 #### `window-movement`
 
 <sup>Since: 0.1.5</sup>
@@ -303,12 +283,9 @@ Movement of individual windows within a workspace.
 
 Includes:
 
-- Moving window columns with `move-column-left` and `move-column-right`.
-- Moving windows inside a column with `move-window-up` and `move-window-down`.
+- Moving windows in the container tree with directional move commands.
 - Moving windows out of the way upon window opening and closing.
-- Window movement between columns when consuming/expelling.
-
-This animation *does not* include the camera view movement, such as scrolling the workspace left and right.
+- Window rearrangement when changing container layouts.
 
 ```kdl
 animations {
@@ -446,15 +423,11 @@ animations {
 
 Sometimes, when two animations are meant to play together synchronized, niri will drive them both with the same configuration.
 
-For example, if a window resize causes the view to move, then that view movement animation will also use the `window-resize` configuration (rather than the `horizontal-view-movement` configuration).
-This is especially important for animated resizes to look good when using `center-focused-column "always"`.
-
-As another example, resizing a window in a column vertically causes other windows to move up or down into their new position.
+For example, resizing a window in a column vertically causes other windows to move up or down into their new position.
 This movement will use the `window-resize` configuration, rather than the `window-movement` configuration, to keep the animations synchronized.
 
 A few actions are still missing this synchronization logic, since in some cases it is difficult to implement properly.
 Therefore, for the best results, consider using the same parameters for related animations (they are all the same by default):
 
-- `horizontal-view-movement`
 - `window-movement`
 - `window-resize`

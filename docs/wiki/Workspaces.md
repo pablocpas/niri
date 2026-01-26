@@ -46,16 +46,15 @@ You can refer to named workspaces by name, e.g. `focus-workspace "browser"`, and
 > You can try to emulate static workspaces by creating workspaces named "one", "two", "three", ..., and binding keys to `focus-workspace "one"`, `focus-workspace "two"`, ...
 > This can work to some extent, but it can become somewhat confusing, since you can still move these workspaces up and down and between monitors.
 >
-> If you're coming from a static workspace WM, I suggest *not* doing that, but instead trying the "niri way" with dynamic workspaces, focusing and moving up/down instead of by index.
-> Thanks to scrollable tiling, you generally need fewer workspaces than on a traditional tiling WM.
+> If you're coming from a static workspace WM, I suggest *not* doing that, but instead trying the dynamic workspace approach with focusing and moving up/down instead of by index.
 
 ### Example workflow
 
 This is how I like to use workspaces.
 
 I will usually have my browser on the topmost workspace, then one workspace per project (or a "thing") I'm working on.
-On a single workspace I have 1–2 windows that fit inside a monitor that I switch between frequently, and maybe extra windows scrolled outside the view, usually either ones I need rarely, or temporary windows that I quickly close.
-When I need another permanent window, I'll put it on a new workspace.
+On a single workspace I have multiple windows arranged in the tiling layout that I switch between frequently.
+When the workspace gets too cluttered, I'll move some windows to a new workspace or use tabbed/stacked containers to organize them better.
 
 I actively move workspaces up and down as I'm working on things to make what I need accessible in one motion.
 For example, I usually frequently switch between the browser and whatever I'm doing, so I always move whatever I'm currently doing to right below the browser, so a single `focus-workspace-up/down` gets me where I want.

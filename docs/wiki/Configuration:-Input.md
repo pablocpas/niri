@@ -333,24 +333,6 @@ input {
 }
 ```
 
-<sup>Since: 0.1.8</sup> You can optionally set `max-scroll-amount`.
-Then, focus-follows-mouse won't focus a window if it will result in the view scrolling more than the set amount.
-The value is a percentage of the working area width.
-
-```kdl
-input {
-    // Allow focus-follows-mouse when it results in scrolling at most 10% of the screen.
-    focus-follows-mouse max-scroll-amount="10%"
-}
-```
-
-```kdl
-input {
-    // Allow focus-follows-mouse only when it will not scroll the view.
-    focus-follows-mouse max-scroll-amount="0%"
-}
-```
-
 #### `workspace-auto-back-and-forth`
 
 Normally, switching to the same workspace by index twice will do nothing (since you're already on that workspace).

@@ -7,8 +7,6 @@ Here are the contents of this section at a glance:
 ```kdl
 layout {
     gaps 16
-    center-focused-column "never"
-    always-center-single-column
     empty-workspace-above-first
     default-column-display "tabbed"
     background-color "#003300"
@@ -113,34 +111,7 @@ For example, `gaps 0.5` on an output with `scale 2` will result in one physical-
 layout {
     gaps 16
 }
-```
 
-### `center-focused-column`
-
-When to center a column when changing focus.
-This can be set to:
-
-- `"never"`: no special centering, focusing an off-screen column will scroll it to the left or right edge of the screen. This is the default.
-- `"always"`, the focused column will always be centered.
-- `"on-overflow"`, focusing a column will center it if it doesn't fit on screen together with the previously focused column.
-
-```kdl
-layout {
-    center-focused-column "always"
-}
-```
-
-### `always-center-single-column`
-
-<sup>Since: 0.1.9</sup>
-
-If set, niri will always center a single column on a workspace, regardless of the `center-focused-column` option.
-
-```kdl
-layout {
-    always-center-single-column
-}
-```
 
 ### `empty-workspace-above-first`
 
@@ -154,25 +125,6 @@ layout {
 }
 ```
 
-### `default-column-display`
-
-<sup>Since: 25.02</sup>
-
-Sets the default display mode for new columns.
-Can be `normal` or `tabbed`.
-
-```kdl
-// Make all new columns tabbed by default.
-layout {
-    default-column-display "tabbed"
-
-    // You may also want to hide the tab indicator
-    // when there's only a single window in a column.
-    tab-indicator {
-        hide-when-single-tab
-    }
-}
-```
 
 ### `preset-column-widths`
 

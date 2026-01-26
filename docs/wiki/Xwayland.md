@@ -11,13 +11,13 @@ To check that the integration works, verify that the niri output says something 
 
 ```sh
 $ journalctl --user-unit=niri -b
-systemd[2338]: Starting niri.service - A scrollable-tiling Wayland compositor...
+systemd[2338]: Starting niri.service - An i3-like tiling Wayland compositor...
 niri[2474]: 2025-08-29T04:07:40.043402Z  INFO niri: starting version 25.05.1 (0.0.git.2345.d9833fc1)
 (...)
 niri[2474]: 2025-08-29T04:07:40.690512Z  INFO niri: listening on Wayland socket: wayland-1
 niri[2474]: 2025-08-29T04:07:40.690520Z  INFO niri: IPC listening on: /run/user/1000/niri.wayland-1.2474.sock
 niri[2474]: 2025-08-29T04:07:40.700137Z  INFO niri: listening on X11 socket: :0
-systemd[2338]: Started niri.service - A scrollable-tiling Wayland compositor.
+systemd[2338]: Started niri.service - An i3-like tiling Wayland compositor.
 $ echo $DISPLAY
 :0
 ```

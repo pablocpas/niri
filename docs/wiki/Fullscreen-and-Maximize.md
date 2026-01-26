@@ -48,13 +48,13 @@ You can make a window open fullscreen, or prevent a window from fullscreening up
 
 ## Common behaviors across fullscreen and maximize
 
-Fullscreen or maximized-to-edges windows can only be in the scrolling layout.
-So if you try to fullscreen or maximize a [floating window](./Floating-Windows.md), it'll move into the scrolling layout.
+Fullscreen or maximized-to-edges windows can only be in the tiling layout.
+So if you try to fullscreen or maximize a [floating window](./Floating-Windows.md), it'll move into the tiling layout.
 Then, unfullscreening/unmaximizing will bring it back into the floating layout automatically.
 
-Thanks to scrollable tiling, fullscreen and maximized windows remain a normal participant of the layout: you can scroll left and right from them and see other windows.
+Fullscreen and maximized windows remain a normal participant of the container tree: you can navigate to other windows using the regular navigation commands.
 
-![Screenshot of the overview showing a fullscreen window with other windows side by side.](./img/fullscreen-window-in-overview.png)
+![Screenshot of the overview showing a fullscreen window with other windows side by side.](./img/fullscreen-window-in-overview.md)
 
 Fullscreen and maximize-to-edges are both special states that the windows are aware of and can control.
 Windows sometimes want to restore their fullscreen or, more frequently, maximized state when they open.

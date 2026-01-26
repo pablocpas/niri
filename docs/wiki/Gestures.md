@@ -38,12 +38,6 @@ If you double-click on a left or right tiled window resize edge, the column will
 
 This works with both window-initiated resizes (when using client-side decorations), and niri-initiated <kbd>Mod</kbd> + right click resizes.
 
-#### Horizontal View Movement
-
-<sup>Since: 0.1.6</sup>
-
-Move the view horizontally by holding <kbd>Mod</kbd> and the middle mouse button (or the wheel) and dragging the mouse horizontally.
-
 #### Workspace Switch
 
 <sup>Since: 0.1.7</sup>
@@ -56,10 +50,6 @@ Switch workspaces by holding <kbd>Mod</kbd> and the middle mouse button (or the 
 
 Switch workspaces with three-finger vertical swipes.
 
-#### Horizontal View Movement
-
-Move the view horizontally with three-finger horizontal swipes.
-
 #### Open and Close the Overview
 
 <sup>Since: 25.05</sup>
@@ -67,13 +57,6 @@ Move the view horizontally with three-finger horizontal swipes.
 Open and close the overview with a four-finger vertical swipe.
 
 ### All Pointing Devices
-
-#### Drag-and-Drop Edge View Scroll
-
-<sup>Since: 25.02</sup>
-
-Scroll the tiling view when moving the mouse cursor against a monitor edge during drag-and-drop (DnD).
-Also works on a touchscreen.
 
 #### Drag-and-Drop Edge Workspace Switch
 

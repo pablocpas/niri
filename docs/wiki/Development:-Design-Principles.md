@@ -10,15 +10,14 @@ Especially when you're looking at a big window like a browser or an image editor
 
 The usual workaround in tiling WMs is to use more workspaces: when you need a new window, you go to an empty workspace and open it there (this way, you also get your entire screen for the new window, rather than a smaller part of it).
 
-Scrollable tiling offers an alternative: for temporary windows, you can just open them, do what you need, and close, all without messing up the other windows or having to go to a new workspace.
-It also lets you group together more related windows on the same workspace by having less frequently used ones scrolled out of the view.
+Tiri's container tree layout helps with this: new windows are added to the tree in a way that tries to minimize disruption to your existing layout.
+You can also use tabbed and stacked containers to group related windows together without taking up more screen space.
 
 ### The focused window should not move around on its own.
 
-In particular: windows opening, closing, and resizing to the left of the focused window should not cause it to visually move.
+In particular: windows opening, closing, and resizing should minimize visual disruption to the focused window.
 
-The focused window is the window you're working in.
-And stuff happening outside the view shouldn't mess with what you're focused on.
+The focused window is the window you're working in, and it should remain stable and predictable.
 
 ### Actions should apply immediately.
 
@@ -62,15 +61,14 @@ Here are some design considerations for the window layout logic.
     - With fixed sizes, the user wants to test a specific client size or take a specifically sized screenshot, so they should affect the window directly.
     - After the size is set, it is always converted to a value that includes the borders, to make the code sane. That is, `set-column-width 1000` followed by changing the niri border width will resize the window accordingly.
 
-1. Fullscreen windows are a normal part of the scrolling layout.
+1. Fullscreen windows are a normal part of the tiling layout.
 
-    This is a cool idea that scrollable tiling is uniquely positioned to implement.
-    Fullscreen windows aren't on some "special" layer that covers everything; instead, they are normal tiles that you can switch away from, without disturbing the fullscreen status.
+    Fullscreen windows aren't on some "special" layer that covers everything; instead, they are normal parts of the container tree that you can switch away from, without disturbing the fullscreen status.
 
     Of course, you do want to cover your entire monitor when focused on a fullscreen window.
-    This is specifically hardcoded into the logic: when the view is stationary on a focused fullscreen window, the top layer-shell layer and the floating windows hide away.
+    This is specifically hardcoded into the logic: when focused on a fullscreen window, the top layer-shell layer and the floating windows hide away.
 
-    This is also why fullscreening a floating window makes it go into the scrolling layout.
+    This is also why fullscreening a floating window makes it go into the tiling layout.
 
 ## Default config
 

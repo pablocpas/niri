@@ -9,12 +9,6 @@ Here's a quick glance at the available settings along with their default values.
 
 ```kdl
 gestures {
-    dnd-edge-view-scroll {
-        trigger-width 30
-        delay-ms 100
-        max-speed 1500
-    }
-
     dnd-edge-workspace-switch {
         trigger-height 50
         delay-ms 100
@@ -27,31 +21,6 @@ gestures {
         // top-right
         // bottom-left
         // bottom-right
-    }
-}
-```
-
-### `dnd-edge-view-scroll`
-
-Scroll the tiling view when moving the mouse cursor against a monitor edge during drag-and-drop (DnD).
-Also works on a touchscreen.
-
-This will work for regular drag-and-drop (e.g. dragging a file from a file manager), and for window interactive move when targeting the tiling layout.
-
-The options are:
-
-- `trigger-width`: size of the area near the monitor edge that will trigger the scrolling, in logical pixels.
-- `delay-ms`: delay in milliseconds before the scrolling starts.
-Avoids unwanted scrolling when dragging things across monitors.
-- `max-speed`: maximum scrolling speed in logical pixels per second.
-The scrolling speed increases linearly as you move your mouse cursor from `trigger-width` to the very edge of the monitor.
-
-```kdl
-gestures {
-    // Increase the trigger area and maximum speed.
-    dnd-edge-view-scroll {
-        trigger-width 100
-        max-speed 3000
     }
 }
 ```

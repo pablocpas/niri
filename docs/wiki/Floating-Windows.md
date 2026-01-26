@@ -2,8 +2,7 @@
 
 <sup>Since: 25.01</sup>
 
-Floating windows in niri always show on top of the tiled windows.
-The floating layout does not scroll.
+Floating windows always show on top of the tiled windows.
 Each workspace/monitor has its own floating layout, just like each workspace/monitor has its own tiling layout.
 
 New windows will automatically float if they have a parent (e.g. dialogs) or if they are fixed size (e.g. splash screens).

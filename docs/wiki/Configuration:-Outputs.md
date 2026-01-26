@@ -348,13 +348,13 @@ In order to unset a flag, write it with `false`, e.g.:
 ```kdl
 layout {
     // Enabled globally.
-    always-center-single-column
+    gaps 16
 }
 
 output "eDP-1" {
     layout {
-        // Unset on this output.
-        always-center-single-column false
+        // Custom gaps on this output.
+        gaps 8
     }
 }
 ```

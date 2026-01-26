@@ -105,10 +105,7 @@ It doesn't always happen:
 - Some toolkits don't put resize handles outside the window geometry. Then there's no input area outside, so nowhere for `focus-follows-mouse` to trigger.
 - If the current window has its own margin for resizing, and it extends all the way to the monitor edge, then `focus-follows-mouse` won't trigger because the mouse will never leave the current window.
 
-To fix this, you can:
-
-- Use `focus-follows-mouse max-scroll-amount="0%"`, which will prevent `focus-follows-mouse` from triggering when it would cause scrolling.
-- Set `prefer-no-csd` which will generally cause clients to remove those resizing margins.
+To fix this, you can set `prefer-no-csd` which will generally cause clients to remove those resizing margins.
 
 ### How do I recover from a dead screen locker / from a red screen?
 
