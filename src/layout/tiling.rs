@@ -2906,12 +2906,6 @@ impl<W: LayoutElement> TilingSpace<W> {
     pub fn view_offset_gesture_end(&mut self, _cancelled: Option<bool>) -> bool {
         false
     }
-
-    pub fn dnd_scroll_gesture_begin(&mut self) {}
-    pub fn dnd_scroll_gesture_scroll(&mut self, _delta: f64) -> bool {
-        false
-    }
-    pub fn dnd_scroll_gesture_end(&mut self) {}
 }
 
 impl TilingSpace<crate::window::Mapped> {

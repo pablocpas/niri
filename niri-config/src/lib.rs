@@ -1517,7 +1517,6 @@ mod tests {
                         1280,
                     ),
                 ],
-                always_center_single_column: false,
                 empty_workspace_above_first: false,
                 default_column_display: Tabbed,
                 gaps: 8.0,
@@ -1610,17 +1609,6 @@ mod tests {
                     },
                     custom_shader: None,
                 },
-                horizontal_view_movement: HorizontalViewMovementAnim(
-                    Animation {
-                        off: false,
-                        kind: Easing(
-                            EasingParams {
-                                duration_ms: 100,
-                                curve: EaseOutExpo,
-                            },
-                        ),
-                    },
-                ),
                 window_movement: WindowMovementAnim(
                     Animation {
                         off: false,
@@ -1707,11 +1695,6 @@ mod tests {
                 ),
             },
             gestures: Gestures {
-                dnd_edge_view_scroll: DndEdgeViewScroll {
-                    trigger_width: 10.0,
-                    delay_ms: 100,
-                    max_speed: 50.0,
-                },
                 dnd_edge_workspace_switch: DndEdgeWorkspaceSwitch {
                     trigger_height: 50.0,
                     delay_ms: 100,

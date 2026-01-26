@@ -1188,11 +1188,6 @@ impl<W: LayoutElement> Layout<W> {
                             mon.dnd_scroll_gesture_end();
                         }
 
-                        // Unlock the view on the workspaces.
-                        for ws in self.workspaces_mut() {
-                            ws.dnd_scroll_gesture_end();
-                        }
-
                         return Some(RemovedTile {
                             tile: move_.tile,
                             width: move_.width,
@@ -2781,28 +2776,12 @@ impl<W: LayoutElement> Layout<W> {
         let is_overview_open = self.overview_open;
 
         // Scroll the view if needed.
-        if let Some((output, pos_within_output, is_scrolling)) = dnd_scroll {
+        if let Some((output, pos_within_output, _is_scrolling)) = dnd_scroll {
             if let Some(mon) = self.monitor_for_output_mut(&output) {
                 let mut scrolled = false;
 
                 let zoom = mon.overview_zoom();
                 scrolled |= mon.dnd_scroll_gesture_scroll(pos_within_output, 1. / zoom);
-
-                if is_scrolling {
-                    if let Some((ws, geo)) = mon.workspace_under(pos_within_output) {
-                        let ws_id = ws.id();
-                        let ws = mon
-                            .workspaces
-                            .iter_mut()
-                            .find(|ws| ws.id() == ws_id)
-                            .unwrap();
-                        // As far as the DnD scroll gesture is concerned, the workspace spans across
-                        // the whole monitor horizontally.
-                        let ws_pos = Point::from((0., geo.loc.y));
-                        scrolled |=
-                            ws.dnd_scroll_gesture_scroll(pos_within_output - ws_pos, 1. / zoom);
-                    }
-                }
 
                 if scrolled {
                     // Don't trigger DnD hold while scrolling.
@@ -3367,11 +3346,6 @@ impl<W: LayoutElement> Layout<W> {
                         1.,
                         self.options.animations.window_movement.0,
                     );
-
-                    // Unlock the view on the workspaces.
-                    for ws in self.workspaces_mut() {
-                        ws.dnd_scroll_gesture_end();
-                    }
                 } else {
                     // Animate the tile back to semitransparent.
                     move_.tile.animate_alpha(
@@ -4146,7 +4120,7 @@ impl<W: LayoutElement> Layout<W> {
 
         let zoom = mon.overview_zoom();
 
-        let is_floating = ws.is_floating(&window_id);
+        let _is_floating = ws.is_floating(&window_id);
         let (tile, tile_offset, _visible) = ws
             .tiles_with_render_positions()
             .find(|(tile, _, _)| tile.window().id() == &window_id)
@@ -4171,13 +4145,6 @@ impl<W: LayoutElement> Layout<W> {
 
         for mon in self.monitors_mut() {
             mon.dnd_scroll_gesture_begin();
-        }
-
-        // Lock the view for scrolling interactive move.
-        if !is_floating {
-            for ws in self.workspaces_mut() {
-                ws.dnd_scroll_gesture_begin();
-            }
         }
 
         true
@@ -4356,13 +4323,7 @@ impl<W: LayoutElement> Layout<W> {
                     .adjusted_for_scale(scale);
                 tile.update_config(view_size, scale, Rc::new(options));
 
-                if is_floating {
-                    // Unlock the view in case we locked it moving a fullscreen window that is
-                    // going to unfullscreen to floating.
-                    for ws in self.workspaces_mut() {
-                        ws.dnd_scroll_gesture_end();
-                    }
-                } else {
+                if !is_floating {
                     // Animate to semitransparent.
                     tile.animate_alpha(
                         1.,
@@ -4515,8 +4476,6 @@ impl<W: LayoutElement> Layout<W> {
                     let moved_tile_was_active =
                         ws.active_window().is_some_and(|win| *win.id() == window_id);
 
-                    ws.dnd_scroll_gesture_end();
-
                     if moved_tile_was_active {
                         ws.activate_window(&window_id);
                     }
@@ -4567,13 +4526,8 @@ impl<W: LayoutElement> Layout<W> {
             mon.dnd_scroll_gesture_end();
         }
 
-        // Unlock the view on the workspaces.
+        // Animate the tile back to opaque.
         if !move_.is_floating {
-            for ws in self.workspaces_mut() {
-                ws.dnd_scroll_gesture_end();
-            }
-
-            // Also animate the tile back to opaque.
             move_.tile.animate_alpha(
                 INTERACTIVE_MOVE_ALPHA,
                 1.,
@@ -4850,10 +4804,6 @@ impl<W: LayoutElement> Layout<W> {
             for mon in self.monitors_mut() {
                 mon.dnd_scroll_gesture_begin();
             }
-
-            for ws in self.workspaces_mut() {
-                ws.dnd_scroll_gesture_begin();
-            }
         }
     }
 
@@ -4866,10 +4816,6 @@ impl<W: LayoutElement> Layout<W> {
 
         for mon in self.monitors_mut() {
             mon.dnd_scroll_gesture_end();
-        }
-
-        for ws in self.workspaces_mut() {
-            ws.dnd_scroll_gesture_end();
         }
     }
 
@@ -5386,14 +5332,7 @@ impl<W: LayoutElement> Layout<W> {
                         let is_focused = is_active && ws_idx == mon.active_workspace_idx;
                         ws.refresh(is_active, is_focused);
 
-                        if let Some(is_scrolling) = ongoing_scrolling_dnd {
-                            // Lock or unlock the view for scrolling interactive move.
-                            if is_scrolling {
-                                ws.dnd_scroll_gesture_begin();
-                            } else {
-                                ws.dnd_scroll_gesture_end();
-                            }
-                        } else {
+                        if ongoing_scrolling_dnd.is_none() {
                             // Cancel the view offset gesture after workspace switches, moves, etc.
                             if !self.overview_open && ws_idx != mon.active_workspace_idx {
                                 ws.view_offset_gesture_end(None);
