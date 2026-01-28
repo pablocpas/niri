@@ -1472,6 +1472,15 @@ impl<W: LayoutElement> Layout<W> {
             }
         }
 
+        if let Some(window) = self
+            .scratchpad
+            .iter()
+            .find(|tile| tile.window().is_wl_surface(wl_surface))
+            .map(|tile| tile.window())
+        {
+            return Some((window, None));
+        }
+
         None
     }
 
@@ -1502,6 +1511,15 @@ impl<W: LayoutElement> Layout<W> {
                     }
                 }
             }
+        }
+
+        if let Some(window) = self
+            .scratchpad
+            .iter_mut()
+            .find(|tile| tile.window().is_wl_surface(wl_surface))
+            .map(|tile| tile.window_mut())
+        {
+            return Some((window, None));
         }
 
         None
