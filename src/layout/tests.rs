@@ -1729,6 +1729,16 @@ fn marks_for(layout: &Layout<TestWindow>, id: usize) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn window_layout(layout: &Layout<TestWindow>, id: usize) -> niri_ipc::WindowLayout {
+    let mut found = None;
+    layout.with_windows(|win, _output, _ws_id, layout| {
+        if *win.id() == id {
+            found = Some(layout);
+        }
+    });
+    found.expect("window layout should be present")
+}
+
 fn requested_width(layout: &Layout<TestWindow>, id: usize) -> i32 {
     layout
         .windows()
@@ -2072,6 +2082,79 @@ fn scratchpad_from_tiling_becomes_floating() {
     assert!(workspace.is_floating(&id));
 }
 
+#[test]
+fn sticky_toggle_requires_floating() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    let params = TestWindowParams::new(1);
+    let id = params.id;
+    layout.add_window(
+        TestWindow::new(params),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    layout.toggle_window_sticky(None);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.has_window(&id));
+    assert!(!window_layout(&layout, id).is_sticky);
+}
+
+#[test]
+fn sticky_moves_across_workspaces_on_output() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    let params = TestWindowParams::new(1);
+    let id = params.id;
+    layout.add_window(
+        TestWindow::new(params),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    layout.set_window_floating(Some(&id), true);
+    layout.toggle_window_sticky(None);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.has_window(&id));
+    assert!(window_layout(&layout, id).is_sticky);
+
+    layout.switch_workspace(1);
+    let active_ws_id = layout.active_workspace().expect("active workspace").id();
+
+    assert!(window_layout(&layout, id).is_sticky);
+
+    // Ensure sticky window reports the active workspace id.
+    let mut reported_ws = None;
+    layout.with_windows(|win, _output, ws_id, _layout| {
+        if *win.id() == id {
+            reported_ws = ws_id;
+        }
+    });
+    assert_eq!(reported_ws, Some(active_ws_id));
+
+    layout.toggle_window_sticky(Some(&id));
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.has_window(&id));
+    assert!(!window_layout(&layout, id).is_sticky);
+}
 #[test]
 fn scratchpad_show_hides_visible_then_shows_next() {
     let options = Options::from_config(&Config::default());

@@ -193,3 +193,95 @@
 {"run_id":"1767947924-87669329","line":399,"new":null,"old":null}
 {"run_id":"1767947924-87669329","line":409,"new":null,"old":null}
 {"run_id":"1767947924-87669329","line":418,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":317,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":450,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":149,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":585,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":945,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":789,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":120,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":226,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":1035,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":700,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":865,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":91,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_animates_next_y","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":91,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:410"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 ×  50 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1769767661-489804747","line":326,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":459,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":335,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":594,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":468,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":806,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":138,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":605,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":874,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":815,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":709,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":885,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":358,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":718,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":368,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":494,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":628,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":174,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_back-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":174,"expression":"format_tiles(&layout)"},"snapshot":"100 × 150 at x:  0 y:  0\n200 × 200 at x:  0 y:520"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 200 at x:  0 y:  0\n200 × 200 at x:  0 y:440"}}
+{"run_id":"1769767661-489804747","line":913,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":636,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":644,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":653,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":970,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":970,"expression":"format_tiles(&layout)"},"snapshot":"105 × 100 at x:  0 y:  0\n200 × 200 at x:200 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"200 × 100 at x:  0 y:  0\n200 × 200 at x:618 y:  0"}}
+{"run_id":"1769767661-489804747","line":391,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":1060,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel_of_column_to_the_left-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":1060,"expression":"format_tiles(&layout)"},"snapshot":"105 × 100 at x:  0 y:  0\n200 × 200 at x:200 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"200 × 100 at x:  0 y:  0\n200 × 200 at x:618 y:  0"}}
+{"run_id":"1769767661-489804747","line":519,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":399,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":409,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":529,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":742,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":418,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":538,"new":null,"old":null}
+{"run_id":"1769767661-489804747","line":251,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_cancel-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":251,"expression":"format_tiles(&layout)"},"snapshot":"100 × 105 at x:  0 y:  0\n200 × 200 at x:  0 y:520"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 200 at x:  0 y:  0\n200 × 200 at x:  0 y:368"}}
+{"run_id":"1769767661-489804747","line":751,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":149,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":120,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":789,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":226,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":450,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":945,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":317,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":585,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":865,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":700,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":1035,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":138,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":459,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":326,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":806,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":468,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":874,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":594,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":815,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":335,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":709,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":885,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":605,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":718,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":358,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":91,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_animates_next_y","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":91,"expression":"format_tiles(&layout)"},"snapshot":"100 × 100 at x:  0 y:  0\n200 × 200 at x:  0 y:410"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 ×  50 at x:  0 y:  0\n200 × 200 at x:  0 y:360"}}
+{"run_id":"1769767666-903678104","line":494,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":368,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":628,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":913,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":251,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_cancel-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":251,"expression":"format_tiles(&layout)"},"snapshot":"100 × 105 at x:  0 y:  0\n200 × 200 at x:  0 y:520"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 200 at x:  0 y:  0\n200 × 200 at x:  0 y:368"}}
+{"run_id":"1769767666-903678104","line":636,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":970,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":970,"expression":"format_tiles(&layout)"},"snapshot":"105 × 100 at x:  0 y:  0\n200 × 200 at x:200 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"200 × 100 at x:  0 y:  0\n200 × 200 at x:618 y:  0"}}
+{"run_id":"1769767666-903678104","line":644,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":519,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":391,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":653,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":174,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"height_resize_and_back-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":174,"expression":"format_tiles(&layout)"},"snapshot":"100 × 150 at x:  0 y:  0\n200 × 200 at x:  0 y:520"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"100 × 200 at x:  0 y:  0\n200 × 200 at x:  0 y:440"}}
+{"run_id":"1769767666-903678104","line":529,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":399,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":538,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":409,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":742,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":418,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":751,"new":null,"old":null}
+{"run_id":"1769767666-903678104","line":1060,"new":{"module_name":"niri__layout__tests__animations","snapshot_name":"width_resize_and_cancel_of_column_to_the_left-2","metadata":{"source":"src/layout/tests/animations.rs","assertion_line":1060,"expression":"format_tiles(&layout)"},"snapshot":"105 × 100 at x:  0 y:  0\n200 × 200 at x:200 y:  0"},"old":{"module_name":"niri__layout__tests__animations","metadata":{},"snapshot":"200 × 100 at x:  0 y:  0\n200 × 200 at x:618 y:  0"}}

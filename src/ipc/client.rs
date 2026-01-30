@@ -764,9 +764,11 @@ fn print_window(window: &Window) {
         window_size,
         tile_pos_in_workspace_view,
         window_offset_in_tile,
+        is_sticky,
     } = window.layout;
 
     println!("  Layout:");
+    println!("    Is sticky: {}", if is_sticky { "yes" } else { "no" });
     println!(
         "    Tile size: {} x {}",
         fmt_rounded(tile_size.0),

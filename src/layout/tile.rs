@@ -69,6 +69,8 @@ pub struct Tile<W: LayoutElement> {
     pub(super) restore_to_floating: bool,
     /// Whether this tile is in the scratchpad.
     pub(super) is_scratchpad: bool,
+    /// Whether this tile is sticky (floating across workspaces on an output).
+    pub(super) is_sticky: bool,
 
     /// Marks assigned to this tile.
     marks: Vec<String>,
@@ -313,6 +315,7 @@ impl<W: LayoutElement> Tile<W> {
             fullscreen_backdrop: SolidColorBuffer::new((0., 0.), [0., 0., 0., 1.]),
             restore_to_floating: false,
             is_scratchpad: false,
+            is_sticky: false,
             marks: Vec::new(),
             pending_maximized,
             floating_window_size: None,
@@ -961,6 +964,14 @@ impl<W: LayoutElement> Tile<W> {
         self.is_scratchpad = scratchpad;
     }
 
+    pub(super) fn is_sticky(&self) -> bool {
+        self.is_sticky
+    }
+
+    pub(super) fn set_sticky(&mut self, sticky: bool) {
+        self.is_sticky = sticky;
+    }
+
     #[allow(dead_code)]
     pub(super) fn marks(&self) -> &[String] {
         &self.marks
@@ -1223,6 +1234,7 @@ impl<W: LayoutElement> Tile<W> {
             window_size: self.window().size().into(),
             tile_pos_in_workspace_view: None,
             window_offset_in_tile: self.window_loc().into(),
+            is_sticky: self.is_sticky(),
         }
     }
 

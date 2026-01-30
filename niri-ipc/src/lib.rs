@@ -889,6 +889,14 @@ pub enum Action {
         #[cfg_attr(feature = "clap", arg(long))]
         id: Option<u64>,
     },
+    /// Toggle sticky state for a floating window.
+    ToggleWindowSticky {
+        /// Id of the window to toggle.
+        ///
+        /// If `None`, uses the focused window.
+        #[cfg_attr(feature = "clap", arg(long))]
+        id: Option<u64>,
+    },
     /// Move the focused window to the floating layout.
     MoveWindowToFloating {
         /// Id of the window to move.
@@ -1488,6 +1496,8 @@ pub struct WindowLayout {
     /// the distance from the corner of the black backdrop to the corner of the (centered) window
     /// contents.
     pub window_offset_in_tile: (f64, f64),
+    /// Whether this window is sticky (floating across workspaces on an output).
+    pub is_sticky: bool,
 }
 
 /// Output configuration change result.
