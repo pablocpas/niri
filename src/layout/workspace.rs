@@ -1646,16 +1646,30 @@ impl<W: LayoutElement> Workspace<W> {
             removed.tile.stop_move_animations();
             removed.tile.pending_maximized = false;
 
-            // Come up with a default floating position close to the tile position.
+            // Center the window and set a default size, similar to scratchpad behavior.
             let stored_or_default = self.floating.stored_or_default_tile_pos(&removed.tile);
             if stored_or_default.is_none() {
-                let offset = Point::from((50., 50.));
-                if let Some(render_pos) = render_pos {
-                    let pos = render_pos + offset;
-                    let size = removed.tile.tile_size();
-                    let pos = self.floating.clamp_within_working_area(pos, size);
-                    let pos = self.floating.logical_to_size_frac(pos);
-                    removed.tile.floating_pos = Some(pos);
+                // Always center floating windows when first made floating.
+                removed.tile.floating_pos = None;
+
+                // Set a default size if the window doesn't have a stored floating size.
+                // Using sway's defaults: 50% width × 75% height
+                if removed.tile.floating_window_size.is_none() {
+                    let working_size = self.floating.working_area().size;
+                    let mut size = Size::from((
+                        working_size.w * 0.5,
+                        working_size.h * 0.75,
+                    ))
+                    .to_i32_floor();
+
+                    // Apply min/max size constraints
+                    let min_size = removed.tile.window().min_size();
+                    let max_size = removed.tile.window().max_size();
+                    size.w = ensure_min_max_size(size.w, min_size.w, max_size.w);
+                    size.h = ensure_min_max_size(size.h, min_size.h, max_size.h);
+
+                    removed.tile.floating_window_size = Some(size);
+                    removed.tile.window_mut().request_size_once(size, true);
                 }
             }
 
