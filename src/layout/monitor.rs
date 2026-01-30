@@ -2296,6 +2296,15 @@ impl<W: LayoutElement> Monitor<W> {
 
         let active_ws_id = self.workspaces[self.active_workspace_idx].id();
 
+        // Pre-calculate sticky geometry outside the loop to use a fixed position
+        let zoom = self.overview_zoom();
+        let ws_size = self.workspace_size(zoom);
+        let static_offset = (self.view_size.to_point() - ws_size.to_point()).downscale(2.);
+        let static_offset = static_offset
+            .to_physical_precise_round(scale)
+            .to_logical(scale);
+        let sticky_geo = Rectangle::new(static_offset, ws_size);
+
         for (ws, geo) in self.workspaces_with_render_geo() {
             // Macro instead of closure because ws and insert hint have different elem types.
             macro_rules! push {
@@ -2310,11 +2319,14 @@ impl<W: LayoutElement> Monitor<W> {
                 }};
             }
 
-            // Render sticky windows only for the active workspace, on top of its floating windows.
-            if ws.id() == active_ws_id && ws.is_floating_visible() && !self.sticky_floating.is_empty()
-            {
-                let view_rect = Rectangle::from_size(ws.view_size());
+            ws.render_floating(renderer, target, focus_ring, push!());
+
+            // Render sticky windows in a fixed position for the active workspace only.
+            // This must be done AFTER floating but BEFORE scrolling to maintain proper z-order.
+            if ws.id() == active_ws_id && !self.sticky_floating.is_empty() {
+                let view_rect = Rectangle::from_size(self.view_size);
                 let sticky_focus_ring = focus_ring && self.sticky_is_active;
+
                 self.sticky_floating.render(
                     renderer,
                     view_rect,
@@ -2325,13 +2337,12 @@ impl<W: LayoutElement> Monitor<W> {
                         let elem = CropRenderElement::from_element(elem, scale, crop_bounds);
                         if let Some(elem) = elem {
                             let elem = MonitorInnerRenderElement::from(elem);
-                            push(scale_relocate(geo, elem));
+                            // Use sticky_geo instead of geo to avoid animation
+                            push(scale_relocate(sticky_geo, elem));
                         }
                     },
                 );
             }
-
-            ws.render_floating(renderer, target, focus_ring, push!());
 
             if let Some(loc) = insert_hint_render_loc {
                 if loc.workspace == InsertWorkspace::Existing(ws.id()) {
