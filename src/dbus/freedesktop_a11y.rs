@@ -19,7 +19,7 @@ use zbus::object_server::SignalEmitter;
 use zbus::zvariant::NoneValue;
 
 use super::Start;
-use crate::niri::State;
+use crate::tiri::State;
 
 #[derive(Debug, Default)]
 struct Data {

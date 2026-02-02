@@ -17,7 +17,7 @@ use smithay::output::Output;
 use smithay::utils::{IsAlive, Logical, Point, Serial, SERIAL_COUNTER};
 
 use crate::input::PointerOrTouchStartData;
-use crate::niri::State;
+use crate::tiri::State;
 use crate::utils::get_monotonic_time;
 
 pub struct MoveGrab {

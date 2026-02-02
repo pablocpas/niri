@@ -10,7 +10,7 @@ use smithay::output::Output;
 use smithay::utils::{IsAlive, Logical, Point, Serial};
 
 use crate::layout::workspace::{Workspace, WorkspaceId};
-use crate::niri::State;
+use crate::tiri::State;
 use crate::window::Mapped;
 
 // When the touch is stationary for this much time, it becomes an interactive move.

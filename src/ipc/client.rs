@@ -4,9 +4,9 @@ use std::path::Path;
 use std::{env, slice};
 
 use anyhow::{anyhow, bail, Context};
-use niri_config::OutputName;
-use niri_ipc::socket::Socket;
-use niri_ipc::{
+use tiri_config::OutputName;
+use tiri_ipc::socket::Socket;
+use tiri_ipc::{
     Action, Cast, CastKind, CastTarget, Event, KeyboardLayouts, LayoutTree, LayoutTreeLayout,
     LogicalOutput, Mode, Output, OutputConfigChanged, Overview, Request, Response, Transform,
     Window, WindowLayout,
@@ -58,7 +58,7 @@ pub fn handle_msg(mut msg: Msg, json: bool) -> anyhow::Result<()> {
     let result = socket.send(request);
 
     // For errors that can be caused by a version mismatch between the running niri instance and
-    // the niri msg CLI, we will try to fetch and compare the versions.
+    // the tiri msg CLI, we will try to fetch and compare the versions.
     let check_compositor_version = match &result {
         Err(err) => {
             // Response JSON parsing errors.
@@ -220,19 +220,19 @@ pub fn handle_msg(mut msg: Msg, json: bool) -> anyhow::Result<()> {
             });
             let mut iter = layers.iter().peekable();
 
-            let print = |surface: &niri_ipc::LayerSurface| {
+            let print = |surface: &tiri_ipc::LayerSurface| {
                 println!("    Surface:");
                 println!("      Namespace: \"{}\"", &surface.namespace);
 
                 let interactivity = match surface.keyboard_interactivity {
-                    niri_ipc::LayerSurfaceKeyboardInteractivity::None => "none",
-                    niri_ipc::LayerSurfaceKeyboardInteractivity::Exclusive => "exclusive",
-                    niri_ipc::LayerSurfaceKeyboardInteractivity::OnDemand => "on-demand",
+                    tiri_ipc::LayerSurfaceKeyboardInteractivity::None => "none",
+                    tiri_ipc::LayerSurfaceKeyboardInteractivity::Exclusive => "exclusive",
+                    tiri_ipc::LayerSurfaceKeyboardInteractivity::OnDemand => "on-demand",
                 };
                 println!("      Keyboard interactivity: {interactivity}");
             };
 
-            let print_layer = |iter: &mut Peekable<slice::Iter<niri_ipc::LayerSurface>>,
+            let print_layer = |iter: &mut Peekable<slice::Iter<tiri_ipc::LayerSurface>>,
                                output: &str,
                                layer| {
                 let mut empty = true;
@@ -253,16 +253,16 @@ pub fn handle_msg(mut msg: Msg, json: bool) -> anyhow::Result<()> {
                 println!("Output \"{output}\":");
 
                 print!("  Background layer:");
-                print_layer(&mut iter, output, niri_ipc::Layer::Background);
+                print_layer(&mut iter, output, tiri_ipc::Layer::Background);
 
                 print!("  Bottom layer:");
-                print_layer(&mut iter, output, niri_ipc::Layer::Bottom);
+                print_layer(&mut iter, output, tiri_ipc::Layer::Bottom);
 
                 print!("  Top layer:");
-                print_layer(&mut iter, output, niri_ipc::Layer::Top);
+                print_layer(&mut iter, output, tiri_ipc::Layer::Top);
 
                 print!("  Overlay layer:");
-                print_layer(&mut iter, output, niri_ipc::Layer::Overlay);
+                print_layer(&mut iter, output, tiri_ipc::Layer::Overlay);
             }
         }
         Msg::FocusedOutput => {
@@ -588,7 +588,7 @@ fn print_layout_tree(tree: &LayoutTree) {
     }
 }
 
-fn print_layout_tree_node(node: &niri_ipc::LayoutTreeNode, depth: usize) {
+fn print_layout_tree_node(node: &tiri_ipc::LayoutTreeNode, depth: usize) {
     let indent = "  ".repeat(depth);
     let focus_mark = if node.focused { " *" } else { "" };
 

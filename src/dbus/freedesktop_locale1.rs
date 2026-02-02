@@ -1,5 +1,5 @@
 use futures_util::StreamExt;
-use niri_config::Xkb;
+use tiri_config::Xkb;
 use zbus::names::InterfaceName;
 use zbus::{fdo, zvariant};
 
@@ -70,7 +70,7 @@ pub fn start(
 
         // Send the initial properties.
         if let Err(err) = to_niri.send(Locale1ToNiri::XkbChanged(xkb.clone())) {
-            warn!("error sending message to niri: {err:?}");
+            warn!("error sending message to tiri: {err:?}");
             return;
         };
 
@@ -128,7 +128,7 @@ pub fn start(
             }
 
             if let Err(err) = to_niri.send(Locale1ToNiri::XkbChanged(xkb.clone())) {
-                warn!("error sending message to niri: {err:?}");
+                warn!("error sending message to tiri: {err:?}");
                 return;
             };
         }

@@ -1,6 +1,6 @@
-use niri_config::layer_rule::{LayerRule, Match};
-use niri_config::utils::MergeWith as _;
-use niri_config::{BlockOutFrom, CornerRadius, ShadowRule};
+use tiri_config::layer_rule::{LayerRule, Match};
+use tiri_config::utils::MergeWith as _;
+use tiri_config::{BlockOutFrom, CornerRadius, ShadowRule};
 use smithay::desktop::LayerSurface;
 
 pub mod mapped;

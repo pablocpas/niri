@@ -1,12 +1,12 @@
 use std::cmp::{max, min};
 
-use niri_config::utils::MergeWith as _;
-use niri_config::window_rule::{Match, WindowRule};
-use niri_config::{
+use tiri_config::utils::MergeWith as _;
+use tiri_config::window_rule::{Match, WindowRule};
+use tiri_config::{
     BlockOutFrom, BorderRule, CornerRadius, FloatingPosition, PresetSize, ShadowRule,
     TabIndicatorRule,
 };
-use niri_ipc::ColumnDisplay;
+use tiri_ipc::ColumnDisplay;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::utils::{Logical, Size};
 use smithay::wayland::compositor::with_states;

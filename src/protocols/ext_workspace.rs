@@ -30,7 +30,7 @@ use wayland_backend::server::ClientId;
 
 use crate::layout::monitor::Monitor;
 use crate::layout::workspace::{Workspace, WorkspaceId};
-use crate::niri::State;
+use crate::tiri::State;
 use crate::window::Mapped;
 
 const VERSION: u32 = 1;

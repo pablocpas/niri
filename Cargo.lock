@@ -2158,109 +2158,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "niri"
-version = "25.11.0"
-dependencies = [
- "accesskit",
- "accesskit_unix",
- "anyhow",
- "approx 0.5.1",
- "arrayvec",
- "async-channel",
- "async-io",
- "atomic",
- "bitflags 2.10.0",
- "bytemuck",
- "calloop 0.14.3",
- "calloop-wayland-source 0.4.1",
- "clap",
- "clap_complete",
- "clap_complete_nushell",
- "directories",
- "drm-ffi",
- "fastrand",
- "futures-util",
- "git-version",
- "glam",
- "input",
- "insta",
- "keyframe",
- "libc",
- "libdisplay-info",
- "log",
- "niri-config",
- "niri-ipc",
- "ordered-float",
- "pango",
- "pangocairo",
- "pipewire",
- "pkg-config",
- "png",
- "portable-atomic",
- "profiling",
- "proptest",
- "proptest-derive",
- "rayon",
- "sd-notify",
- "serde",
- "serde_json",
- "slotmap",
- "smithay",
- "smithay-drm-extras",
- "tracing",
- "tracing-subscriber",
- "tracy-client",
- "wayland-backend",
- "wayland-client",
- "wayland-scanner",
- "xcursor",
- "xshell",
- "zbus",
-]
-
-[[package]]
-name = "niri-config"
-version = "25.11.0"
-dependencies = [
- "bitflags 2.10.0",
- "csscolorparser",
- "diff",
- "insta",
- "knuffel",
- "miette",
- "niri-ipc",
- "pretty_assertions",
- "regex",
- "smithay",
- "tracing",
- "tracy-client",
-]
-
-[[package]]
-name = "niri-ipc"
-version = "25.11.0"
-dependencies = [
- "clap",
- "schemars",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "niri-visual-tests"
-version = "25.11.0"
-dependencies = [
- "anyhow",
- "gtk4",
- "libadwaita",
- "niri",
- "niri-config",
- "smithay",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "nix"
 version = "0.30.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3659,6 +3556,109 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f60246a4944f24f6e018aa17cdeffb7818b76356965d03b07d6a9886e8962185"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "tiri"
+version = "25.11.0"
+dependencies = [
+ "accesskit",
+ "accesskit_unix",
+ "anyhow",
+ "approx 0.5.1",
+ "arrayvec",
+ "async-channel",
+ "async-io",
+ "atomic",
+ "bitflags 2.10.0",
+ "bytemuck",
+ "calloop 0.14.3",
+ "calloop-wayland-source 0.4.1",
+ "clap",
+ "clap_complete",
+ "clap_complete_nushell",
+ "directories",
+ "drm-ffi",
+ "fastrand",
+ "futures-util",
+ "git-version",
+ "glam",
+ "input",
+ "insta",
+ "keyframe",
+ "libc",
+ "libdisplay-info",
+ "log",
+ "ordered-float",
+ "pango",
+ "pangocairo",
+ "pipewire",
+ "pkg-config",
+ "png",
+ "portable-atomic",
+ "profiling",
+ "proptest",
+ "proptest-derive",
+ "rayon",
+ "sd-notify",
+ "serde",
+ "serde_json",
+ "slotmap",
+ "smithay",
+ "smithay-drm-extras",
+ "tiri-config",
+ "tiri-ipc",
+ "tracing",
+ "tracing-subscriber",
+ "tracy-client",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-scanner",
+ "xcursor",
+ "xshell",
+ "zbus",
+]
+
+[[package]]
+name = "tiri-config"
+version = "25.11.0"
+dependencies = [
+ "bitflags 2.10.0",
+ "csscolorparser",
+ "diff",
+ "insta",
+ "knuffel",
+ "miette",
+ "pretty_assertions",
+ "regex",
+ "smithay",
+ "tiri-ipc",
+ "tracing",
+ "tracy-client",
+]
+
+[[package]]
+name = "tiri-ipc"
+version = "25.11.0"
+dependencies = [
+ "clap",
+ "schemars",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "tiri-visual-tests"
+version = "25.11.0"
+dependencies = [
+ "anyhow",
+ "gtk4",
+ "libadwaita",
+ "smithay",
+ "tiri",
+ "tiri-config",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

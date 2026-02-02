@@ -7,10 +7,10 @@ use accesskit::{
 };
 use accesskit_unix::Adapter;
 use calloop::LoopHandle;
-use niri_config::MruScope;
+use tiri_config::MruScope;
 
 use crate::layout::workspace::WorkspaceId;
-use crate::niri::{KeyboardFocus, Niri, State};
+use crate::tiri::{KeyboardFocus, Niri, State};
 use crate::utils::with_toplevel_role;
 use crate::window::mapped::MappedId;
 
@@ -320,7 +320,7 @@ impl Niri {
 
         let tree = Tree {
             root: ID_ROOT,
-            toolkit_name: Some(String::from("niri")),
+            toolkit_name: Some(String::from("tiri")),
             toolkit_version: None,
         };
 

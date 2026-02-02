@@ -10,7 +10,7 @@ use calloop::generic::Generic;
 use calloop::{Interest, Mode, PostAction, RegistrationToken};
 use smithay::reexports::rustix::io::{fcntl_setfd, FdFlags};
 
-use crate::niri::State;
+use crate::tiri::State;
 use crate::utils::expand_home;
 use crate::utils::xwayland::X11Connection;
 

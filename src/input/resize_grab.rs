@@ -8,7 +8,7 @@ use smithay::input::pointer::{
 use smithay::input::SeatHandler;
 use smithay::utils::{IsAlive, Logical, Point};
 
-use crate::niri::State;
+use crate::tiri::State;
 
 pub struct ResizeGrab {
     start_data: PointerGrabStartData<State>,

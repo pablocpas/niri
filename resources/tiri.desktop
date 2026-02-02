@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Tiri
+Comment=A tiling Wayland compositor
+Exec=tiri-session
+Type=Application
+DesktopNames=tiri

@@ -79,14 +79,16 @@ binds {
 }
 ```
 
-This is mostly useful for the scroll bindings.
+This is mostly useful for binds that would otherwise trigger too quickly.
 
 ### Scroll Bindings
+
+Scroll bindings are currently disabled in tiri.
 
 You can bind mouse wheel scroll ticks using the following syntax.
 These binds will change direction based on the `natural-scroll` setting.
 
-```kdl
+```text
 binds {
     Mod+WheelScrollDown cooldown-ms=150 { focus-workspace-down; }
     Mod+WheelScrollUp   cooldown-ms=150 { focus-workspace-up; }
@@ -98,9 +100,9 @@ binds {
 Similarly, you can bind touchpad scroll "ticks".
 Touchpad scrolling is continuous, so for these binds it is split into discrete intervals based on distance travelled.
 
-These binds are also affected by touchpad's `natural-scroll`, so these example binds are "inverted", since niri has `natural-scroll` enabled for touchpads by default.
+These binds are also affected by touchpad's `natural-scroll`, so these example binds are "inverted", since tiri has `natural-scroll` enabled for touchpads by default.
 
-```kdl
+```text
 binds {
     Mod+TouchpadScrollDown { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.02+"; }
     Mod+TouchpadScrollUp   { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.02-"; }
@@ -108,7 +110,7 @@ binds {
 ```
 
 Both mouse wheel and touchpad scroll binds will prevent applications from receiving any scroll events when their modifiers are held down.
-For example, if you have a `Mod+WheelScrollDown` bind, then while holding `Mod`, all mouse wheel scrolling will be consumed by niri.
+For example, if you have a `Mod+WheelScrollDown` bind, then while holding `Mod`, all mouse wheel scrolling will be consumed by tiri.
 
 ### Mouse Click Bindings
 

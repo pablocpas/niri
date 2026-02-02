@@ -5,12 +5,12 @@ use std::time::Duration;
 
 use calloop::generic::Generic;
 use calloop::{EventLoop, Interest, LoopHandle, Mode, PostAction};
-use niri_config::Config;
+use tiri_config::Config;
 use smithay::output::Output;
 
 use super::client::{Client, ClientId};
 use super::server::Server;
-use crate::niri::{NewClient, Niri};
+use crate::tiri::{NewClient, Niri};
 
 pub struct Fixture {
     pub event_loop: EventLoop<'static, State>,
@@ -60,7 +60,7 @@ impl Fixture {
             .unwrap();
     }
 
-    pub fn niri_state(&mut self) -> &mut crate::niri::State {
+    pub fn niri_state(&mut self) -> &mut crate::tiri::State {
         &mut self.state.server.state
     }
 

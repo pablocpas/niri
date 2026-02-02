@@ -15,12 +15,13 @@ pub mod input;
 pub mod ipc;
 pub mod layer;
 pub mod layout;
-pub mod niri;
+pub mod tiri;
 pub mod protocols;
 pub mod render_helpers;
 pub mod rubber_band;
 #[cfg(feature = "xdp-gnome-screencast")]
 pub mod screencasting;
+pub use tiri::State;
 pub mod ui;
 pub mod utils;
 pub mod window;

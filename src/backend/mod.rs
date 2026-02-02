@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use niri_config::{Config, ModKey};
+use tiri_config::{Config, ModKey};
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::output::Output;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 
-use crate::niri::Niri;
+use crate::tiri::Niri;
 use crate::utils::id::IdCounter;
 
 pub mod tty;
@@ -37,7 +37,7 @@ pub enum RenderResult {
     Skipped,
 }
 
-pub type IpcOutputMap = HashMap<OutputId, niri_ipc::Output>;
+pub type IpcOutputMap = HashMap<OutputId, tiri_ipc::Output>;
 
 static OUTPUT_ID_COUNTER: IdCounter = IdCounter::new();
 

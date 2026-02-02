@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use anyhow::{bail, Context, Result};
-use niri_config::{Color, TabBar};
+use tiri_config::{Color, TabBar};
 use pangocairo::cairo::{self, ImageSurface};
 use pangocairo::pango::{self, Alignment, EllipsizeMode, FontDescription};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};

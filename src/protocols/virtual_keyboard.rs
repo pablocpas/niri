@@ -7,7 +7,7 @@ use smithay::input::keyboard::xkb::ModMask;
 use smithay::input::keyboard::KeyboardHandle;
 use smithay::wayland::virtual_keyboard::VirtualKeyboardHandler;
 
-use crate::niri::State;
+use crate::tiri::State;
 
 pub struct VirtualKeyboardInputBackend;
 

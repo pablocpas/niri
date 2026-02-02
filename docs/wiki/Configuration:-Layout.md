@@ -111,7 +111,7 @@ For example, `gaps 0.5` on an output with `scale 2` will result in one physical-
 layout {
     gaps 16
 }
-
+```
 
 ### `empty-workspace-above-first`
 

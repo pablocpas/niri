@@ -8,7 +8,7 @@ use std::{io, thread};
 
 use atomic::Atomic;
 use libc::{getrlimit, rlim_t, rlimit, setrlimit, RLIMIT_NOFILE};
-use niri_config::Environment;
+use tiri_config::Environment;
 use smithay::wayland::xdg_activation::XdgActivationToken;
 
 use crate::utils::expand_home;
@@ -408,7 +408,7 @@ mod systemd {
         // Extract the basename.
         let name = Path::new(name).file_name().unwrap_or(name);
 
-        let mut scope_name = String::from("app-niri-");
+        let mut scope_name = String::from("app-tiri-");
 
         // Escape for systemd similarly to libgnome-desktop, which says it had adapted this from
         // systemd source.

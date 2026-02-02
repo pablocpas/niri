@@ -6,7 +6,7 @@ use smithay::input::touch::{
 use smithay::input::SeatHandler;
 use smithay::utils::{IsAlive, Logical, Point, Serial};
 
-use crate::niri::State;
+use crate::tiri::State;
 
 pub struct TouchResizeGrab {
     start_data: TouchGrabStartData<State>,

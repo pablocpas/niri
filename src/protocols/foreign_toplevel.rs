@@ -20,7 +20,7 @@ use wayland_protocols_wlr::foreign_toplevel::v1::server::{
 use zwlr_foreign_toplevel_handle_v1::ZwlrForeignToplevelHandleV1;
 use zwlr_foreign_toplevel_manager_v1::ZwlrForeignToplevelManagerV1;
 
-use crate::niri::State;
+use crate::tiri::State;
 use crate::utils::with_toplevel_role_and_current;
 
 const VERSION: u32 = 3;

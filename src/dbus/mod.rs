@@ -1,7 +1,7 @@
 use zbus::blocking::Connection;
 use zbus::object_server::Interface;
 
-use crate::niri::State;
+use crate::tiri::State;
 
 pub mod freedesktop_a11y;
 pub mod freedesktop_locale1;

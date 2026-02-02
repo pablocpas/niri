@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use calloop::Interest;
-use niri_config::PresetSize;
+use tiri_config::PresetSize;
 use smithay::desktop::{
     find_popup_root_surface, get_popup_toplevel_coords, layer_map_for_output, utils, LayerSurface,
     PopupKeyboardGrab, PopupKind, PopupManager, PopupPointerGrab, PopupUngrabStrategy, Window,
@@ -44,7 +44,7 @@ use crate::input::{PointerOrTouchStartData, DOUBLE_CLICK_TIME};
 use crate::layout::monitor::Monitor;
 use crate::layout::workspace::Workspace;
 use crate::layout::{ActivateWindow, Layout};
-use crate::niri::{CastTarget, PopupGrabState, State};
+use crate::tiri::{CastTarget, PopupGrabState, State};
 use crate::utils::transaction::Transaction;
 use crate::utils::{
     get_monotonic_time, output_matches_name, send_scale_transform, update_tiled_state, ResizeEdge,

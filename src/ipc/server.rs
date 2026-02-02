@@ -14,9 +14,9 @@ use calloop::io::Async;
 use directories::BaseDirs;
 use futures_util::io::{AsyncReadExt, BufReader};
 use futures_util::{select_biased, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, FutureExt as _};
-use niri_config::OutputName;
-use niri_ipc::state::{EventStreamState, EventStreamStatePart as _};
-use niri_ipc::{
+use tiri_config::OutputName;
+use tiri_ipc::state::{EventStreamState, EventStreamStatePart as _};
+use tiri_ipc::{
     Action, Event, KeyboardLayouts, OutputConfigChanged, Overview, Reply, Request, Response,
     Timestamp, WindowLayout, Workspace,
 };
@@ -34,7 +34,7 @@ use crate::backend::IpcOutputMap;
 use crate::cursor::CursorOverride;
 use crate::input::pick_window_grab::PickWindowGrab;
 use crate::layout::workspace::WorkspaceId;
-use crate::niri::State;
+use crate::tiri::State;
 use crate::utils::{version, with_toplevel_role};
 use crate::window::Mapped;
 
@@ -296,25 +296,25 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
                     let name = output.name();
                     for surface in layer_map_for_output(output).layers() {
                         let layer = match surface.layer() {
-                            Layer::Background => niri_ipc::Layer::Background,
-                            Layer::Bottom => niri_ipc::Layer::Bottom,
-                            Layer::Top => niri_ipc::Layer::Top,
-                            Layer::Overlay => niri_ipc::Layer::Overlay,
+                            Layer::Background => tiri_ipc::Layer::Background,
+                            Layer::Bottom => tiri_ipc::Layer::Bottom,
+                            Layer::Top => tiri_ipc::Layer::Top,
+                            Layer::Overlay => tiri_ipc::Layer::Overlay,
                         };
                         let keyboard_interactivity =
                             match surface.cached_state().keyboard_interactivity {
                                 KeyboardInteractivity::None => {
-                                    niri_ipc::LayerSurfaceKeyboardInteractivity::None
+                                    tiri_ipc::LayerSurfaceKeyboardInteractivity::None
                                 }
                                 KeyboardInteractivity::Exclusive => {
-                                    niri_ipc::LayerSurfaceKeyboardInteractivity::Exclusive
+                                    tiri_ipc::LayerSurfaceKeyboardInteractivity::Exclusive
                                 }
                                 KeyboardInteractivity::OnDemand => {
-                                    niri_ipc::LayerSurfaceKeyboardInteractivity::OnDemand
+                                    tiri_ipc::LayerSurfaceKeyboardInteractivity::OnDemand
                                 }
                             };
 
-                        layers.push(niri_ipc::LayerSurface {
+                        layers.push(tiri_ipc::LayerSurface {
                             namespace: surface.namespace().to_owned(),
                             output: name.clone(),
                             layer,
@@ -384,7 +384,7 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
 
             let (tx, rx) = async_channel::bounded(1);
 
-            let action = niri_config::Action::from(action);
+            let action = tiri_config::Action::from(action);
             ctx.event_loop.insert_idle(move |state| {
                 // Make sure some logic like workspace clean-up has a chance to run before doing
                 // actions.
@@ -519,8 +519,8 @@ fn make_ipc_window(
     mapped: &Mapped,
     workspace_id: Option<WorkspaceId>,
     layout: WindowLayout,
-) -> niri_ipc::Window {
-    with_toplevel_role(mapped.toplevel(), |role| niri_ipc::Window {
+) -> tiri_ipc::Window {
+    with_toplevel_role(mapped.toplevel(), |role| tiri_ipc::Window {
         id: mapped.id().get(),
         title: role.title.clone(),
         app_id: role.app_id.clone(),
@@ -833,11 +833,11 @@ impl State {
                 // Pending dynamic casts don't change any properties, so we only need to check if
                 // it's missing from the state.
                 if !state.casts.contains_key(&stream_id) {
-                    let cast = niri_ipc::Cast {
+                    let cast = tiri_ipc::Cast {
                         session_id: pending.session_id.get(),
                         stream_id,
-                        kind: niri_ipc::CastKind::PipeWire,
-                        target: niri_ipc::CastTarget::Nothing {},
+                        kind: tiri_ipc::CastKind::PipeWire,
+                        target: tiri_ipc::CastTarget::Nothing {},
                         is_dynamic_target: true,
                         is_active: false,
                         pid: None,
@@ -859,10 +859,10 @@ impl State {
                         || !cast.target.matches(&existing.target)
                         || existing.pw_node_id != pw_node_id
                 }) {
-                    let cast = niri_ipc::Cast {
+                    let cast = tiri_ipc::Cast {
                         session_id: cast.session_id.get(),
                         stream_id,
-                        kind: niri_ipc::CastKind::PipeWire,
+                        kind: tiri_ipc::CastKind::PipeWire,
                         target: cast.target.make_ipc(),
                         is_dynamic_target: cast.dynamic_target,
                         is_active: cast.is_active(),
@@ -888,15 +888,15 @@ impl State {
                 if state.casts.get(&stream_id).is_none_or(|existing| {
                     // Only this property can change.
                     match &existing.target {
-                        niri_ipc::CastTarget::Output { name } => *name != cast_info.output_name,
+                        tiri_ipc::CastTarget::Output { name } => *name != cast_info.output_name,
                         _ => true,
                     }
                 }) {
-                    let cast = niri_ipc::Cast {
+                    let cast = tiri_ipc::Cast {
                         session_id: cast_info.session_id.get(),
                         stream_id,
-                        kind: niri_ipc::CastKind::WlrScreencopy,
-                        target: niri_ipc::CastTarget::Output {
+                        kind: tiri_ipc::CastKind::WlrScreencopy,
+                        target: tiri_ipc::CastTarget::Output {
                             name: cast_info.output_name.clone(),
                         },
                         is_dynamic_target: false,

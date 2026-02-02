@@ -8,7 +8,7 @@ use smithay::input::pointer::{
 use smithay::input::SeatHandler;
 use smithay::utils::{Logical, Point};
 
-use crate::niri::State;
+use crate::tiri::State;
 use crate::window::Mapped;
 
 pub struct PickWindowGrab {

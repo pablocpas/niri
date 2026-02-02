@@ -14,9 +14,9 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 use std::time::Duration;
 
-use niri_config::utils::MergeWith as _;
-use niri_config::{Border, HideEdgeBorders, PresetSize, TabBar};
-use niri_ipc::{ColumnDisplay, LayoutTreeNode, SizeChange};
+use tiri_config::utils::MergeWith as _;
+use tiri_config::{Border, HideEdgeBorders, PresetSize, TabBar};
+use tiri_ipc::{ColumnDisplay, LayoutTreeNode, SizeChange};
 use smithay::backend::renderer::element::Kind;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
 
@@ -2037,7 +2037,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn tiles_with_ipc_layouts(
         &self,
-    ) -> impl Iterator<Item = (&Tile<W>, niri_ipc::WindowLayout)> + '_ {
+    ) -> impl Iterator<Item = (&Tile<W>, tiri_ipc::WindowLayout)> + '_ {
         let scale = Scale::from(self.scale);
 
         self.tree

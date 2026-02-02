@@ -2,10 +2,10 @@
 
 ## Project Structure & Module Organization
 - `src/`: compositor + layout core (tiling, input, rendering). Layout logic lives under `src/layout/`.
-- `niri-config/`, `niri-ipc/`: config parsing and IPC crates used by the compositor.
+- `tiri-config/`, `tiri-ipc/`: config parsing and IPC crates used by the compositor.
 - `docs/`, `resources/`: documentation and static assets.
-- `niri-visual-tests/`: visual/snapshot test helpers.
-- `config.kdl`: example config; user config typically lives at `~/.config/niri/config.kdl`.
+- `tiri-visual-tests/`: visual/snapshot test helpers.
+- `config.kdl`: example config; user config typically lives at `~/.config/tiri/config.kdl`.
 - Reference docs for i3 parity and design notes live in `ROADMAP_I3_CLONE.md`, `tiling_wm_context.md`.
 
 ## Build, Test, and Development Commands
@@ -34,5 +34,5 @@
 - Link related issues or roadmap sections when behavior changes affect i3/sway parity.
 
 ## Configuration & Security Notes
-- Keep `config.kdl` as a working example; avoid breaking fields used in `niri-config`.
+- Keep `config.kdl` as a working example; avoid breaking fields used in `tiri-config`.
 - Honor `block_out_from` rules when rendering text in bars/indicators for screencast safety.

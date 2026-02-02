@@ -1,0 +1,7 @@
+type               = process
+command            = tiri --session
+restart            = false
+working-dir        = $HOME
+ready-notification = pipevar:NOTIFY_FD
+logfile            = $HOME/.local/share/tiri/tiri.log
+depends-on:        dbus

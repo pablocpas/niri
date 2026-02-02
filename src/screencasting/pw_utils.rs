@@ -50,7 +50,7 @@ use smithay::utils::{Logical, Physical, Point, Scale, Size, Transform};
 use zbus::object_server::SignalEmitter;
 
 use crate::dbus::mutter_screen_cast::{self, CursorMode};
-use crate::niri::{CastTarget, State};
+use crate::tiri::{CastTarget, State};
 use crate::render_helpers::{
     clear_dmabuf, encompassing_geo, render_and_download, render_to_dmabuf,
 };
@@ -233,7 +233,7 @@ impl PipeWire {
                 // Reset PipeWire on connection errors.
                 if id == PW_ID_CORE && res == -32 {
                     if let Err(err) = to_niri_.send(PwToNiri::FatalError) {
-                        warn!("error sending FatalError to niri: {err:?}");
+                        warn!("error sending FatalError to tiri: {err:?}");
                     }
                 }
             })
@@ -283,13 +283,13 @@ impl PipeWire {
         let to_niri_ = self.to_niri.clone();
         let stop_cast = move || {
             if let Err(err) = to_niri_.send(PwToNiri::StopCast { session_id }) {
-                warn!(%session_id, "error sending StopCast to niri: {err:?}");
+                warn!(%session_id, "error sending StopCast to tiri: {err:?}");
             }
         };
         let to_niri_ = self.to_niri.clone();
         let redraw = move || {
             if let Err(err) = to_niri_.send(PwToNiri::Redraw { stream_id }) {
-                warn!(%stream_id, "error sending Redraw to niri: {err:?}");
+                warn!(%stream_id, "error sending Redraw to tiri: {err:?}");
             }
         };
         let redraw_ = redraw.clone();

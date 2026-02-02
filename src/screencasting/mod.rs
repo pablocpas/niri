@@ -17,7 +17,7 @@ use smithay::utils::{Physical, Point, Scale, Size};
 use zbus::object_server::SignalEmitter;
 
 use crate::dbus::mutter_screen_cast::{self, CursorMode, ScreenCastToNiri, StreamTargetId};
-use crate::niri::{CastTarget, Niri, OutputRenderElements, PointerRenderElements, State};
+use crate::tiri::{CastTarget, Niri, OutputRenderElements, PointerRenderElements, State};
 use crate::niri_render_elements;
 use crate::render_helpers::RenderTarget;
 use crate::utils::{get_monotonic_time, CastSessionId, CastStreamId};

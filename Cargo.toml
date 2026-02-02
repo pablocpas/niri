@@ -1,17 +1,17 @@
 [workspace]
 members = [
-    "niri-config",
-    "niri-ipc",
-    "niri-visual-tests",
+    "tiri-config",
+    "tiri-ipc",
+    "tiri-visual-tests",
 ]
 
 [workspace.package]
 version = "25.11.0"
-description = "A scrollable-tiling Wayland compositor"
+description = "A tiling Wayland compositor"
 authors = ["Ivan Molodetskikh <yalterz@gmail.com>"]
 license = "GPL-3.0-or-later"
 edition = "2021"
-repository = "https://github.com/YaLTeR/niri"
+repository = "https://github.com/pablocpas/tiri"
 rust-version = "1.85"
 
 [workspace.dependencies]
@@ -40,7 +40,7 @@ git = "https://github.com/Smithay/smithay.git"
 # path = "../smithay/smithay-drm-extras"
 
 [package]
-name = "niri"
+name = "tiri"
 version.workspace = true
 description.workspace = true
 authors.workspace = true
@@ -77,8 +77,8 @@ keyframe = { version = "1.1.1", default-features = false }
 libc = "0.2.180"
 libdisplay-info = "0.3.0"
 log = { version = "0.4.29", features = ["max_level_trace", "release_max_level_debug"] }
-niri-config = { version = "25.11.0", path = "niri-config" }
-niri-ipc = { version = "25.11.0", path = "niri-ipc", features = ["clap"] }
+tiri-config = { version = "25.11.0", path = "tiri-config" }
+tiri-ipc = { version = "25.11.0", path = "tiri-ipc", features = ["clap"] }
 ordered-float = "5.1.0"
 pango = { version = "0.21.5", features = ["v1_44"] }
 pangocairo = "0.21.5"
@@ -155,7 +155,7 @@ debug = "line-tables-only"
 overflow-checks = true
 lto = "thin"
 
-[profile.release.package.niri-config]
+[profile.release.package.tiri-config]
 # knuffel with chomsky generates a metric ton of debuginfo.
 debug = false
 
@@ -166,12 +166,12 @@ similar.opt-level = 3
 [package.metadata.generate-rpm]
 version = "25.11"
 assets = [
-    { source = "target/release/niri", dest = "/usr/bin/", mode = "755" },
-    { source = "resources/niri-session", dest = "/usr/bin/", mode = "755" },
-    { source = "resources/niri.desktop", dest = "/usr/share/wayland-sessions/", mode = "644" },
-    { source = "resources/niri-portals.conf", dest = "/usr/share/xdg-desktop-portal/", mode = "644" },
-    { source = "resources/niri.service", dest = "/usr/lib/systemd/user/", mode = "644" },
-    { source = "resources/niri-shutdown.target", dest = "/usr/lib/systemd/user/", mode = "644" },
+    { source = "target/release/tiri", dest = "/usr/bin/", mode = "755" },
+    { source = "resources/tiri-session", dest = "/usr/bin/", mode = "755" },
+    { source = "resources/tiri.desktop", dest = "/usr/share/wayland-sessions/", mode = "644" },
+    { source = "resources/tiri-portals.conf", dest = "/usr/share/xdg-desktop-portal/", mode = "644" },
+    { source = "resources/tiri.service", dest = "/usr/lib/systemd/user/", mode = "644" },
+    { source = "resources/tiri-shutdown.target", dest = "/usr/lib/systemd/user/", mode = "644" },
 ]
 [package.metadata.generate-rpm.requires]
 alacritty = "*"
@@ -180,10 +180,10 @@ fuzzel = "*"
 [package.metadata.deb]
 depends = "alacritty, fuzzel"
 assets = [
-    ["target/release/niri", "usr/bin/", "755"],
-    ["resources/niri-session", "usr/bin/", "755"],
-    ["resources/niri.desktop", "/usr/share/wayland-sessions/", "644"],
-    ["resources/niri-portals.conf", "/usr/share/xdg-desktop-portal/", "644"],
-    ["resources/niri.service", "/usr/lib/systemd/user/", "644"],
-    ["resources/niri-shutdown.target", "/usr/lib/systemd/user/", "644"],
+    ["target/release/tiri", "usr/bin/", "755"],
+    ["resources/tiri-session", "usr/bin/", "755"],
+    ["resources/tiri.desktop", "/usr/share/wayland-sessions/", "644"],
+    ["resources/tiri-portals.conf", "/usr/share/xdg-desktop-portal/", "644"],
+    ["resources/tiri.service", "/usr/lib/systemd/user/", "644"],
+    ["resources/tiri-shutdown.target", "/usr/lib/systemd/user/", "644"],
 ]

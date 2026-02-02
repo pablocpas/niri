@@ -129,7 +129,7 @@ screenshot-path null
 
 ### `environment`
 
-Override environment variables for processes spawned by niri.
+Override environment variables for processes spawned by tiri.
 
 ```kdl
 environment {
@@ -145,8 +145,8 @@ Note that these variables do not propagate to the systemd global environment, so
 In particular, if you start a desktop shell like DankMaterialShell through systemd, then use its built-in application launcher, the apps won't see these environment variables.
 
 If you want all processes to see the environment variables, you can set them in your login shell config instead (i.e. `~/.bash_profile`).
-The `niri-session` shell script runs through the login shell and imports all environment variables to systemd before starting niri.
-Keep in mind that all compositors will see variables set in the login shell, not just niri.
+The `tiri-session` shell script runs through the login shell and imports all environment variables to systemd before starting tiri.
+Keep in mind that all compositors will see variables set in the login shell, not just tiri.
 
 ### `cursor`
 

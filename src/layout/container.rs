@@ -21,8 +21,8 @@ use super::{LayoutElement, Options};
 use super::tab_bar::tab_bar_row_height;
 use crate::window::Mapped;
 use crate::utils::transaction::{Transaction, TransactionBlocker};
-use niri_config::BlockOutFrom;
-use niri_ipc::{LayoutTreeLayout, LayoutTreeNode};
+use tiri_config::BlockOutFrom;
+use tiri_ipc::{LayoutTreeLayout, LayoutTreeNode};
 
 // ============================================================================
 // SlotMap Key Types

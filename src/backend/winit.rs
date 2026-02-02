@@ -4,7 +4,7 @@ use std::mem;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use niri_config::{Config, OutputName};
+use tiri_config::{Config, OutputName};
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -18,7 +18,7 @@ use smithay::reexports::winit::window::Window;
 use smithay::wayland::presentation::Refresh;
 
 use super::{IpcOutputMap, OutputId, RenderResult};
-use crate::niri::{Niri, RedrawState, State};
+use crate::tiri::{Niri, RedrawState, State};
 use crate::render_helpers::debug::draw_damage;
 use crate::render_helpers::{resources, shaders, RenderTarget};
 use crate::utils::{get_monotonic_time, logical_output};
@@ -41,7 +41,7 @@ impl Winit {
         let builder = Window::default_attributes()
             .with_inner_size(LogicalSize::new(1280.0, 800.0))
             // .with_resizable(false)
-            .with_title("niri");
+            .with_title("tiri");
         let (backend, winit) = winit::init_from_attributes(builder)?;
 
         let output = Output::new(
@@ -72,13 +72,13 @@ impl Winit {
         let physical_properties = output.physical_properties();
         let ipc_outputs = Arc::new(Mutex::new(HashMap::from([(
             OutputId::next(),
-            niri_ipc::Output {
+            tiri_ipc::Output {
                 name: output.name(),
                 make: physical_properties.make,
                 model: physical_properties.model,
                 serial: None,
                 physical_size: None,
-                modes: vec![niri_ipc::Mode {
+                modes: vec![tiri_ipc::Mode {
                     width: backend.window_size().w.clamp(0, u16::MAX as i32) as u16,
                     height: backend.window_size().h.clamp(0, u16::MAX as i32) as u16,
                     refresh_rate: 60_000,

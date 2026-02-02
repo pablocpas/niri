@@ -1,5 +1,5 @@
-use niri_config::utils::MergeWith as _;
-use niri_config::{Config, LayerRule};
+use tiri_config::utils::MergeWith as _;
+use tiri_config::{Config, LayerRule};
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::Kind;
 use smithay::desktop::{LayerSurface, PopupManager};

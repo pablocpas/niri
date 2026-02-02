@@ -1,0 +1,6 @@
+type           = internal
+restart        = false
+depends-on:    tiri
+waits-for.d:   $XDG_CONFIG_HOME/dinit.d/tiri.d/
+waits-for.d:   $HOME/.config/dinit.d/tiri.d/
+waits-for.d:   /etc/dinit.d/user/tiri.d/

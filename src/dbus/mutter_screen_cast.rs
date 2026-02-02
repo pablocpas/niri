@@ -72,7 +72,7 @@ pub struct Stream {
 #[derive(Clone)]
 enum StreamTarget {
     // FIXME: update on scale changes and whatnot.
-    Output(niri_ipc::Output),
+    Output(tiri_ipc::Output),
     Window { id: u64 },
 }
 
@@ -171,7 +171,7 @@ impl Session {
         if let Err(err) = self.to_niri.send(ScreenCastToNiri::StopCast {
             session_id: self.id,
         }) {
-            warn!("error sending StopCast to niri: {err:?}");
+            warn!("error sending StopCast to tiri: {err:?}");
         }
 
         let streams = mem::take(&mut *self.streams.lock().unwrap());
@@ -389,7 +389,7 @@ impl Stream {
         };
 
         if let Err(err) = self.to_niri.send(msg) {
-            warn!("error sending StartCast to niri: {err:?}");
+            warn!("error sending StartCast to tiri: {err:?}");
         }
     }
 }

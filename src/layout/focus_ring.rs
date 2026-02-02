@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use niri_config::{CornerRadius, Gradient, GradientRelativeTo};
+use tiri_config::{CornerRadius, Gradient, GradientRelativeTo};
 use smithay::backend::renderer::element::{Element as _, Kind};
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
@@ -57,7 +57,7 @@ pub struct FocusRing {
     full_size: Size<f64, Logical>,
     is_border: bool,
     use_border_shader: bool,
-    config: niri_config::FocusRing,
+    config: tiri_config::FocusRing,
     thicken_corners: bool,
     edges: FocusRingEdges,
 }
@@ -78,7 +78,7 @@ pub enum FocusRingState {
 }
 
 impl FocusRing {
-    pub fn new(config: niri_config::FocusRing) -> Self {
+    pub fn new(config: tiri_config::FocusRing) -> Self {
         Self {
             buffers: Default::default(),
             locations: Default::default(),
@@ -93,7 +93,7 @@ impl FocusRing {
         }
     }
 
-    pub fn update_config(&mut self, config: niri_config::FocusRing) {
+    pub fn update_config(&mut self, config: tiri_config::FocusRing) {
         self.config = config;
     }
 
@@ -387,7 +387,7 @@ impl FocusRing {
         self.thicken_corners = value;
     }
 
-    pub fn config(&self) -> &niri_config::FocusRing {
+    pub fn config(&self) -> &tiri_config::FocusRing {
         &self.config
     }
 }

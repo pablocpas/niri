@@ -1,7 +1,7 @@
 use std::ptr;
 
 use anyhow::{ensure, Context};
-use niri_config::BlockOutFrom;
+use tiri_config::BlockOutFrom;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::allocator::{Buffer, Fourcc};
 use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};

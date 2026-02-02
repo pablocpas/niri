@@ -11,7 +11,7 @@ use smithay::output::Output;
 use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 
 use crate::layout::workspace::WorkspaceId;
-use crate::niri::State;
+use crate::tiri::State;
 use crate::utils::get_monotonic_time;
 
 pub struct SpatialMovementGrab {

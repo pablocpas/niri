@@ -1,59 +1,56 @@
 ## Quick start
 
-Use these commands to install niri with [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) for a fairly out-of-the-box experience.
+Use these commands to install tiri with [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) for a fairly out-of-the-box experience.
 
 Fedora:
 ```
 sudo dnf copr enable avengemedia/dms
-sudo dnf install niri dms
-systemctl --user add-wants niri.service dms
+sudo dnf install tiri dms
+systemctl --user add-wants tiri.service dms
 ```
 
 Arch Linux (via [paru](https://github.com/morganamilo/paru)):
 ```
-sudo pacman -Syu niri xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk alacritty
+sudo pacman -Syu tiri xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk alacritty
 paru -S dms-shell-bin matugen wl-clipboard cliphist cava qt6-multimedia-ffmpeg
-systemctl --user add-wants niri.service dms
+systemctl --user add-wants tiri.service dms
 ```
 
 Ubuntu 25.10 and above:
 ```
 sudo add-apt-repository ppa:avengemedia/danklinux
 sudo add-apt-repository ppa:avengemedia/dms
-sudo apt install niri dms
+sudo apt install tiri dms
 ```
 
-After running these commands, log out, choose Niri in your display manager, and log back in.
-Or, if not using a display manager, run `niri-session` on a TTY.
+After running these commands, log out, choose Tiri in your display manager, and log back in.
+Or, if not using a display manager, run `tiri-session` on a TTY.
 
-The default niri config will run Waybar, so you might get two bars on screen.
-To fix this, stop Waybar with `pkill waybar` command, then open `~/.config/niri/config.kdl` and delete the `spawn-at-startup "waybar"` line.
+The default tiri config will run Waybar, so you might get two bars on screen.
+To fix this, stop Waybar with `pkill waybar` command, then open `~/.config/tiri/config.kdl` and delete the `spawn-at-startup "waybar"` line.
 
-Check the DankMaterialShell's [compositor setup page](https://danklinux.com/docs/dankmaterialshell/compositors#niri-configuration) to learn how to configure DMS-specific binds and other niri integrations.
+Check the DankMaterialShell's [compositor setup page](https://danklinux.com/docs/dankmaterialshell/compositors#niri-configuration) to learn how to configure DMS-specific binds and other tiri integrations.
 ## Slower and more considered start
 
-The easiest way to get niri is to install one of the distribution packages.
-Here are some of them: [Fedora COPR](https://copr.fedorainfracloud.org/coprs/yalter/niri/) and [nightly COPR](https://copr.fedorainfracloud.org/coprs/yalter/niri-git/) (which I maintain myself), [NixOS Flake](https://github.com/sodiboo/niri-flake), and some more from repology below, including a [pacstall package](https://pacstall.dev/packages/niri/) for Debian-based distros.
-See the [Building](#building) section if you'd like to compile niri yourself and the [Packaging niri](./Packaging-niri.md) page if you want to package niri.
+The easiest way to get tiri is to install one of the distribution packages (if available), or build from source.
+See the [Building](#building) section if you'd like to compile tiri yourself and the [Packaging tiri](./Packaging-tiri.md) page if you want to package it.
 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/niri.svg)](https://repology.org/project/niri/versions)
-
-After installing, start niri from your display manager like GDM.
+After installing, start tiri from your display manager like GDM.
 Press <kbd>Super</kbd><kbd>T</kbd> to run a terminal ([Alacritty]) and <kbd>Super</kbd><kbd>D</kbd> to run an application launcher ([fuzzel]).
-To exit niri, press <kbd>Super</kbd><kbd>Shift</kbd><kbd>E</kbd>.
+To exit tiri, press <kbd>Super</kbd><kbd>Shift</kbd><kbd>E</kbd>.
 
-If you're not using a display manager, you should run `niri-session` (systemd/dinit) or `niri --session` (others) from a TTY.
-The `--session` flag will make niri import its environment variables globally into the system manager and D-Bus, and start its D-Bus services.
-The `niri-session` script will additionally start niri as a systemd/dinit service, which starts up a graphical session target required by some services like portals.
+If you're not using a display manager, you should run `tiri-session` (systemd/dinit) or `tiri --session` (others) from a TTY.
+The `--session` flag will make tiri import its environment variables globally into the system manager and D-Bus, and start its D-Bus services.
+The `tiri-session` script will additionally start tiri as a systemd/dinit service, which starts up a graphical session target required by some services like portals.
 
-You can also run `niri` inside an existing desktop session.
+You can also run `tiri` inside an existing desktop session.
 Then it will open as a window, where you can give it a try.
 Note that this windowed mode is mainly meant for development, so it is a bit buggy (in particular, there are issues with hotkeys).
 
 Next, see the [list of important software](./Important-Software.md) required for normal desktop use, like a notification daemon and portals.
-Also, check the [configuration introduction](./Configuration:-Introduction.md) page to get started configuring niri.
+Also, check the [configuration introduction](./Configuration:-Introduction.md) page to get started configuring tiri.
 There you can find links to other pages containing thorough documentation and examples for all options.
-Finally, the [Xwayland](./Xwayland.md) page explains how to run X11 applications on niri.
+Finally, the [Xwayland](./Xwayland.md) page explains how to run X11 applications on tiri.
 
 ### Desktop environments
 
@@ -94,7 +91,7 @@ crw-rw-rw-@ 226,129 root 14 мая 07:07 renderD129
 
 You will likely have one `render` device and two `card` devices.
 
-Open the niri config file at `~/.config/niri/config.kdl` and put your `render` device path like this:
+Open the tiri config file at `~/.config/tiri/config.kdl` and put your `render` device path like this:
 
 ```kdl
 debug {
@@ -102,7 +99,7 @@ debug {
 }
 ```
 
-Save, then try to start niri again.
+Save, then try to start tiri again.
 If you still get a black screen, try using each of the `card` devices.
 
 ### Nix/NixOS
@@ -165,7 +162,7 @@ The general system is: if a hotkey switches somewhere, then adding <kbd>Ctrl</kb
 | <kbd>PrtSc</kbd> | Take an area screenshot. Select the area to screenshot with mouse, then press Space to save the screenshot, or Escape to cancel |
 | <kbd>Alt</kbd><kbd>PrtSc</kbd> | Take a screenshot of the focused window to clipboard and to `~/Pictures/Screenshots/` |
 | <kbd>Ctrl</kbd><kbd>PrtSc</kbd> | Take a screenshot of the focused monitor to clipboard and to `~/Pictures/Screenshots/` |
-| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>E</kbd> or <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Delete</kbd> | Exit niri |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>E</kbd> or <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Delete</kbd> | Exit tiri |
 
 ## Building
 
@@ -185,7 +182,7 @@ First, install the dependencies for your distribution.
 
 Next, get latest stable Rust: https://rustup.rs/
 
-Then, build niri with `cargo build --release`.
+Then, build tiri with `cargo build --release`.
 
 Check Cargo.toml for a list of build features.
 For example, you can replace systemd integration with dinit integration using `cargo build --release --no-default-features --features dinit,dbus,xdp-gnome-screencast`.
@@ -198,12 +195,12 @@ For example, you can replace systemd integration with dinit integration using `c
 
 ### NixOS/Nix
 
-We have a community-maintained flake which provides a devshell with required dependencies. Use `nix build` to build niri, and then run `./results/bin/niri`.
+We have a community-maintained flake which provides a devshell with required dependencies. Use `nix build` to build tiri, and then run `./results/bin/tiri`.
 
 If you're not on NixOS, you may need [NixGL](https://github.com/nix-community/nixGL) to run the resulting binary:
 
 ```sh
-nix run --impure github:guibou/nixGL -- ./results/bin/niri
+nix run --impure github:guibou/nixGL -- ./results/bin/tiri
 ```
 
 ### Manual Installation
@@ -212,19 +209,19 @@ If installing directly without a package, the recommended file destinations are 
 In this case, put the files in the directories indicated in the table below.
 These may vary depending on your distribution.
 
-Don't forget to make sure that the path to `niri` in niri.service is correct.
-This defaults to `/usr/bin/niri`.
+Don't forget to make sure that the path to `tiri` in tiri.service is correct.
+This defaults to `/usr/bin/tiri`.
 
 | File | Destination |
 | ---- | ----------- |
-| `target/release/niri` | `/usr/local/bin/` |
-| `resources/niri-session` | `/usr/local/bin/` |
-| `resources/niri.desktop`  | `/usr/local/share/wayland-sessions/` |
-| `resources/niri-portals.conf` | `/usr/local/share/xdg-desktop-portal/` |
-| `resources/niri.service` (systemd) | `/etc/systemd/user/` |
-| `resources/niri-shutdown.target` (systemd) | `/etc/systemd/user/` |
-| `resources/dinit/niri` (dinit) | `/etc/dinit.d/user/` |
-| `resources/dinit/niri.target` (dinit) | `/etc/dinit.d/user/` |
+| `target/release/tiri` | `/usr/local/bin/` |
+| `resources/tiri-session` | `/usr/local/bin/` |
+| `resources/tiri.desktop`  | `/usr/local/share/wayland-sessions/` |
+| `resources/tiri-portals.conf` | `/usr/local/share/xdg-desktop-portal/` |
+| `resources/tiri.service` (systemd) | `/etc/systemd/user/` |
+| `resources/tiri-shutdown.target` (systemd) | `/etc/systemd/user/` |
+| `resources/dinit/tiri` (dinit) | `/etc/dinit.d/user/` |
+| `resources/dinit/tiri.target` (dinit) | `/etc/dinit.d/user/` |
 
 [Alacritty]: https://github.com/alacritty/alacritty
 [fuzzel]: https://codeberg.org/dnkl/fuzzel

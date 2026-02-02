@@ -1,6 +1,6 @@
 # This flake file is community maintained
 {
-  description = "Niri: A scrollable-tiling Wayland compositor.";
+  description = "Tiri: A tiling Wayland compositor.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -20,7 +20,7 @@
       rust-overlay,
     }:
     let
-      niri-package =
+      tiri-package =
         {
           lib,
           cairo,
@@ -45,15 +45,15 @@
         }:
 
         rustPlatform.buildRustPackage {
-          pname = "niri";
+          pname = "tiri";
           version = self.shortRev or self.dirtyShortRev or "unknown";
 
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
-              ./niri-config
-              ./niri-ipc
-              ./niri-visual-tests
+              ./tiri-config
+              ./tiri-ipc
+              ./tiri-visual-tests
               ./resources
               ./src
               ./Cargo.toml
@@ -62,9 +62,9 @@
           };
 
           postPatch = ''
-            patchShebangs resources/niri-session
-            substituteInPlace resources/niri.service \
-              --replace-fail 'ExecStart=niri' "ExecStart=$out/bin/niri"
+            patchShebangs resources/tiri-session
+            substituteInPlace resources/tiri.service \
+              --replace-fail 'ExecStart=tiri' "ExecStart=$out/bin/tiri"
           '';
 
           cargoLock = {
@@ -123,18 +123,18 @@
 
           postInstall =
             ''
-              installShellCompletion --cmd niri \
-                --bash <($out/bin/niri completions bash) \
-                --fish <($out/bin/niri completions fish) \
-                --nushell <($out/bin/niri completions nushell) \
-                --zsh <($out/bin/niri completions zsh)
+              installShellCompletion --cmd tiri \
+                --bash <($out/bin/tiri completions bash) \
+                --fish <($out/bin/tiri completions fish) \
+                --nushell <($out/bin/tiri completions nushell) \
+                --zsh <($out/bin/tiri completions zsh)
 
-              install -Dm644 resources/niri.desktop -t $out/share/wayland-sessions
-              install -Dm644 resources/niri-portals.conf -t $out/share/xdg-desktop-portal
+              install -Dm644 resources/tiri.desktop -t $out/share/wayland-sessions
+              install -Dm644 resources/tiri-portals.conf -t $out/share/xdg-desktop-portal
             ''
             + lib.optionalString withSystemd ''
-              install -Dm755 resources/niri-session $out/bin/niri-session
-              install -Dm644 resources/niri{.service,-shutdown.target} -t $out/share/systemd/user
+              install -Dm755 resources/tiri-session $out/bin/tiri-session
+              install -Dm644 resources/tiri{.service,-shutdown.target} -t $out/share/systemd/user
             '';
 
           env = {
@@ -148,18 +148,18 @@
                 "-Wl,--pop-state"
               ]
             );
-            NIRI_BUILD_COMMIT = self.shortRev;
+            TIRI_BUILD_COMMIT = self.shortRev;
           };
 
           passthru = {
-            providedSessions = [ "niri" ];
+            providedSessions = [ "tiri" ];
           };
 
           meta = {
-            description = "Scrollable-tiling Wayland compositor";
-            homepage = "https://github.com/YaLTeR/niri";
+            description = "Tiling Wayland compositor";
+            homepage = "https://github.com/pablocpas/tiri";
             license = lib.licenses.gpl3Only;
-            mainProgram = "niri";
+            mainProgram = "tiri";
             platforms = lib.platforms.linux;
           };
         };
@@ -174,7 +174,7 @@
     {
       checks = forAllSystems (system: {
         # We use the debug build here to save a bit of time
-        inherit (self.packages.${system}) niri-debug;
+        inherit (self.packages.${system}) tiri-debug;
       });
 
       devShells = forAllSystems (
@@ -182,7 +182,7 @@
         let
           pkgs = nixpkgsFor.${system};
           rust-bin = rust-overlay.lib.mkRustBin { } pkgs;
-          inherit (self.packages.${system}) niri;
+          inherit (self.packages.${system}) tiri;
         in
         {
           default = pkgs.mkShell {
@@ -212,11 +212,11 @@
             nativeBuildInputs = [
               pkgs.rustPlatform.bindgenHook
               pkgs.pkg-config
-              pkgs.wrapGAppsHook4 # For `niri-visual-tests`
+              pkgs.wrapGAppsHook4 # For `tiri-visual-tests`
             ];
 
-            buildInputs = niri.buildInputs ++ [
-              pkgs.libadwaita # For `niri-visual-tests`
+            buildInputs = tiri.buildInputs ++ [
+              pkgs.libadwaita # For `tiri-visual-tests`
             ];
 
             env = {
@@ -225,7 +225,7 @@
               # in the package expression
               #
               # This should only be set with `CARGO_BUILD_RUSTFLAGS="$CARGO_BUILD_RUSTFLAGS -C your-flags"`
-              CARGO_BUILD_RUSTFLAGS = niri.RUSTFLAGS;
+              CARGO_BUILD_RUSTFLAGS = tiri.RUSTFLAGS;
             };
           };
         }
@@ -236,17 +236,17 @@
       packages = forAllSystems (
         system:
         let
-          niri = nixpkgsFor.${system}.callPackage niri-package { };
+          tiri = nixpkgsFor.${system}.callPackage tiri-package { };
         in
         {
-          inherit niri;
+          inherit tiri;
 
           # NOTE: This is for development purposes only
           #
           # It is primarily to help with quickly iterating on
           # changes made to the above expression - though it is
-          # also not stripped in order to better debug niri itself
-          niri-debug = niri.overrideAttrs (
+          # also not stripped in order to better debug tiri itself
+          tiri-debug = tiri.overrideAttrs (
             newAttrs: oldAttrs: {
               pname = oldAttrs.pname + "-debug";
 
@@ -257,12 +257,12 @@
             }
           );
 
-          default = niri;
+          default = tiri;
         }
       );
 
       overlays.default = final: _: {
-        niri = final.callPackage niri-package { };
+        tiri = final.callPackage tiri-package { };
       };
     };
 }

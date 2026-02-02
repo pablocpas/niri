@@ -3,9 +3,9 @@ use std::cmp::max;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use niri_config::utils::MergeWith as _;
-use niri_config::{PresetSize, RelativeTo};
-use niri_ipc::{PositionChange, SizeChange, WindowLayout};
+use tiri_config::utils::MergeWith as _;
+use tiri_config::{PresetSize, RelativeTo};
+use tiri_ipc::{PositionChange, SizeChange, WindowLayout};
 use log::warn;
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -2373,7 +2373,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
 }
 
 pub(super) fn compute_toplevel_bounds(
-    border_config: niri_config::Border,
+    border_config: tiri_config::Border,
     working_area_size: Size<f64, Logical>,
 ) -> Size<i32, Logical> {
     let mut border = 0.;

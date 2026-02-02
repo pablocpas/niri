@@ -1,23 +1,23 @@
 ## Using xwayland-satellite
 
-<sup>Since: 25.08</sup> Niri integrates with [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) out of the box.
+<sup>Since: 25.08</sup> Tiri integrates with [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) out of the box.
 Ensure xwayland-satellite >= 0.7 is installed and available in `$PATH`.
-With no further configuration, niri will create X11 sockets on disk, export `$DISPLAY`, and spawn xwayland-satellite on-demand when an X11 client connects.
-If xwayland-satellite dies, niri will automatically restart it.
+With no further configuration, tiri will create X11 sockets on disk, export `$DISPLAY`, and spawn xwayland-satellite on-demand when an X11 client connects.
+If xwayland-satellite dies, tiri will automatically restart it.
 
 If you had a custom config which manually started `xwayland-satellite` and set `$DISPLAY`, you should remove those customizations for the automatic integration to work.
 
-To check that the integration works, verify that the niri output says something like `listening on X11 socket: :0`:
+To check that the integration works, verify that the tiri output says something like `listening on X11 socket: :0`:
 
 ```sh
-$ journalctl --user-unit=niri -b
-systemd[2338]: Starting niri.service - An i3-like tiling Wayland compositor...
-niri[2474]: 2025-08-29T04:07:40.043402Z  INFO niri: starting version 25.05.1 (0.0.git.2345.d9833fc1)
+$ journalctl --user-unit=tiri -b
+systemd[2338]: Starting tiri.service - A tiling Wayland compositor...
+tiri[2474]: 2025-08-29T04:07:40.043402Z  INFO tiri: starting version 25.05.1 (0.0.git.2345.d9833fc1)
 (...)
-niri[2474]: 2025-08-29T04:07:40.690512Z  INFO niri: listening on Wayland socket: wayland-1
-niri[2474]: 2025-08-29T04:07:40.690520Z  INFO niri: IPC listening on: /run/user/1000/niri.wayland-1.2474.sock
-niri[2474]: 2025-08-29T04:07:40.700137Z  INFO niri: listening on X11 socket: :0
-systemd[2338]: Started niri.service - An i3-like tiling Wayland compositor.
+tiri[2474]: 2025-08-29T04:07:40.690512Z  INFO tiri: listening on Wayland socket: wayland-1
+tiri[2474]: 2025-08-29T04:07:40.690520Z  INFO tiri: IPC listening on: /run/user/1000/tiri.wayland-1.2474.sock
+tiri[2474]: 2025-08-29T04:07:40.700137Z  INFO tiri: listening on X11 socket: :0
+systemd[2338]: Started tiri.service - A tiling Wayland compositor.
 $ echo $DISPLAY
 :0
 ```
@@ -25,7 +25,7 @@ $ echo $DISPLAY
 ![xwayland-satellite running Steam and Half-Life.](https://github.com/user-attachments/assets/57db8f96-40d4-4621-a389-373c169349a4)
 
 We're using xwayland-satellite rather than Xwayland directly because [X11 is very cursed](./FAQ.md#why-doesnt-niri-integrate-xwayland-like-other-compositors).
-xwayland-satellite takes on the bulk of the work dealing with the X11 peculiarities from us, giving niri normal Wayland windows to manage.
+xwayland-satellite takes on the bulk of the work dealing with the X11 peculiarities from us, giving tiri normal Wayland windows to manage.
 
 xwayland-satellite works well with most applications: Steam, games, Discord, even more exotic things like Ardour with wine Windows VST plugins.
 However, X11 apps that want to position windows or bars at specific screen coordinates won't behave correctly and will need a nested compositor to run.
@@ -37,7 +37,7 @@ See sections below for how to do that.
 You can run it as a window, then run X11 apps inside.
 
 1. Install labwc from your distribution packages.
-1. Run it inside niri with the `labwc` command.
+1. Run it inside tiri with the `labwc` command.
 It will open as a new window.
 1. Run an X11 application on the X11 DISPLAY that it provides, e.g. `env DISPLAY=:0 glxgears`
 
@@ -67,8 +67,8 @@ With fullscreen game inside a fullscreen Xwayland you get pretty much a normal g
 One caveat is that currently rootful Xwayland doesn't seem to share clipboard with the compositor.
 For textual data you can do it manually using [wl-clipboard](https://github.com/bugaevc/wl-clipboard), for example:
 
-- `env DISPLAY=:0 xsel -ob | wl-copy` to copy from Xwayland to niri clipboard
-- `wl-paste -n | env DISPLAY=:0 xsel -ib` to copy from niri to Xwayland clipboard
+- `env DISPLAY=:0 xsel -ob | wl-copy` to copy from Xwayland to tiri clipboard
+- `wl-paste -n | env DISPLAY=:0 xsel -ib` to copy from tiri to Xwayland clipboard
 
 You can also bind these to hotkeys if you want:
 
@@ -106,7 +106,7 @@ Compared to the Xwayland rootful method, this does not require running an extra 
 To use Cage you need to:
 
 1. Install `cage`, it should be in most repositories.
-2. Run `cage -- /path/to/application` and enjoy your X11 program on niri.
+2. Run `cage -- /path/to/application` and enjoy your X11 program on tiri.
 
 Optionally one can also modify the desktop entry for the application and add the `cage --` prefix to the `Exec` property. The Spotify Flatpak for example would look something like this:
 
