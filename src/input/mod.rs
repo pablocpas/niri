@@ -3170,29 +3170,26 @@ impl State {
                     if let Some((hit, output, pos_within_output, location)) =
                         resize_hit_at_pointer(self)
                     {
-                        if hit.is_floating {
-                            self.niri.layout.activate_window(&hit.window);
-                            if self.niri.layout.interactive_resize_begin_at(
-                                hit.window.clone(),
-                                hit.edges,
-                                &output,
-                                pos_within_output,
-                            ) {
-                                let start_data = PointerGrabStartData {
-                                    focus: None,
-                                    button: button_code,
-                                    location,
-                                };
-                                let grab = ResizeGrab::new(start_data, hit.window.clone());
-                                pointer.set_grab(self, grab, serial, Focus::Clear);
-                                self.niri.cursor_manager.set_override_cursor(
-                                    CursorOverride::PointerGrab,
-                                    CursorImageStatus::Named(hit.cursor),
-                                );
-                                // FIXME: granular.
-                                self.niri.queue_redraw_all();
-                                return;
-                            }
+                        self.niri.layout.activate_window(&hit.window);
+                        if self.niri.layout.interactive_resize_begin_at(
+                            hit.window.clone(),
+                            hit.edges,
+                            &output,
+                            pos_within_output,
+                        ) {
+                            let start_data = PointerGrabStartData {
+                                focus: None,
+                                button: button_code,
+                                location,
+                            };
+                            let grab = ResizeGrab::new(start_data, hit.window.clone());
+                            pointer.set_grab(self, grab, serial, Focus::Clear);
+                            self.niri.cursor_manager.set_override_cursor(
+                                CursorOverride::PointerGrab,
+                                CursorImageStatus::Named(hit.cursor),
+                            );
+                            self.niri.queue_redraw(&output);
+                            return;
                         }
                     }
                 }
