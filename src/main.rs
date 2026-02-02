@@ -192,6 +192,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(ipc) = &state.niri.ipc_server {
         let socket_path = ipc.socket_path.as_deref().unwrap();
         env::set_var(SOCKET_PATH_ENV, socket_path);
+        // Compatibility: external tools (e.g. older Waybar modules) may still look for NIRI_SOCKET.
+        env::set_var("NIRI_SOCKET", socket_path);
         info!("IPC listening on: {}", socket_path.to_string_lossy());
     }
 
@@ -275,6 +277,7 @@ fn import_environment() {
         "XDG_CURRENT_DESKTOP",
         "XDG_SESSION_TYPE",
         SOCKET_PATH_ENV,
+        "NIRI_SOCKET",
     ]
     .join(" ");
 
