@@ -2865,7 +2865,8 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
     pub fn render_above_top_layer(&self) -> bool {
-        false
+        // Render above the top layer (e.g. waybar) when a window is fullscreen
+        self.fullscreen_window.is_some()
     }
 
     pub fn scroll_amount_to_activate(&self, _window: &W::Id) -> f64 {
