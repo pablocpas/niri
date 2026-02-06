@@ -11,6 +11,9 @@ When this file is present, tiri *will not* automatically create a config at `~/.
 
 Keep in mind that we update the default config in new releases, so if you have a custom `/etc/tiri/config.kdl`, you likely want to inspect and apply the relevant changes too.
 
+The default configuration locations can be overridden with the `TIRI_CONFIG` environment variable.
+You can also change the configuration path at runtime via the tiri IPC or using the command `tiri msg action load-config-file --path <path-to-config.kdl>`.
+
 You can split the tiri config file into multiple files using [`include`](./Configuration:-Include.md).
 
 ### Xwayland

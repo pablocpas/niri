@@ -423,7 +423,7 @@ pub enum Action {
     #[knuffel(skip)]
     UnsetWindowUrgent(u64),
     #[knuffel(skip)]
-    LoadConfigFile,
+    LoadConfigFile(#[knuffel(argument)] Option<String>),
     #[knuffel(skip)]
     MruAdvance {
         direction: MruDirection,
@@ -820,7 +820,7 @@ impl From<tiri_ipc::Action> for Action {
             tiri_ipc::Action::ToggleWindowUrgent { id } => Self::ToggleWindowUrgent(id),
             tiri_ipc::Action::SetWindowUrgent { id } => Self::SetWindowUrgent(id),
             tiri_ipc::Action::UnsetWindowUrgent { id } => Self::UnsetWindowUrgent(id),
-            tiri_ipc::Action::LoadConfigFile {} => Self::LoadConfigFile,
+            tiri_ipc::Action::LoadConfigFile { path } => Self::LoadConfigFile(path),
         }
     }
 }
