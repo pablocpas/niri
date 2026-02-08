@@ -867,12 +867,19 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
     pub(super) fn add_subtree(
         &mut self,
-        subtree: DetachedNode<W>,
+        mut subtree: DetachedNode<W>,
         rect: Rectangle<f64, Logical>,
         origin: Option<InsertParentInfo>,
         activate: bool,
         focus: Option<&W::Id>,
     ) {
+        let view_size = self.view_size;
+        let scale = self.scale;
+        let options = self.options.clone();
+        subtree.for_each_tile_mut(&mut |tile| {
+            tile.update_config(view_size, scale, options.clone());
+        });
+
         let mut tree = ContainerTree::new(
             rect.size,
             Rectangle::from_size(rect.size),

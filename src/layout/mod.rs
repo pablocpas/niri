@@ -2432,10 +2432,13 @@ impl<W: LayoutElement> Layout<W> {
 
         let monitor = if let Some(window) = window {
             match &mut self.monitor_set {
-                MonitorSet::Normal { monitors, .. } => monitors
-                    .iter_mut()
-                    .find(|mon| mon.has_window(window))
-                    .unwrap(),
+                MonitorSet::Normal { monitors, .. } => {
+                    let Some(monitor) = monitors.iter_mut().find(|mon| mon.has_window(window))
+                    else {
+                        return;
+                    };
+                    monitor
+                }
                 MonitorSet::NoOutputs { .. } => {
                     return;
                 }
@@ -3653,17 +3656,40 @@ impl<W: LayoutElement> Layout<W> {
             return;
         }
 
-        let tile = {
-            let Some(workspace) = self.workspaces_mut().find(|ws| ws.has_window(&target)) else {
-                return;
-            };
-            workspace.take_tile_for_scratchpad(&target)
-        };
+        match &mut self.monitor_set {
+            MonitorSet::Normal { monitors, .. } => {
+                let Some(monitor) = monitors.iter_mut().find(|mon| mon.has_window(&target)) else {
+                    return;
+                };
 
-        let Some(tile) = tile else {
-            return;
-        };
-        self.scratchpad.push_back(tile);
+                let tile = monitor
+                    .workspaces
+                    .iter_mut()
+                    .find(|ws| ws.has_window(&target))
+                    .and_then(|ws| ws.take_tile_for_scratchpad(&target));
+
+                let Some(tile) = tile else {
+                    return;
+                };
+                self.scratchpad.push_back(tile);
+
+                if monitor.workspace_switch.is_none() {
+                    monitor.clean_up_workspaces();
+                }
+            }
+            MonitorSet::NoOutputs { workspaces } => {
+                let tile = workspaces
+                    .iter_mut()
+                    .find(|ws| ws.has_window(&target))
+                    .and_then(|ws| ws.take_tile_for_scratchpad(&target));
+
+                let Some(tile) = tile else {
+                    return;
+                };
+                self.scratchpad.push_back(tile);
+                workspaces.retain(|ws| ws.has_windows_or_name());
+            }
+        }
     }
 
     pub fn scratchpad_show(&mut self) {
@@ -3707,8 +3733,8 @@ impl<W: LayoutElement> Layout<W> {
                 .find(|ws| ws.id() == ws_id)
                 .and_then(|ws| ws.take_tile_for_scratchpad(&visible_id));
 
-            if let (Some(tile), Some(workspace)) = (tile, self.active_workspace_mut()) {
-                workspace.add_scratchpad_tile(tile, true);
+            if let (Some(tile), Some(monitor)) = (tile, self.active_monitor()) {
+                monitor.add_scratchpad_tile(tile, true);
             }
 
             self.scratchpad = scratchpad;
@@ -3716,8 +3742,8 @@ impl<W: LayoutElement> Layout<W> {
         }
 
         let next = scratchpad.pop_front();
-        if let (Some(tile), Some(workspace)) = (next, self.active_workspace_mut()) {
-            workspace.add_scratchpad_tile(tile, true);
+        if let (Some(tile), Some(monitor)) = (next, self.active_monitor()) {
+            monitor.add_scratchpad_tile(tile, true);
         }
         self.scratchpad = scratchpad;
     }
@@ -3840,10 +3866,12 @@ impl<W: LayoutElement> Layout<W> {
                     .iter()
                     .position(|mon| mon.has_sticky_window(&sticky_id))
                 {
-                    let new_idx = monitors
+                    let Some(new_idx) = monitors
                         .iter()
                         .position(|mon| &mon.output == output)
-                        .unwrap();
+                    else {
+                        return;
+                    };
                     if src_idx == new_idx {
                         return;
                     }
@@ -3875,13 +3903,15 @@ impl<W: LayoutElement> Layout<W> {
                 }
             }
 
-            let new_idx = monitors
+            let Some(new_idx) = monitors
                 .iter()
                 .position(|mon| &mon.output == output)
-                .unwrap();
+            else {
+                return;
+            };
 
             let (mon_idx, ws_idx) = if let Some(window) = window {
-                monitors
+                let Some(found) = monitors
                     .iter()
                     .enumerate()
                     .find_map(|(mon_idx, mon)| {
@@ -3890,7 +3920,10 @@ impl<W: LayoutElement> Layout<W> {
                             .position(|ws| ws.has_window(window))
                             .map(|ws_idx| (mon_idx, ws_idx))
                     })
-                    .unwrap()
+                else {
+                    return;
+                };
+                found
             } else {
                 let mon_idx = *active_monitor_idx;
                 let mon = &monitors[mon_idx];

@@ -537,6 +537,34 @@ impl<W: LayoutElement> Monitor<W> {
         }
     }
 
+    pub fn add_scratchpad_tile(&mut self, tile: Tile<W>, activate: bool) {
+        let mut workspace_idx = self.active_workspace_idx;
+
+        {
+            let workspace = &mut self.workspaces[workspace_idx];
+            workspace.add_scratchpad_tile(tile, activate);
+
+            // After adding a new window, workspace becomes this output's own.
+            if workspace.name().is_none() {
+                workspace.original_output = OutputId::new(&self.output);
+            }
+        }
+
+        if workspace_idx == self.workspaces.len() - 1 {
+            // Insert a new empty workspace.
+            self.add_workspace_bottom();
+        }
+
+        if self.options.layout.empty_workspace_above_first && workspace_idx == 0 {
+            self.add_workspace_top();
+            workspace_idx += 1;
+        }
+
+        if activate {
+            self.activate_workspace(workspace_idx);
+        }
+    }
+
     pub fn remove_sticky_window(&mut self, window: &W::Id, activate: bool) -> bool {
         if !self.sticky_floating.has_window(window) {
             return false;

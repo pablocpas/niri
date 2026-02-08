@@ -662,7 +662,10 @@ impl<W: LayoutElement> Workspace<W> {
 
                 // If the tile is pending maximized or fullscreen, open it in the scrolling layout
                 // where it can do that.
-                if wants_floating && tile.window().pending_sizing_mode().is_normal() {
+                if wants_floating
+                    && tile.window().pending_sizing_mode().is_normal()
+                    && !tile.pending_maximized
+                {
                     if floating_active && self.floating.active_container_allows_splits() {
                         self.floating.add_tile_to_active_container(tile, activate);
                     } else {
@@ -704,7 +707,10 @@ impl<W: LayoutElement> Workspace<W> {
 
                 let activate = activate.map_smart(|| self.active_window().unwrap().id() == next_to);
 
-                if wants_floating && tile.window().pending_sizing_mode().is_normal() {
+                if wants_floating
+                    && tile.window().pending_sizing_mode().is_normal()
+                    && !tile.pending_maximized
+                {
                     if floating_has_window {
                         if self.floating.container_allows_splits(next_to) {
                             self.floating

@@ -2031,6 +2031,134 @@ fn scratchpad_from_tiling_becomes_floating() {
 }
 
 #[test]
+fn scratchpad_move_without_outputs_cleans_up_empty_workspace() {
+    let layout = check_ops([
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::MoveWindowToScratchpad { id: Some(4) },
+    ]);
+
+    let MonitorSet::NoOutputs { workspaces } = layout.monitor_set else {
+        unreachable!()
+    };
+
+    assert!(workspaces.is_empty());
+}
+
+#[test]
+fn move_window_to_workspace_ignores_hidden_scratchpad_window() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(5),
+        },
+        Op::MoveWindowUpOrToWorkspaceUp,
+        Op::FocusWorkspacePrevious,
+        Op::MoveWindowToScratchpad { id: None },
+        Op::MoveWindowToWorkspace {
+            window_id: Some(5),
+            workspace_idx: 0,
+        },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.has_window(&5));
+}
+
+#[test]
+fn scratchpad_show_keeps_empty_workspace_tail() {
+    let layout = check_ops([
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddOutput(1),
+        Op::MoveWindowToScratchpad { id: None },
+        Op::FocusWorkspace(1),
+        Op::ScratchpadShow,
+    ]);
+
+    let MonitorSet::Normal { monitors, .. } = layout.monitor_set else {
+        unreachable!()
+    };
+
+    let monitor = monitors.into_iter().next().unwrap();
+    assert!(!monitor.workspaces.last().unwrap().has_windows());
+}
+
+#[test]
+fn move_to_scratchpad_cleans_empty_non_active_workspace() {
+    let layout = check_ops([
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddOutput(1),
+        Op::MoveWindowToWorkspaceDown(false),
+        Op::FocusWorkspaceAutoBackAndForth(0),
+        Op::MoveWindowToScratchpad { id: Some(2) },
+    ]);
+
+    let MonitorSet::Normal { monitors, .. } = layout.monitor_set else {
+        unreachable!()
+    };
+
+    let monitor = monitors.into_iter().next().unwrap();
+    let last_idx = monitor.workspaces.len() - 1;
+    for (idx, workspace) in monitor.workspaces.iter().enumerate() {
+        if idx != monitor.active_workspace_idx && idx != last_idx {
+            assert!(workspace.has_windows_or_name());
+        }
+    }
+}
+
+#[test]
+fn toggle_window_floating_after_output_attach_keeps_options_synced() {
+    check_ops([
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddOutput(1),
+        Op::FocusParent,
+        Op::ToggleWindowFloating { id: None },
+    ]);
+}
+
+#[test]
+fn move_window_to_workspace_up_after_maximize_keeps_floating_normal() {
+    let ops = [
+        Op::AddWindow {
+            params: TestWindowParams {
+                id: 3,
+                is_floating: true,
+                ..TestWindowParams::new(3)
+            },
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddOutput(1),
+        Op::MoveWindowToWorkspace {
+            window_id: None,
+            workspace_idx: 1,
+        },
+        Op::MaximizeWindowToEdges { id: None },
+        Op::MoveWindowToWorkspaceUp(false),
+    ];
+
+    let layout = check_ops(ops);
+
+    let monitor = match layout.monitor_set {
+        MonitorSet::Normal { monitors, .. } => monitors.into_iter().next().unwrap(),
+        MonitorSet::NoOutputs { .. } => unreachable!(),
+    };
+
+    // Window 1 was maximized before the move and should stay in tiling (not floating).
+    let ws0 = &monitor.workspaces[0];
+    assert!(ws0.scrolling().tiles().any(|tile| tile.window().id() == &1));
+    assert!(!ws0.floating().tiles().any(|tile| tile.window().id() == &1));
+}
+
+#[test]
 fn sticky_toggle_requires_floating() {
     let options = Options::from_config(&Config::default());
     let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);

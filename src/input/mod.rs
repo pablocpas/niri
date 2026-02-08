@@ -1738,7 +1738,8 @@ impl State {
             Action::MaximizeWindowToEdges => {
                 let focus = self.niri.layout.focus().map(|m| m.window.clone());
                 if let Some(window) = focus {
-                    self.niri.layout.toggle_maximized(&window);
+                    // In tiri, maximize-to-edges is an alias of fullscreen for i3-like behavior.
+                    self.niri.layout.toggle_fullscreen(&window);
                     // FIXME: granular
                     self.niri.queue_redraw_all();
                 }
@@ -1747,7 +1748,8 @@ impl State {
                 let window = self.niri.layout.windows().find(|(_, m)| m.id().get() == id);
                 let window = window.map(|(_, m)| m.window.clone());
                 if let Some(window) = window {
-                    self.niri.layout.toggle_maximized(&window);
+                    // In tiri, maximize-to-edges is an alias of fullscreen for i3-like behavior.
+                    self.niri.layout.toggle_fullscreen(&window);
                     // FIXME: granular
                     self.niri.queue_redraw_all();
                 }

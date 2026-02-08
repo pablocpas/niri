@@ -578,6 +578,17 @@ impl<W: LayoutElement> DetachedNode<W> {
             }
         }
     }
+
+    pub fn for_each_tile_mut(&mut self, f: &mut impl FnMut(&mut Tile<W>)) {
+        match self {
+            DetachedNode::Leaf(tile) => f(tile),
+            DetachedNode::Container(container) => {
+                for child in &mut container.children {
+                    child.for_each_tile_mut(f);
+                }
+            }
+        }
+    }
 }
 
 impl<W: LayoutElement> DetachedContainer<W> {

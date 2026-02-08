@@ -8,4 +8,4 @@ size: 0 × 352, bounds: 1272 × 712, states: []
 
 post-map configures:
 size: 0 × 352, bounds: 1272 × 712, states: []
-size: 1 × 352, bounds: 1272 × 712, states: [Activated]
+size: 1 × 1, bounds: 1272 × 712, states: [Activated]

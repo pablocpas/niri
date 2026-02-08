@@ -36,10 +36,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build tests
-        run: cargo test --no-run --all --exclude niri-visual-tests
+        run: cargo test --no-run --all --exclude tiri-visual-tests
 
       - name: Test
-        run: cargo test --all --exclude niri-visual-tests -- --nocapture
+        run: cargo test --all --exclude tiri-visual-tests -- --nocapture
 
   build:
     strategy:
@@ -135,10 +135,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build tests
-        run: cargo test --no-run --all --exclude niri-visual-tests --release
+        run: cargo test --no-run --all --exclude tiri-visual-tests --release
 
       - name: Test
-        run: cargo test --all --exclude niri-visual-tests --release
+        run: cargo test --all --exclude tiri-visual-tests --release
 
   visual-tests:
     strategy:
@@ -162,7 +162,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --package niri-visual-tests
+        run: cargo build --package tiri-visual-tests
 
   msrv:
     strategy:
