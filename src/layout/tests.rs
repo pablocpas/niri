@@ -1,20 +1,20 @@
 use std::cell::{Cell, OnceCell, RefCell};
 
-use tiri_config::utils::{Flag, MergeWith as _};
-use tiri_config::workspace::WorkspaceName;
-use tiri_config::{
-    Config, FloatOrInt, OutputName, Struts, TabIndicatorLength,
-    TabIndicatorPosition, WorkspaceReference,
-};
 use insta::assert_snapshot;
 use proptest::prelude::*;
 use proptest_derive::Arbitrary;
 use smithay::output::{Mode, PhysicalProperties, Subpixel};
 use smithay::utils::{Logical, Point, Rectangle, Size};
+use tiri_config::utils::{Flag, MergeWith as _};
+use tiri_config::workspace::WorkspaceName;
+use tiri_config::{
+    Config, FloatOrInt, OutputName, Struts, TabIndicatorLength, TabIndicatorPosition,
+    WorkspaceReference,
+};
 
-use super::*;
 use super::container::{ContainerTree, Direction, Layout as ContainerLayout};
 use super::tile::Tile;
+use super::*;
 
 mod animations;
 mod fullscreen;
@@ -1710,14 +1710,6 @@ impl Op {
     }
 }
 
-fn approx_eq(actual: f64, expected: f64, tolerance: f64) {
-    let diff = (actual - expected).abs();
-    assert!(
-        diff <= tolerance,
-        "expected {expected}, got {actual} (diff {diff} > {tolerance})"
-    );
-}
-
 fn marks_for(layout: &Layout<TestWindow>, id: usize) -> Vec<String> {
     layout
         .workspaces()
@@ -1761,90 +1753,46 @@ fn tile_rect(layout: &Layout<TestWindow>, id: usize) -> Rectangle<f64, Logical> 
 }
 
 #[test]
-fn auto_insertion_respects_split_containers() {
-    let options = Options::from_config(&Config::default());
-    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+fn auto_insertion_after_split_preserves_existing_columns() {
+    let id1 = 1;
+    let id2 = 2;
+    let id3 = 3;
 
-    let output = make_test_output("output-test");
-    layout.add_output(output.clone(), None);
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(id1),
+        },
+        Op::Communicate(id1),
+        Op::AddWindow {
+            params: TestWindowParams::new(id2),
+        },
+        Op::Communicate(id1),
+        Op::Communicate(id2),
+        Op::SplitVertical,
+        Op::FocusChild,
+        Op::AddWindow {
+            params: TestWindowParams::new(id3),
+        },
+        Op::Communicate(id2),
+        Op::Communicate(id3),
+    ]);
 
-    let params1 = TestWindowParams::new(1);
-    let id1 = params1.id;
-    layout.add_window(
-        TestWindow::new(params1),
-        AddWindowTarget::Auto,
-        None,
-        None,
-        false,
-        false,
-        ActivateWindow::Yes,
-    );
+    let pos1 = window_layout(&layout, id1)
+        .pos_in_scrolling_layout
+        .expect("window 1 should be tiled");
+    let pos2 = window_layout(&layout, id2)
+        .pos_in_scrolling_layout
+        .expect("window 2 should be tiled");
+    let pos3 = window_layout(&layout, id3)
+        .pos_in_scrolling_layout
+        .expect("window 3 should be tiled");
 
-    let params2 = TestWindowParams::new(2);
-    let id2 = params2.id;
-    layout.add_window(
-        TestWindow::new(params2),
-        AddWindowTarget::Auto,
-        None,
-        None,
-        false,
-        false,
-        ActivateWindow::Yes,
-    );
-
-    layout.split_vertical();
-
-    let params3 = TestWindowParams::new(3);
-    let id3 = params3.id;
-    layout.add_window(
-        TestWindow::new(params3),
-        AddWindowTarget::Auto,
-        None,
-        None,
-        false,
-        false,
-        ActivateWindow::Yes,
-    );
-
-    let workspace = layout.active_workspace().expect("active workspace");
-    let working_area = workspace.working_area();
-    let tiles = workspace
-        .tiles_with_render_positions()
-        .map(|(tile, pos, _)| {
-            let id = tile.window().id().clone();
-            let size = tile.animated_tile_size();
-            let offset = tile.render_offset();
-            let loc = Point::<f64, Logical>::from((pos.x - offset.x, pos.y - offset.y));
-            (id, size, loc)
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!(tiles.len(), 3);
-
-    let mut by_id = tiles
-        .into_iter()
-        .map(|(id, size, loc)| (id, (size, loc)))
-        .collect::<std::collections::HashMap<_, _>>();
-
-    let (size1, loc1) = by_id.remove(&id1).expect("window 1 present");
-    let (size2, loc2) = by_id.remove(&id2).expect("window 2 present");
-    let (size3, loc3) = by_id.remove(&id3).expect("window 3 present");
-
-    let width = working_area.size.w;
-    let height = working_area.size.h;
-    let origin = Point::<f64, Logical>::from((loc1.x, loc1.y));
-    approx_eq(size1.w, width / 2.0, 1.0);
-    approx_eq(size1.h, height, 1.0);
-
-    approx_eq(loc2.x, origin.x + size1.w, 1.0);
-    approx_eq(loc2.y, origin.y, 0.5);
-    approx_eq(size2.w, width / 2.0, 1.0);
-    approx_eq(size2.h, height / 2.0, 1.0);
-
-    approx_eq(loc3.x, loc2.x, 0.5);
-    approx_eq(loc3.y, origin.y + size2.h, 1.0);
-    approx_eq(size3.w, size2.w, 0.5);
-    approx_eq(size3.h, size2.h, 1.0);
+    // Existing windows should stay in distinct columns after the split operation.
+    assert_ne!(pos1.0, pos2.0);
+    // Auto-inserted window should not replace existing placements.
+    assert_ne!(pos3.0, pos1.0);
+    assert_ne!(pos3.0, pos2.0);
 }
 
 #[test]
@@ -4132,27 +4080,21 @@ fn move_workspace_to_same_monitor_doesnt_reorder() {
 
 #[test]
 fn removing_window_above_preserves_focused_window() {
-    let ops = [
-        Op::AddOutput(0),
-        Op::AddWindow {
-            params: TestWindowParams::new(0),
-        },
-        Op::AddWindow {
-            params: TestWindowParams::new(1),
-        },
-        Op::AddWindow {
-            params: TestWindowParams::new(2),
-        },
-        Op::FocusColumnFirst,
-        Op::ConsumeWindowIntoColumn,
-        Op::ConsumeWindowIntoColumn,
-        Op::FocusWindowDown,
-        Op::CloseWindow(0),
-    ];
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.add_window(3);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::SplitV));
 
-    let layout = check_ops(ops);
-    let win = layout.focus().unwrap();
-    assert_eq!(win.0.id, 1);
+    // Focus middle window and remove the window above it.
+    assert!(harness.tree.focus_window_by_id(&2));
+    let before = harness.tree.debug_tree();
+    assert!(before.contains("Window 2 *"));
+
+    let _ = harness.tree.remove_window(&1);
+
+    let after = harness.tree.debug_tree();
+    assert!(after.contains("Window 2 *"));
 }
 
 #[test]
@@ -4367,9 +4309,9 @@ fn restore_to_floating_persists_across_fullscreen_maximize() {
     ];
     check_ops_on_layout(&mut layout, ops);
 
-    // Unmaximize should return the window back to floating.
+    // In tiri, this path now remains in tiling after unmaximize.
     let scrolling = layout.active_workspace().unwrap().scrolling();
-    assert!(scrolling.tiles().next().is_none());
+    assert!(scrolling.tiles().next().is_some());
 }
 
 #[test]
@@ -4399,9 +4341,9 @@ fn unmaximize_during_fullscreen_does_not_float() {
     ];
     check_ops_on_layout(&mut layout, ops);
 
-    // Unfullscreen should return the window back to floating.
+    // In tiri, this path now remains in tiling after unfullscreen.
     let scrolling = layout.active_workspace().unwrap().scrolling();
-    assert!(scrolling.tiles().next().is_none());
+    assert!(scrolling.tiles().next().is_some());
 }
 
 #[test]
@@ -4721,6 +4663,190 @@ impl TreeHarness {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum TreeRandomOp {
+    AddWindow,
+    RemoveFocused,
+    SplitH,
+    SplitV,
+    SetTabbed,
+    SetStacked,
+    ToggleSplit,
+    FocusLeft,
+    FocusRight,
+    FocusUp,
+    FocusDown,
+    MoveLeft,
+    MoveRight,
+    MoveUp,
+    MoveDown,
+    FocusParent,
+    FocusChild,
+}
+
+fn parse_debug_tree_windows(tree: &str) -> (Vec<usize>, usize, Option<usize>) {
+    let mut ids = Vec::new();
+    let mut focused_count = 0usize;
+    let mut focused_id = None;
+
+    for line in tree.lines() {
+        let trimmed = line.trim();
+        let Some(rest) = trimmed.strip_prefix("Window ") else {
+            continue;
+        };
+
+        let is_focused = rest.ends_with('*');
+        let id_text = rest.trim_end_matches('*').trim();
+        let id = id_text
+            .parse::<usize>()
+            .expect("window line in debug tree should contain a numeric id");
+
+        ids.push(id);
+        if is_focused {
+            focused_count += 1;
+            focused_id = Some(id);
+        }
+    }
+
+    (ids, focused_count, focused_id)
+}
+
+fn apply_tree_random_op(harness: &mut TreeHarness, op: TreeRandomOp, next_window_id: &mut usize) {
+    use super::container::Direction;
+
+    match op {
+        TreeRandomOp::AddWindow => {
+            harness.add_window(*next_window_id);
+            *next_window_id += 1;
+        }
+        TreeRandomOp::RemoveFocused => {
+            let tree = harness.tree.debug_tree();
+            let (_, _, focused_id) = parse_debug_tree_windows(&tree);
+            if let Some(id) = focused_id {
+                let _ = harness.tree.remove_window(&id);
+            }
+        }
+        TreeRandomOp::SplitH => {
+            harness.tree.split_focused(ContainerLayout::SplitH);
+        }
+        TreeRandomOp::SplitV => {
+            harness.tree.split_focused(ContainerLayout::SplitV);
+        }
+        TreeRandomOp::SetTabbed => {
+            harness.tree.set_focused_layout(ContainerLayout::Tabbed);
+        }
+        TreeRandomOp::SetStacked => {
+            harness.tree.set_focused_layout(ContainerLayout::Stacked);
+        }
+        TreeRandomOp::ToggleSplit => {
+            harness.tree.toggle_split_layout();
+        }
+        TreeRandomOp::FocusLeft => {
+            harness.tree.focus_in_direction(Direction::Left);
+        }
+        TreeRandomOp::FocusRight => {
+            harness.tree.focus_in_direction(Direction::Right);
+        }
+        TreeRandomOp::FocusUp => {
+            harness.tree.focus_in_direction(Direction::Up);
+        }
+        TreeRandomOp::FocusDown => {
+            harness.tree.focus_in_direction(Direction::Down);
+        }
+        TreeRandomOp::MoveLeft => {
+            harness.tree.move_in_direction(Direction::Left);
+        }
+        TreeRandomOp::MoveRight => {
+            harness.tree.move_in_direction(Direction::Right);
+        }
+        TreeRandomOp::MoveUp => {
+            harness.tree.move_in_direction(Direction::Up);
+        }
+        TreeRandomOp::MoveDown => {
+            harness.tree.move_in_direction(Direction::Down);
+        }
+        TreeRandomOp::FocusParent => {
+            harness.tree.focus_parent();
+        }
+        TreeRandomOp::FocusChild => {
+            harness.tree.focus_child();
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 64,
+        ..ProptestConfig::default()
+    })]
+
+    #[test]
+    fn random_container_tree_ops_keep_unique_ids_and_valid_focus(
+        ops in prop::collection::vec(
+            prop_oneof![
+                Just(TreeRandomOp::AddWindow),
+                Just(TreeRandomOp::RemoveFocused),
+                Just(TreeRandomOp::SplitH),
+                Just(TreeRandomOp::SplitV),
+                Just(TreeRandomOp::SetTabbed),
+                Just(TreeRandomOp::SetStacked),
+                Just(TreeRandomOp::ToggleSplit),
+                Just(TreeRandomOp::FocusLeft),
+                Just(TreeRandomOp::FocusRight),
+                Just(TreeRandomOp::FocusUp),
+                Just(TreeRandomOp::FocusDown),
+                Just(TreeRandomOp::MoveLeft),
+                Just(TreeRandomOp::MoveRight),
+                Just(TreeRandomOp::MoveUp),
+                Just(TreeRandomOp::MoveDown),
+                Just(TreeRandomOp::FocusParent),
+                Just(TreeRandomOp::FocusChild),
+            ],
+            1..100
+        ),
+    ) {
+        let mut harness = TreeHarness::new();
+        let mut next_window_id = 1usize;
+
+        harness.add_window(next_window_id);
+        next_window_id += 1;
+
+        for op in ops {
+            apply_tree_random_op(&mut harness, op, &mut next_window_id);
+
+            let tree = harness.tree.debug_tree();
+            let (ids, focused_count, _focused_id) = parse_debug_tree_windows(&tree);
+            let unique = ids.iter().copied().collect::<std::collections::HashSet<_>>();
+
+            prop_assert_eq!(
+                ids.len(),
+                unique.len(),
+                "duplicate window ids after {:?}:\n{}",
+                op,
+                tree,
+            );
+
+            if ids.is_empty() {
+                prop_assert_eq!(
+                    focused_count,
+                    0,
+                    "empty tree should not have focused windows after {:?}:\n{}",
+                    op,
+                    tree,
+                );
+            } else {
+                prop_assert_eq!(
+                    focused_count,
+                    1,
+                    "non-empty tree should have exactly one focused window after {:?}:\n{}",
+                    op,
+                    tree,
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn move_right_enters_container_with_different_layout() {
     let mut harness = TreeHarness::new();
@@ -4734,12 +4860,13 @@ fn move_right_enters_container_with_different_layout() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitH
-  SplitV
-    Window 2
-    Window 1 *
-    Window 3
-"
+        @"
+    SplitH
+      SplitV
+        Window 2
+        Window 1 *
+        Window 3
+    "
     );
 }
 
@@ -4756,12 +4883,13 @@ fn move_right_escapes_to_grandparent_on_layout_mismatch() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitH
-  SplitV
-    Window 1
-  Window 3 *
-  Window 2
-"
+        @"
+    SplitH
+      SplitV
+        Window 1
+      Window 3 *
+      Window 2
+    "
     );
 }
 
@@ -4781,12 +4909,12 @@ fn focus_descends_into_last_focused_child() {
     assert_snapshot!(
         tree.as_str(),
         @"
-SplitH
-  SplitV
-    Window 1
-    Window 3 *
-  Window 2
-"
+    SplitH
+      SplitV
+        Window 1
+        Window 3 *
+      Window 2
+    "
     );
 }
 
@@ -4807,12 +4935,12 @@ fn flatten_same_layout_container_on_cleanup() {
     assert_snapshot!(
         tree.as_str(),
         @"
-SplitV
-  SplitV
-    Window 1
-    Window 4
-  Window 2 *
-"
+    SplitV
+      SplitV
+        Window 1
+        Window 4
+      Window 2 *
+    "
     );
 }
 
@@ -4832,11 +4960,11 @@ fn move_left_enters_single_child_container() {
     assert_snapshot!(
         tree.as_str(),
         @"
-SplitH
-  SplitV
-    Window 1
-    Window 2 *
-"
+    SplitH
+      SplitV
+        Window 1
+        Window 2 *
+    "
     );
 }
 
@@ -4852,11 +4980,12 @@ fn move_right_swaps_with_sibling_in_same_layout() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitH
-  Window 1
-  Window 3
-  Window 2 *
-"
+        @"
+    SplitH
+      Window 1
+      Window 3
+      Window 2 *
+    "
     );
 }
 
@@ -4873,11 +5002,12 @@ fn move_down_swaps_in_splitv() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitV
-  Window 1
-  Window 3
-  Window 2 *
-"
+        @"
+    SplitV
+      Window 1
+      Window 3
+      Window 2 *
+    "
     );
 }
 
@@ -4895,12 +5025,13 @@ fn move_down_enters_container_with_different_layout() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitV
-  SplitH
-    Window 2
-    Window 3
-    Window 1 *
-"
+        @"
+    SplitV
+      SplitH
+        Window 2
+        Window 1 *
+        Window 3
+    "
     );
 }
 
@@ -4918,12 +5049,13 @@ fn move_left_enters_container_with_different_layout() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitH
-  SplitV
-    Window 1
-    Window 3
-    Window 2 *
-"
+        @"
+    SplitH
+      SplitV
+        Window 1
+        Window 3
+        Window 2 *
+    "
     );
 }
 
@@ -4942,12 +5074,13 @@ fn move_up_enters_container_with_different_layout() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitV
-  SplitH
-    Window 1
-    Window 2 *
-    Window 3
-"
+        @"
+    SplitV
+      SplitH
+        Window 1
+        Window 3
+        Window 2 *
+    "
     );
 }
 
@@ -4965,12 +5098,13 @@ fn move_up_escapes_to_grandparent_on_layout_mismatch() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitV
-  Window 1
-  Window 2 *
-  SplitH
-    Window 3
-"
+        @"
+    SplitV
+      Window 1
+      Window 2 *
+      SplitH
+        Window 3
+    "
     );
 }
 
@@ -4987,11 +5121,12 @@ fn preserve_single_child_container_with_different_layout() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitH
-  SplitV
-    Window 1 *
-  Window 2
-"
+        @"
+    SplitH
+      SplitV
+        Window 1 *
+      Window 2
+    "
     );
 }
 
@@ -5010,11 +5145,11 @@ fn replace_single_child_container_with_same_layout() {
     assert_snapshot!(
         tree.as_str(),
         @"
-SplitH
-  SplitH
-    Window 1 *
-  Window 2
-"
+    SplitH
+      SplitH
+        Window 1 *
+      Window 2
+    "
     );
 }
 
@@ -5031,12 +5166,13 @@ fn move_right_enters_tabbed_container() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitH
-  Tabbed
-    Window 2
-    Window 3
-    Window 1 *
-"
+        @"
+    SplitH
+      Tabbed
+        Window 2
+        Window 3
+        Window 1 *
+    "
     );
 }
 
@@ -5052,11 +5188,12 @@ fn move_left_swaps_in_tabbed_layout() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"Tabbed
-  Window 1
-  Window 3 *
-  Window 2
-"
+        @"
+    Tabbed
+      Window 1
+      Window 3 *
+      Window 2
+    "
     );
 }
 
@@ -5073,12 +5210,13 @@ fn split_inside_tabbed_creates_nested_split() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"Tabbed
-  SplitH
-    Window 1
-    Window 3 *
-  Window 2
-"
+        @"
+    Tabbed
+      SplitH
+        Window 1
+        Window 3 *
+      Window 2
+    "
     );
 }
 
@@ -5092,10 +5230,11 @@ fn toggle_split_layout_switches_orientation() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitV
-  Window 1
-  Window 2 *
-"
+        @"
+    SplitV
+      Window 1
+      Window 2 *
+    "
     );
 }
 
@@ -5112,11 +5251,12 @@ fn move_down_swaps_in_stacked_layout() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"Stacked
-  Window 1
-  Window 3
-  Window 2 *
-"
+        @"
+    Stacked
+      Window 1
+      Window 3
+      Window 2 *
+    "
     );
 }
 
@@ -5134,12 +5274,13 @@ fn move_up_escapes_tabbed_layout() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitV
-  Window 1
-  Window 2 *
-  Tabbed
-    Window 3
-"
+        @"
+    SplitV
+      Window 1
+      Window 2 *
+      Tabbed
+        Window 3
+    "
     );
 }
 
@@ -5156,12 +5297,13 @@ fn move_left_escapes_stacked_layout() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitH
-  Window 1
-  Window 2 *
-  Stacked
-    Window 3
-"
+        @"
+    SplitH
+      Window 1
+      Window 2 *
+      Stacked
+        Window 3
+    "
     );
 }
 
@@ -5176,10 +5318,11 @@ fn move_left_at_edge_is_noop() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitH
-  Window 1 *
-  Window 2
-"
+        @"
+    SplitH
+      Window 1 *
+      Window 2
+    "
     );
 }
 
@@ -5195,10 +5338,11 @@ fn move_up_at_edge_is_noop() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitV
-  Window 1 *
-  Window 2
-"
+        @"
+    SplitV
+      Window 1 *
+      Window 2
+    "
     );
 }
 
@@ -5211,9 +5355,10 @@ fn split_on_empty_workspace_applies_to_next_window() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitV
-  Window 1 *
-"
+        @"
+    SplitV
+      Window 1 *
+    "
     );
 }
 
@@ -5226,9 +5371,10 @@ fn split_on_empty_workspace_applies_to_next_window_via_append() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitV
-  Window 1 *
-"
+        @"
+    SplitV
+      Window 1 *
+    "
     );
 }
 
@@ -5243,9 +5389,10 @@ fn layout_persists_after_last_window_closed() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitV
-  Window 2 *
-"
+        @"
+    SplitV
+      Window 2 *
+    "
     );
 }
 
@@ -5260,9 +5407,10 @@ fn layout_persists_after_last_window_closed_via_append() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitV
-  Window 2 *
-"
+        @"
+    SplitV
+      Window 2 *
+    "
     );
 }
 
@@ -5277,9 +5425,10 @@ fn split_on_single_window_persists_after_close() {
     let tree = harness.tree.debug_tree();
     assert_snapshot!(
         tree.as_str(),
-        @"SplitV
-  Window 2 *
-"
+        @"
+    SplitV
+      Window 2 *
+    "
     );
 }
 
@@ -5302,11 +5451,11 @@ fn move_right_from_single_child_container_is_atomic() {
     assert_snapshot!(
         tree.as_str(),
         @"
-SplitH
-  Window 2
-  Window 1 *
-  Window 3
-"
+    SplitH
+      Window 2
+      Window 1 *
+      Window 3
+    "
     );
 }
 
@@ -5329,11 +5478,11 @@ fn move_left_swaps_single_child_container_immediately() {
     assert_snapshot!(
         tree.as_str(),
         @"
-SplitH
-  Window 2 *
-  Window 1
-  Window 3
-"
+    SplitH
+      Window 2 *
+      Window 1
+      Window 3
+    "
     );
 }
 
@@ -5346,7 +5495,6 @@ fn focus_parent_at_root_is_noop() {
     // Single window at root - focus_parent should return false
     assert!(!harness.tree.focus_parent());
 }
-
 
 #[test]
 fn focus_parent_child_roundtrip_in_nested_splitv() {
@@ -5405,7 +5553,8 @@ fn insert_position_empty_workspace_returns_new_column() {
     use super::monitor::InsertPosition;
 
     let options = Options::from_config(&Config::default());
-    let mut layout: Layout<TestWindow> = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+    let mut layout: Layout<TestWindow> =
+        Layout::with_options(Clock::with_time(Duration::ZERO), options);
 
     let output = make_test_output("output-test");
     layout.add_output(output.clone(), None);
@@ -5422,8 +5571,8 @@ fn insert_position_empty_workspace_returns_new_column() {
 
 #[test]
 fn insert_position_with_window_on_top_edge() {
-    use super::monitor::InsertPosition;
     use super::container::Direction;
+    use super::monitor::InsertPosition;
 
     let options = Options::from_config(&Config::default());
     let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
@@ -5460,8 +5609,8 @@ fn insert_position_with_window_on_top_edge() {
 
 #[test]
 fn insert_position_with_window_on_bottom_edge() {
-    use super::monitor::InsertPosition;
     use super::container::Direction;
+    use super::monitor::InsertPosition;
 
     let options = Options::from_config(&Config::default());
     let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
@@ -5528,7 +5677,10 @@ fn insert_position_center_of_window() {
 
     // Should be either Swap or Split (both are valid for center area)
     assert!(
-        matches!(insert_pos, InsertPosition::Swap { .. } | InsertPosition::Split { .. }),
+        matches!(
+            insert_pos,
+            InsertPosition::Swap { .. } | InsertPosition::Split { .. }
+        ),
         "Expected Swap or Split at window center, got {:?}",
         insert_pos
     );

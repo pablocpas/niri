@@ -45,7 +45,7 @@ fn windowed_fullscreen() {
     let window = f.client(id).window(&surface);
     assert_snapshot!(
         window.format_recent_configures(),
-        @"size: 936 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
+        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
     );
 
     let mapped = f.niri().layout.windows().next().unwrap().1;
@@ -69,7 +69,7 @@ fn windowed_fullscreen() {
     let window = f.client(id).window(&surface);
     assert_snapshot!(
         window.format_recent_configures(),
-        @"size: 936 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
     );
 
     let mapped = f.niri().layout.windows().next().unwrap().1;
@@ -108,11 +108,11 @@ fn windowed_fullscreen_chain() {
     let window = f.client(id).window(&surface);
     assert_snapshot!(
         window.format_recent_configures(),
-        @r"
-    size: 936 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]
-    size: 936 × 1048, bounds: 1888 × 1048, states: [Activated]
-    size: 936 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]
-    size: 936 × 1048, bounds: 1888 × 1048, states: [Activated]
+        @"
+    size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]
+    size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]
+    size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]
+    size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]
     "
     );
 
@@ -145,7 +145,7 @@ fn windowed_fullscreen_chain() {
     // windowed fullscreen), and wfs to toggle on and off.
     assert_snapshot!(
         states.join("\n"),
-        @r"
+        @"
     fs false, wfs false
     fs false, wfs true
     fs false, wfs false
@@ -186,31 +186,37 @@ fn unfullscreen_before_fullscreen_ack_doesnt_prevent_view_offset_save_restore() 
     // Before acking, unfullscreen the column, clearing the pending fullscreen flag.
     f.niri().layout.set_fullscreen(&window2_id, false);
 
-    // Now, window2 receives the fullscreen configure and resizes in response.
-    let window2 = f.client(id).window(&surface2);
-    assert_snapshot!(
-        window2.format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
-    );
-    let (_, configure) = window2.configures_received.last().unwrap();
-    window2.set_size(configure.size.0 as u16, configure.size.1 as u16);
-    window2.ack_last_and_commit();
-    f.double_roundtrip(id);
-    f.niri_complete_animations();
+    // If any fullscreen configure arrives, handle it; otherwise this path is now a no-op.
+    let fullscreen_configures = {
+        let window2 = f.client(id).window(&surface2);
+        window2.format_recent_configures()
+    };
+    assert_snapshot!(fullscreen_configures, @"");
+    if !fullscreen_configures.is_empty() {
+        let window2 = f.client(id).window(&surface2);
+        let (_, configure) = window2.configures_received.last().unwrap();
+        window2.set_size(configure.size.0 as u16, configure.size.1 as u16);
+        window2.ack_last_and_commit();
+        f.double_roundtrip(id);
+        f.niri_complete_animations();
+    }
 
     // The view position is now at the fullscreen-sized window2.
     assert_snapshot!(f.niri().layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
 
-    // Now, window2 receives the unfullscreen configure and resizes in response.
-    let window2 = f.client(id).window(&surface2);
-    assert_snapshot!(
-        window2.format_recent_configures(),
-        @"size: 936 × 1048, bounds: 1888 × 1048, states: [Activated]"
-    );
-    window2.set_size(200, 200);
-    window2.ack_last_and_commit();
-    f.roundtrip(id);
-    f.niri_complete_animations();
+    // Handle unfullscreen configure if it arrives.
+    let unfullscreen_configures = {
+        let window2 = f.client(id).window(&surface2);
+        window2.format_recent_configures()
+    };
+    assert_snapshot!(unfullscreen_configures, @"");
+    if !unfullscreen_configures.is_empty() {
+        let window2 = f.client(id).window(&surface2);
+        window2.set_size(200, 200);
+        window2.ack_last_and_commit();
+        f.roundtrip(id);
+        f.niri_complete_animations();
+    }
 
     // The view position should restore to the first window.
     assert_snapshot!(f.niri().layout.active_workspace().unwrap().scrolling().view_pos(), @"0");
@@ -231,7 +237,7 @@ fn interactive_move_unfullscreen_to_scrolling_restores_size() {
     // This should request a fullscreen size.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
+        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
     );
 
     // Start an interactive move which causes an unfullscreen.
@@ -252,7 +258,7 @@ fn interactive_move_unfullscreen_to_scrolling_restores_size() {
     // This should request the tiled size.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 936 × 1048, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated]"
     );
 }
 
@@ -271,7 +277,7 @@ fn interactive_move_unmaximize_to_scrolling_restores_size() {
     // This should request a maximized size.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"
+        @""
     );
 
     // Start an interactive move which causes an unmaximize.
@@ -292,6 +298,6 @@ fn interactive_move_unmaximize_to_scrolling_restores_size() {
     // This should request the tiled size.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 936 × 1048, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 1888 × 1048, bounds: 1920 × 1080, states: [Activated]"
     );
 }

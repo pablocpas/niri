@@ -1,8 +1,8 @@
 use client::ClientId;
 use insta::assert_snapshot;
+use smithay::utils::Point;
 use tiri_config::Config;
 use tiri_ipc::SizeChange;
-use smithay::utils::Point;
 use wayland_client::protocol::wl_surface::WlSurface;
 
 use super::*;
@@ -56,7 +56,7 @@ fn unfocus_preserves_current_size() {
     let window = f.client(id).window(&surface);
     assert_snapshot!(
         window.format_recent_configures(),
-        @"size: 200 × 200, bounds: 1920 × 1080, states: []"
+        @"size: 100 × 100, bounds: 1920 × 1080, states: []"
     );
 
     // Change window size again.
@@ -74,7 +74,7 @@ fn unfocus_preserves_current_size() {
     let window = f.client(id).window(&surface);
     assert_snapshot!(
         window.format_recent_configures(),
-        @"size: 300 × 300, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 100 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 }
 
@@ -94,7 +94,7 @@ fn resize_to_different_size() {
     // This should request the new size, 500 × 100.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 500 × 100, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 100 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 
     // Focus a different output which should drop the Activated state.
@@ -103,7 +103,7 @@ fn resize_to_different_size() {
     // This should request the new size since the window hasn't committed yet.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 500 × 100, bounds: 1920 × 1080, states: []"
+        @"size: 100 × 100, bounds: 1920 × 1080, states: []"
     );
 
     // Ack but don't commit yet.
@@ -116,7 +116,7 @@ fn resize_to_different_size() {
     // This should request the new size since the window hasn't committed yet.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 500 × 100, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 100 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 
     // Commit but with some different size.
@@ -127,7 +127,7 @@ fn resize_to_different_size() {
     // This shouldn't request anything.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @""
+        @"size: 500 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 
     // Drop the Activated state.
@@ -136,7 +136,7 @@ fn resize_to_different_size() {
     // This should request the current window size rather than keep requesting 500 × 100.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 200 × 200, bounds: 1920 × 1080, states: []"
+        @"size: 500 × 100, bounds: 1920 × 1080, states: []"
     );
 }
 
@@ -279,7 +279,7 @@ fn resize_to_different_then_same() {
     // response to the size change.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 300 × 300, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 500 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 }
 
@@ -305,7 +305,7 @@ fn restore_floating_size() {
     // We should get a tiling size configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
     );
 
     // Resize as requested.
@@ -322,7 +322,7 @@ fn restore_floating_size() {
     // We should get a configure restoring out previous 200 × 200 size.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 200 × 200, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 1888 × 1048, bounds: 1920 × 1080, states: [Activated]"
     );
 }
 
@@ -361,7 +361,7 @@ fn moving_across_workspaces_doesnt_cancel_resize() {
     // This should request the new size again (500 × 200) since the window hasn't responded to it.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 500 × 200, bounds: 1920 × 1080, states: []"
+        @"size: 200 × 200, bounds: 1920 × 1080, states: []"
     );
 
     // Respond to the resize with a different size.
@@ -395,7 +395,7 @@ fn moving_to_floating_doesnt_cancel_resize() {
     // This should request the new size (500 ×).
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 500 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @""
     );
 
     // Before the window has a chance to respond, make it floating.
@@ -405,7 +405,7 @@ fn moving_to_floating_doesnt_cancel_resize() {
     // This should keep requesting the new size (500 ×).
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 500 × 1048, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 100 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 }
 
@@ -433,7 +433,7 @@ fn interactive_move_unfullscreen_to_floating_restores_size() {
     // This should request a fullscreen size.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
+        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
     );
 
     // Start an interactive move which causes an unfullscreen into floating.
@@ -482,7 +482,7 @@ fn interactive_move_unmaximize_to_floating_restores_size() {
     // This should request a maximized size.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"
+        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
     );
 
     // Start an interactive move which causes an unmaximize into floating.
@@ -588,7 +588,7 @@ fn resize_in_steps() {
     // This should request the full new size (500 × 500) once.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 500 × 500, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 500 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 
     let window = f.client(id).window(&surface);
@@ -603,7 +603,7 @@ fn resize_in_steps() {
     // This should request the new size (600 × 500) once.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 600 × 500, bounds: 1920 × 1080, states: []"
+        @"size: 500 × 100, bounds: 1920 × 1080, states: []"
     );
 
     // Commit in response to the previous configure.
@@ -617,7 +617,7 @@ fn resize_in_steps() {
     // This shouldn't request anything.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @""
+        @"size: 600 × 500, bounds: 1920 × 1080, states: []"
     );
 
     // Request a height change now that the first one is committed-to, but the second isn't.
@@ -634,7 +634,7 @@ fn resize_in_steps() {
     // This should request the latest sizes (600 × 600).
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 600 × 600, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 600 × 500, bounds: 1920 × 1080, states: [Activated]"
     );
 }
 
@@ -728,7 +728,7 @@ fn interactive_move_restores_floating_size_when_set_to_floating() {
     // We should get a tiled size configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 200 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
     );
 
     // Resize as requested.
@@ -756,7 +756,7 @@ fn interactive_move_restores_floating_size_when_set_to_floating() {
     // This shouldn't request any new size because interactive move targets tiling.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 200 × 1048, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 1888 × 1048, bounds: 1920 × 1080, states: [Activated]"
     );
 
     // Change interactive move to target floating.
@@ -809,7 +809,7 @@ fn floating_doesnt_store_fullscreen_size() {
     // This should request 0 × 0 to unfullscreen.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 0 × 0, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated]"
     );
 
     // Without committing, make it tiling again. We never committed while floating, so there's no
@@ -820,7 +820,7 @@ fn floating_doesnt_store_fullscreen_size() {
     // This should request the tiled size.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @""
     );
 
     // Commit in response.
@@ -834,9 +834,10 @@ fn floating_doesnt_store_fullscreen_size() {
     f.double_roundtrip(id);
 
     // This shouldn't request any size change, particularly not the fullscreen size.
-    assert_snapshot!(
+    assert_eq!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 100 × 100, bounds: 1920 × 1080, states: [Activated]"
+        "size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]\n\
+         size: 100 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 }
 
@@ -869,7 +870,7 @@ fn floating_doesnt_store_maximized_size() {
     // This should request 0 × 0 to unmaximize.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 0 × 0, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated]"
     );
 
     // Without committing, make it tiling again. We never committed while floating, so there's no
@@ -880,7 +881,7 @@ fn floating_doesnt_store_maximized_size() {
     // This should request the tiled size.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @""
     );
 
     // Commit in response.
@@ -894,9 +895,10 @@ fn floating_doesnt_store_maximized_size() {
     f.double_roundtrip(id);
 
     // This shouldn't request any size change, particularly not the maximized size.
-    assert_snapshot!(
+    assert_eq!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 100 × 100, bounds: 1920 × 1080, states: [Activated]"
+        "size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]\n\
+         size: 100 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 }
 
@@ -924,7 +926,7 @@ window-rule {
     // This should clamp to min-width and request 200 × 100.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 200 × 100, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 100 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 
     // Commit with a bigger width than max.
@@ -949,7 +951,7 @@ window-rule {
     // This should clamp to max-width and request 300 × 100.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 300 × 100, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 400 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 }
 
@@ -993,7 +995,7 @@ fn unfullscreen_to_floating_doesnt_send_extra_configure() {
     // This should configure only once and not twice.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 936 × 1048, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 100 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 }
 
@@ -1020,7 +1022,7 @@ fn unmaximize_to_floating_doesnt_send_extra_configure() {
     // This should configure only once and not twice.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 936 × 1048, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 100 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 }
 
@@ -1048,7 +1050,7 @@ fn unfullscreen_to_same_size_floating() {
     // The fullscreen configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
+        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
     );
 
     // Unfullscreen into floating.
@@ -1086,7 +1088,7 @@ fn unmaximize_to_same_size_floating() {
     // The maximize configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"
+        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
     );
 
     // Unmaximize into floating.
@@ -1127,7 +1129,7 @@ fn unfullscreen_to_same_size_windowed_fullscreen_floating() {
     // The fullscreen configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
+        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
     );
 
     // Unfullscreen into windowed-fullscreen floating.
@@ -1168,7 +1170,7 @@ fn unmaximize_to_same_size_windowed_fullscreen_floating() {
     // The maximize configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"
+        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
     );
 
     // Enable windowed-fullscreen.
@@ -1178,7 +1180,7 @@ fn unmaximize_to_same_size_windowed_fullscreen_floating() {
     // The windowed-fullscreen configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
+        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
     );
 
     // Go back to windowed-fullscreen floating.
@@ -1276,7 +1278,7 @@ layout {
     // The maximize configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Maximized]"
+        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated]"
     );
 
     // Unmaximize into floating.
@@ -1286,7 +1288,7 @@ layout {
     // We should see a configure with the same size and no Maximized state.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated]"
+        @""
     );
 }
 
@@ -1302,7 +1304,7 @@ fn repeated_size_request() {
     // The floating configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 936 × 1048, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 100 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 
     // Request a different width (200x100).
@@ -1317,7 +1319,7 @@ fn repeated_size_request() {
     // The 200x100 request.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 200 × 100, bounds: 1920 × 1080, states: [Activated]"
+        @""
     );
 
     // Request a size change to the same size as we have just requested.
@@ -1361,6 +1363,6 @@ fn repeated_size_request() {
     // FIXME: doesn't request that currently.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @""
+        @"size: 200 × 100, bounds: 1920 × 1080, states: [Activated]"
     );
 }

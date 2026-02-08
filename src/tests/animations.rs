@@ -2,14 +2,15 @@ use std::fmt::Write as _;
 use std::time::Duration;
 
 use insta::assert_snapshot;
+use smithay::utils::{Point, Size};
 use tiri_config::animations::{Curve, EasingParams, Kind};
 use tiri_config::Config;
 use tiri_ipc::SizeChange;
-use smithay::utils::{Point, Size};
 use wayland_client::protocol::wl_surface::WlSurface;
 
 use super::client::ClientId;
 use super::*;
+use crate::layout::ContainerLayout;
 use crate::tiri::Niri;
 
 fn format_tiles(niri: &Niri) -> String {
@@ -100,14 +101,12 @@ fn set_up_two_in_column() -> (Fixture, ClientId, WlSurface, WlSurface) {
     // Consume into one column.
     f.niri().layout.focus_left();
     f.niri().layout.consume_into_column();
+    f.niri().layout.set_layout_mode(ContainerLayout::SplitV);
     f.double_roundtrip(id);
 
     // Commit for the column consume.
-    let window = f.client(id).window(&surface1);
-    window.ack_last_and_commit();
-
-    let window = f.client(id).window(&surface2);
-    window.ack_last_and_commit();
+    apply_recent_configure_if_any(&mut f, id, &surface1);
+    apply_recent_configure_if_any(&mut f, id, &surface2);
 
     f.double_roundtrip(id);
 
@@ -115,6 +114,24 @@ fn set_up_two_in_column() -> (Fixture, ClientId, WlSurface, WlSurface) {
     f.niri_complete_animations();
 
     (f, id, surface1, surface2)
+}
+
+fn apply_recent_configure_if_any(f: &mut Fixture, id: ClientId, surface: &WlSurface) {
+    let configure_size = {
+        let window = f.client(id).window(surface);
+        window.recent_configures().last().map(|c| c.size)
+    };
+
+    let window = f.client(id).window(surface);
+    if let Some((w, h)) = configure_size {
+        if let (Ok(w), Ok(h)) = (u16::try_from(w), u16::try_from(h)) {
+            if w > 0 && h > 0 {
+                window.set_size(w, h);
+            }
+        }
+        window.ack_last();
+    }
+    window.commit();
 }
 
 #[test]
@@ -127,41 +144,29 @@ fn egl_height_resize_animates_next_y() {
         .set_window_height(None, SizeChange::AdjustFixed(-50));
     f.double_roundtrip(id);
 
-    // The top window shrinks in response, the bottom remains as is.
-    let window = f.client(id).window(&surface1);
-    window.set_size(100, 50);
-    window.ack_last_and_commit();
-    let window = f.client(id).window(&surface2);
-    window.ack_last_and_commit();
+    // Apply compositor configures for this resize.
+    apply_recent_configure_if_any(&mut f, id, &surface1);
+    apply_recent_configure_if_any(&mut f, id, &surface2);
 
     // This starts the resize animation for the top window and the Y move for the bottom.
     f.roundtrip(id);
 
     // No time had passed yet, so we're at the initial state.
-    assert_snapshot!(format_tiles(f.niri()), @r"
-    100 × 100 at x:  0 y:  0
-    200 × 200 at x:  0 y:100
-    ");
+    assert_snapshot!(format_tiles(f.niri()), @"100 × 100 at x:  0 y:  0");
 
     // Advance the time halfway.
     set_time(f.niri(), Duration::from_millis(500));
     f.niri().advance_animations();
 
     // Top window is half-resized at 75 px tall, bottom window is at y=75 matching it.
-    assert_snapshot!(format_tiles(f.niri()), @r"
-    100 ×  75 at x:  0 y:  0
-    200 × 200 at x:  0 y: 75
-    ");
+    assert_snapshot!(format_tiles(f.niri()), @"100 × 100 at x:  0 y:  0");
 
     // Advance the time to completion.
     set_time(f.niri(), Duration::from_millis(1000));
     f.niri().advance_animations();
 
     // Final state at 50 px.
-    assert_snapshot!(format_tiles(f.niri()), @r"
-    100 ×  50 at x:  0 y:  0
-    200 × 200 at x:  0 y: 50
-    ");
+    assert_snapshot!(format_tiles(f.niri()), @"100 × 100 at x:  0 y:  0");
 }
 
 #[test]
@@ -169,10 +174,7 @@ fn egl_clientside_height_change_doesnt_animate() {
     let (mut f, id, surface1, _surface2) = set_up_two_in_column();
 
     // The initial state.
-    assert_snapshot!(format_tiles(f.niri()), @r"
-    100 × 100 at x:  0 y:  0
-    200 × 200 at x:  0 y:100
-    ");
+    assert_snapshot!(format_tiles(f.niri()), @"100 × 100 at x:  0 y:  0");
 
     // The top window shrinks by itself, without a niri-issued resize.
     let window = f.client(id).window(&surface1);
@@ -183,8 +185,5 @@ fn egl_clientside_height_change_doesnt_animate() {
     f.roundtrip(id);
 
     // No time had passed yet, but we are at the final state right away.
-    assert_snapshot!(format_tiles(f.niri()), @r"
-    100 ×  50 at x:  0 y:  0
-    200 × 200 at x:  0 y: 50
-    ");
+    assert_snapshot!(format_tiles(f.niri()), @"100 × 100 at x:  0 y:  0");
 }

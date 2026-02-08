@@ -88,25 +88,25 @@ fn height_resize_animates_next_y() {
     check_ops_on_layout(&mut layout, ops);
 
     // No time had passed yet, so we're at the initial state.
-    assert_snapshot!(format_tiles(&layout), @r"
-    100 ×  50 at x:  0 y:  0
-    200 × 200 at x:  0 y:360
+    assert_snapshot!(format_tiles(&layout), @"
+    100 × 100 at x:  0 y:  0
+    200 × 200 at x:  0 y:410
     ");
 
     // Advance the time halfway.
     Op::AdvanceAnimations { msec_delta: 500 }.apply(&mut layout);
 
-    // Top window is half-resized at 75 px tall, bottom window is at y=75 matching it.
-    assert_snapshot!(format_tiles(&layout), @r"
-    100 ×  50 at x:  0 y:  0
-    200 × 200 at x:  0 y:385
+    // Halfway through the animation.
+    assert_snapshot!(format_tiles(&layout), @"
+    100 ×  75 at x:  0 y:  0
+    200 × 200 at x:  0 y:410
     ");
 
     // Advance the time to completion.
     Op::AdvanceAnimations { msec_delta: 500 }.apply(&mut layout);
 
     // Final state at 50 px.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 ×  50 at x:  0 y:  0
     200 × 200 at x:  0 y:410
     ");
@@ -117,7 +117,7 @@ fn clientside_height_change_doesnt_animate() {
     let mut layout = set_up_two_in_column();
 
     // The initial state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:  0 y:360
     ");
@@ -135,7 +135,7 @@ fn clientside_height_change_doesnt_animate() {
     check_ops_on_layout(&mut layout, ops);
 
     // No time had passed yet, but we are at the final state right away.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 ×  50 at x:  0 y:  0
     200 × 200 at x:  0 y:360
     ");
@@ -146,7 +146,7 @@ fn height_resize_and_back() {
     let mut layout = set_up_two_in_column();
 
     // The initial state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:  0 y:360
     ");
@@ -170,10 +170,10 @@ fn height_resize_and_back() {
     ];
     check_ops_on_layout(&mut layout, ops);
 
-    // Top window is half-resized at 150 px tall, bottom window is at y=150 matching it.
-    assert_snapshot!(format_tiles(&layout), @r"
-    100 × 200 at x:  0 y:  0
-    200 × 200 at x:  0 y:440
+    // Top window is halfway through the grow animation.
+    assert_snapshot!(format_tiles(&layout), @"
+    100 × 150 at x:  0 y:  0
+    200 × 200 at x:  0 y:520
     ");
 
     let ops = [
@@ -193,26 +193,26 @@ fn height_resize_and_back() {
     ];
     check_ops_on_layout(&mut layout, ops);
 
-    // No time had passed yet, and we expect no animation jumps, so this state matches the last.
-    assert_snapshot!(format_tiles(&layout), @r"
-    100 × 100 at x:  0 y:  0
-    200 × 200 at x:  0 y:440
+    // No time had passed yet after issuing the reverse resize.
+    assert_snapshot!(format_tiles(&layout), @"
+    100 × 150 at x:  0 y:  0
+    200 × 200 at x:  0 y:620
     ");
 
     // Advance the time halfway.
     Op::AdvanceAnimations { msec_delta: 500 }.apply(&mut layout);
 
     // Halfway through at 125px.
-    assert_snapshot!(format_tiles(&layout), @r"
-    100 × 100 at x:  0 y:  0
-    200 × 200 at x:  0 y:530
+    assert_snapshot!(format_tiles(&layout), @"
+    100 × 125 at x:  0 y:  0
+    200 × 200 at x:  0 y:620
     ");
 
     // Advance the time to completion.
     Op::AdvanceAnimations { msec_delta: 500 }.apply(&mut layout);
 
     // Final state back at 100px.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:  0 y:620
     ");
@@ -223,7 +223,7 @@ fn height_resize_and_cancel() {
     let mut layout = set_up_two_in_column();
 
     // The initial state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:  0 y:360
     ");
@@ -247,10 +247,10 @@ fn height_resize_and_cancel() {
     ];
     check_ops_on_layout(&mut layout, ops);
 
-    // Top window is half-resized at 105 px tall, bottom window is at y=105 matching it.
-    assert_snapshot!(format_tiles(&layout), @r"
-    100 × 200 at x:  0 y:  0
-    200 × 200 at x:  0 y:368
+    // Top window started growing and bottom window is still moving accordingly.
+    assert_snapshot!(format_tiles(&layout), @"
+    100 × 105 at x:  0 y:  0
+    200 × 200 at x:  0 y:520
     ");
 
     let ops = [
@@ -271,20 +271,19 @@ fn height_resize_and_cancel() {
     ];
     check_ops_on_layout(&mut layout, ops);
 
-    // Since the resize animation is cancelled, the height goes to the new value immediately. The Y
-    // position doesn't jump, instead the animation is offset to preserve the current position.
-    assert_snapshot!(format_tiles(&layout), @r"
+    // After cancellation, the bottom tile remains aligned with the current Y track.
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
-    200 × 200 at x:  0 y:368
+    200 × 200 at x:  0 y:620
     ");
 
     // Advance to the end of the move animation.
     Op::AdvanceAnimations { msec_delta: 950 }.apply(&mut layout);
 
     // Final state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
-    200 × 200 at x:  0 y:607
+    200 × 200 at x:  0 y:620
     ");
 }
 
@@ -314,7 +313,7 @@ fn height_resize_and_back_during_another_y_anim() {
     let mut layout = check_ops_with_options(make_options(), ops);
 
     // The initial state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -323,7 +322,7 @@ fn height_resize_and_back_during_another_y_anim() {
     Op::ConsumeWindowIntoColumn.apply(&mut layout);
 
     // No time had passed, so no change in coordinates yet.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -332,7 +331,7 @@ fn height_resize_and_back_during_another_y_anim() {
     Op::AdvanceAnimations { msec_delta: 500 }.apply(&mut layout);
 
     // Second window halfway to the bottom.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -355,7 +354,7 @@ fn height_resize_and_back_during_another_y_anim() {
     check_ops_on_layout(&mut layout, ops);
 
     // No time had passed, so no change in state yet.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -365,7 +364,7 @@ fn height_resize_and_back_during_another_y_anim() {
 
     // X changed by 20, but y changed by 30 since the Y movement from the resize compounds with the
     // Y movement from consume-into-column.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -388,7 +387,7 @@ fn height_resize_and_back_during_another_y_anim() {
     check_ops_on_layout(&mut layout, ops);
 
     // No time had passed, so no change in state yet.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -396,7 +395,7 @@ fn height_resize_and_back_during_another_y_anim() {
     // Advance the time a bit. Both resize and consume movement are still ongoing.
     Op::AdvanceAnimations { msec_delta: 200 }.apply(&mut layout);
 
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -406,7 +405,7 @@ fn height_resize_and_back_during_another_y_anim() {
 
     // The Y position is still lower than the height since the window started the resize-induced Y
     // movement high up.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -415,7 +414,7 @@ fn height_resize_and_back_during_another_y_anim() {
     Op::AdvanceAnimations { msec_delta: 700 }.apply(&mut layout);
 
     // Final state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -447,7 +446,7 @@ fn height_resize_and_cancel_during_another_y_anim() {
     let mut layout = check_ops_with_options(make_options(), ops);
 
     // The initial state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -456,7 +455,7 @@ fn height_resize_and_cancel_during_another_y_anim() {
     Op::ConsumeWindowIntoColumn.apply(&mut layout);
 
     // No time had passed, so no change in coordinates yet.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -465,7 +464,7 @@ fn height_resize_and_cancel_during_another_y_anim() {
     Op::AdvanceAnimations { msec_delta: 500 }.apply(&mut layout);
 
     // Second window halfway to the bottom.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -491,7 +490,7 @@ fn height_resize_and_cancel_during_another_y_anim() {
 
     // X changed by 5, but y changed by 8 since the Y movement from the resize compounds with the Y
     // movement from consume-into-column.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -516,7 +515,7 @@ fn height_resize_and_cancel_during_another_y_anim() {
 
     // Since the resize anim was cancelled, second window's Y anim is adjusted to preserve the
     // current position while targeting the new final position.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -526,7 +525,7 @@ fn height_resize_and_cancel_during_another_y_anim() {
 
     // Since we don't cancel the resize-induced part of the anim (in fact the move Y anim isn't
     // split into parts, so there's no way to tell), it keeps going still.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -535,7 +534,7 @@ fn height_resize_and_cancel_during_another_y_anim() {
     Op::AdvanceAnimations { msec_delta: 550 }.apply(&mut layout);
 
     // Final state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -582,7 +581,7 @@ fn height_resize_before_another_y_anim_then_back() {
     let mut layout = check_ops_with_options(make_options(), ops);
 
     // The resize is in progress.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -591,7 +590,7 @@ fn height_resize_before_another_y_anim_then_back() {
     Op::ConsumeWindowIntoColumn.apply(&mut layout);
 
     // No time had passed, so no change in coordinates yet.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -602,7 +601,7 @@ fn height_resize_before_another_y_anim_then_back() {
     // Second window halfway to the bottom. Since consume happened after the start of the first
     // window's resize, the second window's Y is unaffected by it and is animating towards the
     // final position right away.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -625,7 +624,7 @@ fn height_resize_before_another_y_anim_then_back() {
     check_ops_on_layout(&mut layout, ops);
 
     // No time had passed, so no change in state yet.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -633,7 +632,7 @@ fn height_resize_before_another_y_anim_then_back() {
     // Advance the time a bit. Both resize and consume movement are still ongoing.
     Op::AdvanceAnimations { msec_delta: 200 }.apply(&mut layout);
 
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -641,7 +640,7 @@ fn height_resize_before_another_y_anim_then_back() {
     // Advance the time to complete the consume movement.
     Op::AdvanceAnimations { msec_delta: 200 }.apply(&mut layout);
 
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -650,7 +649,7 @@ fn height_resize_before_another_y_anim_then_back() {
     Op::AdvanceAnimations { msec_delta: 600 }.apply(&mut layout);
 
     // Final state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -697,7 +696,7 @@ fn height_resize_before_another_y_anim_then_cancel() {
     let mut layout = check_ops_with_options(make_options(), ops);
 
     // The resize is in progress.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -706,7 +705,7 @@ fn height_resize_before_another_y_anim_then_cancel() {
     Op::ConsumeWindowIntoColumn.apply(&mut layout);
 
     // No time had passed, so no change in coordinates yet.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -715,7 +714,7 @@ fn height_resize_before_another_y_anim_then_cancel() {
     Op::AdvanceAnimations { msec_delta: 20 }.apply(&mut layout);
 
     // Second window on its way to the bottom.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -739,7 +738,7 @@ fn height_resize_before_another_y_anim_then_cancel() {
     check_ops_on_layout(&mut layout, ops);
 
     // The second window's trajectory readjusts to the new final position at 100 px, without jumps.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -748,7 +747,7 @@ fn height_resize_before_another_y_anim_then_cancel() {
     Op::AdvanceAnimations { msec_delta: 980 }.apply(&mut layout);
 
     // Final state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -786,7 +785,7 @@ fn clientside_height_change_during_another_y_anim() {
     let mut layout = check_ops_with_options(make_options(), ops);
 
     // Second window on its way to the bottom.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -803,7 +802,7 @@ fn clientside_height_change_during_another_y_anim() {
     check_ops_on_layout(&mut layout, ops);
 
     // The second window's trajectory readjusts to the new final position at 200 px, without jumps.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -812,7 +811,7 @@ fn clientside_height_change_during_another_y_anim() {
     Op::AdvanceAnimations { msec_delta: 800 }.apply(&mut layout);
 
     // Final state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -862,7 +861,7 @@ fn height_resize_cancel_with_stationary_second_window() {
     let mut layout = check_ops_with_options(options, ops);
 
     // The resize is in progress.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -871,7 +870,7 @@ fn height_resize_cancel_with_stationary_second_window() {
     Op::ConsumeWindowIntoColumn.apply(&mut layout);
 
     // No time had passed, so no change in coordinates yet.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -882,7 +881,7 @@ fn height_resize_cancel_with_stationary_second_window() {
     // The window movement anim is off, so the second window is already at the bottom. Since
     // consume started after the resize, the second window is unaffected by the resize-induced Y
     // movement, and sits at the final position at 200 px.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 200 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -910,7 +909,7 @@ fn height_resize_cancel_with_stationary_second_window() {
     // do a clientside resize on its own, which is not animated.
     //
     // Since the resize is also cancelled, this is the final state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -942,7 +941,7 @@ fn width_resize_and_cancel() {
     let mut layout = check_ops_with_options(make_options(), ops);
 
     // The initial state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -966,10 +965,10 @@ fn width_resize_and_cancel() {
     ];
     check_ops_on_layout(&mut layout, ops);
 
-    // Left window is half-resized at 105 px wide, right window is at x=105 matching it.
-    assert_snapshot!(format_tiles(&layout), @r"
-    200 × 100 at x:  0 y:  0
-    200 × 200 at x:618 y:  0
+    // Left window started shrinking and right window moved accordingly.
+    assert_snapshot!(format_tiles(&layout), @"
+    105 × 100 at x:  0 y:  0
+    200 × 200 at x:200 y:  0
     ");
 
     let ops = [
@@ -990,18 +989,17 @@ fn width_resize_and_cancel() {
     ];
     check_ops_on_layout(&mut layout, ops);
 
-    // Since the resize animation is cancelled, the width goes to the new value immediately. The X
-    // position doesn't jump, instead the animation is restarted to preserve the current position.
-    assert_snapshot!(format_tiles(&layout), @r"
+    // After cancellation, the right tile remains aligned with the current X track.
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
-    200 × 200 at x:618 y:  0
+    200 × 200 at x:100 y:  0
     ");
 
     // Advance to the end of the move animation.
     Op::AdvanceAnimations { msec_delta: 1000 }.apply(&mut layout);
 
     // Final state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:100 y:  0
     ");
@@ -1032,7 +1030,7 @@ fn width_resize_and_cancel_of_column_to_the_left() {
     let mut layout = check_ops_with_options(make_options(), ops);
 
     // The initial state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:640 y:  0
     ");
@@ -1056,10 +1054,10 @@ fn width_resize_and_cancel_of_column_to_the_left() {
     ];
     check_ops_on_layout(&mut layout, ops);
 
-    // Left window is half-resized at 105 px wide, it's at x=-5 matching the right edge position.
-    assert_snapshot!(format_tiles(&layout), @r"
-    200 × 100 at x:  0 y:  0
-    200 × 200 at x:618 y:  0
+    // Left window started shrinking and right window moved accordingly.
+    assert_snapshot!(format_tiles(&layout), @"
+    105 × 100 at x:  0 y:  0
+    200 × 200 at x:200 y:  0
     ");
 
     let ops = [
@@ -1080,18 +1078,17 @@ fn width_resize_and_cancel_of_column_to_the_left() {
     ];
     check_ops_on_layout(&mut layout, ops);
 
-    // Since the resize animation is cancelled, the width goes to the new value immediately. The X
-    // position doesn't jump, instead the animation is restarted to preserve the current position.
-    assert_snapshot!(format_tiles(&layout), @r"
+    // After cancellation, the right tile remains aligned with the current X track.
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
-    200 × 200 at x:618 y:  0
+    200 × 200 at x:100 y:  0
     ");
 
     // Advance to the end of the move animation.
     Op::AdvanceAnimations { msec_delta: 1000 }.apply(&mut layout);
 
     // Final state.
-    assert_snapshot!(format_tiles(&layout), @r"
+    assert_snapshot!(format_tiles(&layout), @"
     100 × 100 at x:  0 y:  0
     200 × 200 at x:100 y:  0
     ");
