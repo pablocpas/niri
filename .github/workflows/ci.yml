@@ -155,7 +155,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y ${{ env.DEPS_APT }} libadwaita-1-dev
+          sudo apt-get install -y ${{ env.DEPS_APT }} libadwaita-1-dev xvfb
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -163,6 +163,9 @@ jobs:
 
       - name: Build
         run: cargo build --package tiri-visual-tests
+
+      - name: Smoke test
+        run: xvfb-run -a cargo run --quiet --package tiri-visual-tests -- --smoke-test
 
   msrv:
     strategy:

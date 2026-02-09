@@ -29,6 +29,7 @@ impl GradientArea {
             focused_inactive_gradient: None,
             inactive_gradient: None,
             urgent_gradient: None,
+            ..Default::default()
         });
 
         Self {

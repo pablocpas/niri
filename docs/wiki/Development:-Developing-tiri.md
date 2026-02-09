@@ -44,6 +44,12 @@ env RUN_SLOW_TESTS=1 PROPTEST_CASES=200000 PROPTEST_MAX_GLOBAL_REJECTS=200000 RU
 
 The `tiri-visual-tests` sub-crate is a GTK application that runs hard-coded test cases so that you can visually check that they look right. It uses mock windows with the real layout and rendering code. It is especially helpful when working on animations.
 
+For an automated smoke run of all visual cases (useful in CI), run:
+
+```
+xvfb-run -a cargo run -p tiri-visual-tests -- --smoke-test
+```
+
 ## Profiling
 
 We have integration with the [Tracy](https://github.com/wolfpld/tracy) profiler which you can enable by building tiri with a feature flag:

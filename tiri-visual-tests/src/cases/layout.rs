@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use tiri::animation::Clock;
-use tiri::layout::{ActivateWindow, AddWindowTarget, LayoutElement as _, Options, SizingMode};
-use tiri::render_helpers::RenderTarget;
-use tiri_config::{Color, OutputName, PresetSize};
 use smithay::backend::renderer::element::RenderElement;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::layer_map_for_output;
 use smithay::output::{Mode, Output, PhysicalProperties, Subpixel};
 use smithay::utils::{Physical, Size};
+use tiri::animation::Clock;
+use tiri::layout::{ActivateWindow, AddWindowTarget, LayoutElement as _, Options, SizingMode};
+use tiri::render_helpers::RenderTarget;
+use tiri_config::{Color, OutputName, PresetSize};
 
 use super::{Args, TestCase};
 use crate::test_window::TestWindow;
@@ -68,6 +68,7 @@ impl Layout {
                     focused_inactive_gradient: None,
                     inactive_gradient: None,
                     urgent_gradient: None,
+                    ..Default::default()
                 },
                 ..Default::default()
             },
@@ -164,7 +165,79 @@ impl Layout {
         rv
     }
 
-    fn add_window(&mut self, mut window: TestWindow, width: Option<PresetSize>) {
+    pub fn tabbed_switching(args: Args) -> Self {
+        let mut rv = Self::new(args);
+
+        rv.add_window(TestWindow::freeform(0), Some(PresetSize::Proportion(0.35)));
+        rv.add_window(TestWindow::freeform(1), Some(PresetSize::Proportion(0.35)));
+        rv.layout.activate_window(&0);
+        rv.layout.toggle_column_tabbed_display();
+
+        rv.add_step(350, |l| l.layout.focus_window_down_or_top());
+        rv.add_step(700, |l| l.layout.focus_window_up_or_bottom());
+
+        rv.add_step(1000, |l| {
+            let win = TestWindow::freeform(2);
+            l.add_window(win.clone(), Some(PresetSize::Proportion(0.35)));
+            l.layout.start_open_animation_for_window(win.id());
+        });
+
+        rv
+    }
+
+    pub fn floating_toggle(args: Args) -> Self {
+        let mut rv = Self::new(args);
+
+        rv.add_window(TestWindow::freeform(0), Some(PresetSize::Proportion(0.40)));
+        rv.add_floating_window(
+            TestWindow::fixed_size(1),
+            Some(PresetSize::Proportion(0.33)),
+        );
+        rv.layout.activate_window(&1);
+
+        rv.add_step(300, |l| l.layout.toggle_window_floating(Some(&1)));
+        rv.add_step(700, |l| l.layout.toggle_window_floating(Some(&1)));
+        rv.add_step(1000, |l| {
+            l.layout.activate_window(&0);
+            l.layout.toggle_window_floating(Some(&0));
+        });
+
+        rv
+    }
+
+    pub fn fullscreen_toggle(args: Args) -> Self {
+        let mut rv = Self::new(args);
+
+        rv.add_window(TestWindow::freeform(0), Some(PresetSize::Proportion(0.45)));
+        rv.add_window(TestWindow::freeform(1), Some(PresetSize::Proportion(0.45)));
+        rv.layout.activate_window(&1);
+
+        rv.add_step(300, |l| l.layout.toggle_fullscreen(&1));
+        rv.add_step(500, |l| {
+            let win = TestWindow::freeform(2);
+            l.add_window(win.clone(), Some(PresetSize::Proportion(0.30)));
+            l.layout.start_open_animation_for_window(win.id());
+        });
+        rv.add_step(1000, |l| l.layout.toggle_fullscreen(&1));
+        rv.add_step(1300, |l| l.layout.focus_column_left_or_last());
+
+        rv
+    }
+
+    fn add_window(&mut self, window: TestWindow, width: Option<PresetSize>) {
+        self.add_window_internal(window, width, false);
+    }
+
+    fn add_floating_window(&mut self, window: TestWindow, width: Option<PresetSize>) {
+        self.add_window_internal(window, width, true);
+    }
+
+    fn add_window_internal(
+        &mut self,
+        mut window: TestWindow,
+        width: Option<PresetSize>,
+        is_floating: bool,
+    ) {
         let ws = self.layout.active_workspace().unwrap();
         let min_size = window.min_size();
         let max_size = window.max_size();
@@ -182,7 +255,7 @@ impl Layout {
             width,
             None,
             false,
-            false,
+            is_floating,
             ActivateWindow::default(),
         );
         self.windows.push(window);

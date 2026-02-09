@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 adw = { version = "0.8.1", package = "libadwaita", features = ["v1_4"] }
 anyhow.workspace = true
+clap.workspace = true
 gtk = { version = "0.10.3", package = "gtk4", features = ["v4_12"] }
 tiri = { version = "25.11.0", path = ".." }
 tiri-config = { version = "25.11.0", path = "../tiri-config" }

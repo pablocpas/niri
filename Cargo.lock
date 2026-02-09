@@ -3652,6 +3652,7 @@ name = "tiri-visual-tests"
 version = "25.11.0"
 dependencies = [
  "anyhow",
+ "clap",
  "gtk4",
  "libadwaita",
  "smithay",

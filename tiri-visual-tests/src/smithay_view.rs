@@ -13,14 +13,14 @@ mod imp {
     use anyhow::{ensure, Context};
     use gtk::gdk;
     use gtk::prelude::*;
-    use tiri::animation::Clock;
-    use tiri::render_helpers::{resources, shaders};
     use smithay::backend::egl::ffi::egl;
     use smithay::backend::egl::EGLContext;
     use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
     use smithay::backend::renderer::{Bind, Color32F, Frame, Offscreen, Renderer};
     use smithay::reexports::gbm::Format as Fourcc;
     use smithay::utils::{Physical, Rectangle, Scale, Transform};
+    use tiri::animation::Clock;
+    use tiri::render_helpers::{resources, shaders};
 
     use super::*;
 
@@ -260,14 +260,13 @@ glib::wrapper! {
 }
 
 impl SmithayView {
-    pub fn new<T: TestCase + 'static>(
-        make_test_case: impl Fn(Args) -> T + 'static,
+    pub fn new_dyn(
+        make_test_case: impl Fn(Args) -> Box<dyn TestCase> + 'static,
         anim_adjustment: &gtk::Adjustment,
     ) -> Self {
         let obj: Self = glib::Object::builder().build();
 
-        let make = move |args| Box::new(make_test_case(args)) as Box<dyn TestCase>;
-        let make_test_case = Box::new(make) as _;
+        let make_test_case = Box::new(make_test_case) as _;
         let _ = obj.imp().make_test_case.set(make_test_case);
 
         anim_adjustment.connect_value_changed({
@@ -288,5 +287,12 @@ impl SmithayView {
         });
 
         obj
+    }
+
+    pub fn new<T: TestCase + 'static>(
+        make_test_case: impl Fn(Args) -> T + 'static,
+        anim_adjustment: &gtk::Adjustment,
+    ) -> Self {
+        Self::new_dyn(move |args| Box::new(make_test_case(args)), anim_adjustment)
     }
 }
