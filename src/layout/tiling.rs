@@ -1274,6 +1274,10 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn resize_hit_under(&mut self, pos: Point<f64, Logical>) -> Option<ResizeHit<W::Id>> {
+        if self.fullscreen_window.is_some() {
+            return None;
+        }
+
         let (path, rect) = self.closest_leaf_rect(pos)?;
         let tile = self.tree.tile_at_path(&path)?;
         if !tile.window().pending_sizing_mode().is_normal() {
@@ -1636,7 +1640,12 @@ impl<W: LayoutElement> TilingSpace<W> {
                     continue;
                 }
 
-                let mut tile_pos = info.rect.loc + tile.render_offset();
+                let base_pos = if is_fullscreen_tile {
+                    Point::from((0.0, 0.0))
+                } else {
+                    info.rect.loc
+                };
+                let mut tile_pos = base_pos + tile.render_offset();
                 tile_pos = tile_pos.to_physical_precise_round(scale).to_logical(scale);
                 let tile_rect = Rectangle::new(tile_pos, tile.tile_size());
 

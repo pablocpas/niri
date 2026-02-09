@@ -16,6 +16,47 @@ fn fullscreen() {
 }
 
 #[test]
+fn fullscreen_disables_resize_hits() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output0");
+    layout.add_output(output.clone(), None);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let left_tile = tile_rect(&layout, 1);
+    let probe = Point::from((
+        left_tile.loc.x + left_tile.size.w,
+        left_tile.loc.y + left_tile.size.h / 2.0,
+    ));
+
+    layout.set_fullscreen(&1, true);
+
+    assert!(
+        layout.resize_edges_under(&output, probe).is_none(),
+        "resize edge should be disabled while fullscreen is active"
+    );
+}
+
+#[test]
 fn unfullscreen_window_in_column() {
     let ops = [
         Op::AddOutput(1),

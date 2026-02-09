@@ -2072,6 +2072,10 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn resize_hit_under(&mut self, pos: Point<f64, Logical>) -> Option<ResizeHit<W::Id>> {
+        if self.is_active_pending_fullscreen() {
+            return None;
+        }
+
         if self.is_floating_visible() {
             match self.floating.resize_hit_under(pos) {
                 FloatingResizeResult::Hit(hit) => {
