@@ -603,10 +603,34 @@ impl State {
         let layout = &self.niri.layout;
         let focused_ws_id = layout.active_workspace().map(|ws| ws.id().get());
 
+        let visible_workspace_idx = |mon: Option<&crate::layout::monitor::Monitor<Mapped>>,
+                                     ws_idx: usize|
+         -> Option<usize> {
+            let Some(mon) = mon else {
+                return Some(ws_idx + 1);
+            };
+
+            if mon.is_internal_empty_workspace(ws_idx) {
+                return None;
+            }
+
+            let mut idx = 0usize;
+            for i in 0..=ws_idx {
+                if !mon.is_internal_empty_workspace(i) {
+                    idx += 1;
+                }
+            }
+            Some(idx)
+        };
+
         // Check for workspace changes.
         let mut seen = HashSet::new();
         let mut need_workspaces_changed = false;
         for (mon, ws_idx, ws) in layout.workspaces() {
+            let Some(ipc_idx) = visible_workspace_idx(mon, ws_idx) else {
+                continue;
+            };
+
             let id = ws.id().get();
             seen.insert(id);
 
@@ -618,7 +642,7 @@ impl State {
 
             // Check for any changes that we can't signal as individual events.
             let output_name = mon.map(|mon| mon.output_name());
-            if ipc_ws.idx != u8::try_from(ws_idx + 1).unwrap_or(u8::MAX)
+            if ipc_ws.idx != u8::try_from(ipc_idx).unwrap_or(u8::MAX)
                 || ipc_ws.name.as_ref() != ws.name()
                 || ipc_ws.output.as_ref() != output_name
             {
@@ -664,18 +688,19 @@ impl State {
 
             let workspaces = layout
                 .workspaces()
-                .map(|(mon, ws_idx, ws)| {
+                .filter_map(|(mon, ws_idx, ws)| {
+                    let ipc_idx = visible_workspace_idx(mon, ws_idx)?;
                     let id = ws.id().get();
-                    Workspace {
+                    Some(Workspace {
                         id,
-                        idx: u8::try_from(ws_idx + 1).unwrap_or(u8::MAX),
+                        idx: u8::try_from(ipc_idx).unwrap_or(u8::MAX),
                         name: ws.name().cloned(),
                         output: mon.map(|mon| mon.output_name().clone()),
                         is_urgent: ws.is_urgent(),
                         is_active: mon.is_some_and(|mon| mon.active_workspace_idx() == ws_idx),
                         is_focused: Some(id) == focused_ws_id,
                         active_window_id: ws.active_window().map(|win| win.id().get()),
-                    }
+                    })
                 })
                 .collect();
 

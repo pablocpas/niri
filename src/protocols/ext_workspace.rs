@@ -81,6 +81,22 @@ pub struct ExtWorkspaceGlobalData {
     filter: Box<dyn for<'c> Fn(&'c Client) -> bool + Send + Sync>,
 }
 
+fn visible_workspace_idx(mon: &Monitor<Mapped>, ws_idx: usize) -> Option<usize> {
+    if mon.is_internal_empty_workspace(ws_idx) {
+        return None;
+    }
+
+    let mut visible = 0usize;
+    for idx in 0..=ws_idx {
+        if !mon.is_internal_empty_workspace(idx) {
+            visible += 1;
+        }
+    }
+
+    // ext-workspace coordinates are zero-based.
+    Some(visible.saturating_sub(1))
+}
+
 pub fn refresh(state: &mut State) {
     let _span = tracy_client::span!("ext_workspace::refresh");
 
@@ -90,7 +106,10 @@ pub fn refresh(state: &mut State) {
 
     // Remove workspaces that no longer exist (sending workspace_leave to workspace groups).
     let mut seen_workspaces = HashMap::new();
-    for (mon, _, ws) in state.niri.layout.workspaces() {
+    for (mon, ws_idx, ws) in state.niri.layout.workspaces() {
+        if mon.is_some_and(|mon| mon.is_internal_empty_workspace(ws_idx)) {
+            continue;
+        }
         let output = mon.map(|mon| mon.output());
         seen_workspaces.insert(ws.id(), output);
     }
@@ -133,7 +152,16 @@ pub fn refresh(state: &mut State) {
 
     // Update existing workspaces and create new ones.
     for (mon, ws_idx, ws) in state.niri.layout.workspaces() {
-        changed |= refresh_workspace(protocol_state, mon, ws_idx, ws);
+        let (visible_idx, is_active) = if let Some(mon) = mon {
+            let Some(visible_idx) = visible_workspace_idx(mon, ws_idx) else {
+                continue;
+            };
+            (visible_idx, mon.active_workspace_idx() == ws_idx)
+        } else {
+            (ws_idx, false)
+        };
+
+        changed |= refresh_workspace(protocol_state, mon, visible_idx, is_active, ws);
     }
 
     // Update workspace groups and create new ones, sending workspace_enter events as needed.
@@ -261,10 +289,11 @@ fn refresh_workspace(
     protocol_state: &mut ExtWorkspaceManagerState,
     mon: Option<&Monitor<Mapped>>,
     ws_idx: usize,
+    is_active: bool,
     ws: &Workspace<Mapped>,
 ) -> bool {
     let mut state = ext_workspace_handle_v1::State::empty();
-    if mon.is_some_and(|mon| mon.active_workspace_idx() == ws_idx) {
+    if is_active {
         state |= ext_workspace_handle_v1::State::Active;
     }
     if ws.is_urgent() {

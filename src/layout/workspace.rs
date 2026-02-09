@@ -106,6 +106,8 @@ pub struct Workspace<W: LayoutElement> {
 
     /// Optional name of this workspace.
     pub(super) name: Option<String>,
+    /// Whether the workspace name was auto-assigned for transient numeric access.
+    name_is_transient: bool,
 
     /// Layout config overrides for this workspace.
     layout_config: Option<tiri_config::LayoutPart>,
@@ -302,6 +304,7 @@ impl<W: LayoutElement> Workspace<W> {
             base_options,
             options,
             name: config.map(|c| c.name.0),
+            name_is_transient: false,
             layout_config,
             id: WorkspaceId::next(),
         }
@@ -366,6 +369,7 @@ impl<W: LayoutElement> Workspace<W> {
             base_options,
             options,
             name: config.map(|c| c.name.0),
+            name_is_transient: false,
             layout_config,
             id: WorkspaceId::next(),
         }
@@ -383,12 +387,18 @@ impl<W: LayoutElement> Workspace<W> {
         self.name.as_ref()
     }
 
+    pub fn set_name(&mut self, name: String, is_transient: bool) {
+        self.name = Some(name);
+        self.name_is_transient = is_transient;
+    }
+
     pub fn unname(&mut self) {
         self.name = None;
+        self.name_is_transient = false;
     }
 
     pub fn has_windows_or_name(&self) -> bool {
-        self.has_windows() || self.name.is_some()
+        self.has_windows() || (self.name.is_some() && !self.name_is_transient)
     }
 
     pub fn scale(&self) -> smithay::output::Scale {

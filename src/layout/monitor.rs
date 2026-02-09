@@ -432,6 +432,39 @@ impl<W: LayoutElement> Monitor<W> {
         self.active_workspace_idx
     }
 
+    pub fn workspace_count(&self) -> usize {
+        self.workspaces.len()
+    }
+
+    pub fn is_internal_empty_workspace(&self, idx: usize) -> bool {
+        if idx >= self.workspaces.len() {
+            return false;
+        }
+
+        // Keep the currently active empty workspace visible. It represents the "current"
+        // workspace from the user's perspective.
+        if idx == self.active_workspace_idx {
+            return false;
+        }
+
+        let ws = &self.workspaces[idx];
+        if ws.has_windows_or_name() {
+            return false;
+        }
+
+        let has_other_real_workspaces = self
+            .workspaces
+            .iter()
+            .enumerate()
+            .any(|(i, ws)| i != idx && ws.has_windows_or_name());
+        if !has_other_real_workspaces {
+            return false;
+        }
+
+        idx == self.workspaces.len() - 1
+            || (self.options.layout.empty_workspace_above_first && idx == 0)
+    }
+
     pub fn active_workspace_ref(&self) -> &Workspace<W> {
         &self.workspaces[self.active_workspace_idx]
     }

@@ -1418,11 +1418,76 @@ impl<W: LayoutElement> Layout<W> {
         None
     }
 
+    fn ensure_workspace_by_name_impl(
+        &mut self,
+        workspace_name: &str,
+        transient: bool,
+    ) -> Option<(Option<Output>, usize)> {
+        if let Some((idx, ws)) = self.find_workspace_by_name(workspace_name) {
+            return Some((ws.current_output().cloned(), idx));
+        }
+
+        let name = workspace_name.to_owned();
+
+        match &mut self.monitor_set {
+            MonitorSet::Normal {
+                monitors,
+                active_monitor_idx,
+                ..
+            } => {
+                let mon = &mut monitors[*active_monitor_idx];
+
+                // Insert before the trailing internal empty workspace.
+                let idx = mon.workspace_count().saturating_sub(1);
+                mon.add_workspace_at(idx);
+                mon.workspaces[idx].set_name(name, transient);
+
+                Some((Some(mon.output().clone()), idx))
+            }
+            MonitorSet::NoOutputs { workspaces } => {
+                let idx = if let Some(idx) =
+                    workspaces.iter().position(|ws| !ws.has_windows_or_name())
+                {
+                    idx
+                } else {
+                    workspaces.push(Workspace::new_no_outputs(
+                        self.clock.clone(),
+                        self.options.clone(),
+                    ));
+                    workspaces.len() - 1
+                };
+
+                workspaces[idx].set_name(name, transient);
+                Some((None, idx))
+            }
+        }
+    }
+
+    pub fn ensure_workspace_by_name(
+        &mut self,
+        workspace_name: &str,
+    ) -> Option<(Option<Output>, usize)> {
+        self.ensure_workspace_by_name_impl(workspace_name, false)
+    }
+
+    pub fn ensure_workspace_by_name_transient(
+        &mut self,
+        workspace_name: &str,
+    ) -> Option<(Option<Output>, usize)> {
+        self.ensure_workspace_by_name_impl(workspace_name, true)
+    }
+
     pub fn find_workspace_by_ref(
         &mut self,
         reference: WorkspaceReference,
     ) -> Option<&mut Workspace<W>> {
         if let WorkspaceReference::Index(index) = reference {
+            let numeric_name = index.to_string();
+            let workspace_id = self.find_workspace_by_name(&numeric_name).map(|(_, ws)| ws.id());
+            if let Some(id) = workspace_id {
+                return self.workspaces_mut().find(|ws| ws.id() == id);
+            }
+
             self.active_monitor().and_then(|m| {
                 let index = index.saturating_sub(1) as usize;
                 m.workspaces.get_mut(index)
@@ -5478,7 +5543,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
 
-        ws.name.replace(name);
+        ws.set_name(name, false);
 
         let wsid = ws.id();
 

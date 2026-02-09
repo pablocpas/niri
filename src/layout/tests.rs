@@ -4175,6 +4175,80 @@ fn set_last_workspace_name() {
 }
 
 #[test]
+fn ensure_workspace_by_name_creates_named_workspace() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output = make_test_output("eDP-1");
+    layout.add_output(output.clone(), None);
+
+    let (target_output, idx) = layout.ensure_workspace_by_name("3").unwrap();
+    assert_eq!(target_output.as_ref().map(|out| out.name()), Some(output.name()));
+    assert_eq!(idx, 0);
+
+    let (found_idx, ws) = layout.find_workspace_by_name("3").unwrap();
+    assert_eq!(found_idx, 0);
+    assert_eq!(ws.name().map(String::as_str), Some("3"));
+}
+
+#[test]
+fn find_workspace_by_ref_index_prefers_numeric_named_workspace() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    layout.add_output(make_test_output("eDP-1"), None);
+
+    layout.ensure_workspace_by_name("3");
+    let (_, ws) = layout.find_workspace_by_name("3").unwrap();
+    let ws_id = ws.id();
+
+    let resolved = layout
+        .find_workspace_by_ref(WorkspaceReference::Index(3))
+        .map(|ws| ws.id());
+    assert_eq!(resolved, Some(ws_id));
+}
+
+#[test]
+fn internal_empty_workspace_tail_is_hidden_only_when_inactive() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    layout.add_output(make_test_output("eDP-1"), None);
+    layout.ensure_workspace_by_name("1");
+
+    let MonitorSet::Normal { monitors, .. } = &mut layout.monitor_set else {
+        unreachable!()
+    };
+    let mon = &mut monitors[0];
+
+    // Right after creating "1", the old trailing empty workspace stays focused.
+    assert!(!mon.is_internal_empty_workspace(mon.active_workspace_idx()));
+
+    mon.activate_workspace(0);
+    assert!(mon.is_internal_empty_workspace(1));
+}
+
+#[test]
+fn transient_numeric_workspace_is_cleaned_when_empty_and_unfocused() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    layout.add_output(make_test_output("eDP-1"), None);
+    layout
+        .ensure_workspace_by_name_transient("93")
+        .expect("must create transient workspace");
+
+    {
+        let MonitorSet::Normal { monitors, .. } = &mut layout.monitor_set else {
+            unreachable!()
+        };
+        let mon = &mut monitors[0];
+        let idx = mon
+            .find_named_workspace_index("93")
+            .expect("workspace 93 must exist");
+        mon.activate_workspace(idx);
+        mon.activate_workspace(1);
+        // Simulate workspace switch animation completion for cleanup.
+        mon.workspace_switch = None;
+        mon.clean_up_workspaces();
+    }
+
+    assert!(layout.find_workspace_by_name("93").is_none());
+}
+
+#[test]
 fn move_workspace_to_same_monitor_doesnt_reorder() {
     let ops = [
         Op::AddOutput(0),

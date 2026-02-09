@@ -3570,12 +3570,14 @@ impl Niri {
     }
 
     pub fn find_output_and_workspace_index(
-        &self,
+        &mut self,
         workspace_reference: WorkspaceReference,
     ) -> Option<(Option<Output>, usize)> {
         let (target_workspace_index, target_workspace) = match workspace_reference {
             WorkspaceReference::Index(index) => {
-                return Some((None, index.saturating_sub(1) as usize));
+                return self
+                    .layout
+                    .ensure_workspace_by_name_transient(&index.to_string());
             }
             WorkspaceReference::Name(name) => self.layout.find_workspace_by_name(&name)?,
             WorkspaceReference::Id(id) => {
