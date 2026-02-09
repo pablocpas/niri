@@ -1129,7 +1129,11 @@ impl State {
                 }
             }
             Action::FocusColumnLeft => {
-                self.niri.layout.focus_left();
+                if let Some(output) = self.niri.output_left() {
+                    self.niri.layout.focus_column_left_or_output(&output);
+                } else {
+                    self.niri.layout.focus_left();
+                }
                 self.maybe_warp_cursor_to_focus();
                 self.niri.layer_shell_on_demand_focus = None;
                 // FIXME: granular
@@ -1149,7 +1153,11 @@ impl State {
                 }
             }
             Action::FocusColumnRight => {
-                self.niri.layout.focus_right();
+                if let Some(output) = self.niri.output_right() {
+                    self.niri.layout.focus_column_right_or_output(&output);
+                } else {
+                    self.niri.layout.focus_right();
+                }
                 self.maybe_warp_cursor_to_focus();
                 self.niri.layer_shell_on_demand_focus = None;
                 // FIXME: granular
