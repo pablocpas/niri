@@ -280,7 +280,8 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
         }
         Request::Workspaces => {
             let state = ctx.event_stream_state.borrow();
-            let workspaces = state.workspaces.workspaces.values().cloned().collect();
+            let mut workspaces: Vec<_> = state.workspaces.workspaces.values().cloned().collect();
+            tiri_ipc::sort_workspaces_for_ipc(&mut workspaces);
             Response::Workspaces(workspaces)
         }
         Request::Windows => {
@@ -686,7 +687,7 @@ impl State {
         if need_workspaces_changed {
             events.clear();
 
-            let workspaces = layout
+            let mut workspaces: Vec<_> = layout
                 .workspaces()
                 .filter_map(|(mon, ws_idx, ws)| {
                     let ipc_idx = visible_workspace_idx(mon, ws_idx)?;
@@ -703,6 +704,7 @@ impl State {
                     })
                 })
                 .collect();
+            tiri_ipc::sort_workspaces_for_ipc(&mut workspaces);
 
             events.push(Event::WorkspacesChanged { workspaces });
         }

@@ -1055,7 +1055,9 @@ pub enum PositionChange {
 pub enum WorkspaceReferenceArg {
     /// Id of the workspace.
     Id(u64),
-    /// Index of the workspace.
+    /// Numeric workspace reference.
+    ///
+    /// This resolves workspace name `"N"` (for example, `Index(2)` refers to workspace `"2"`).
     Index(u8),
     /// Name of the workspace.
     Name(String),
@@ -1522,9 +1524,7 @@ pub struct Workspace {
     /// is an implementation detail subject to change. For example, ids may change to be randomly
     /// generated for each new workspace.
     pub id: u64,
-    /// Index of the workspace on its monitor.
-    ///
-    /// This is the same index you can use for requests like `tiri msg action focus-workspace`.
+    /// Visible index of the workspace on its monitor.
     ///
     /// This index *will change* as you move and re-order workspace. It is merely the workspace's
     /// current position on its monitor. Workspaces on different monitors can have the same index.
@@ -1549,6 +1549,32 @@ pub struct Workspace {
     pub is_focused: bool,
     /// Id of the active window on this workspace, if any.
     pub active_window_id: Option<u64>,
+}
+
+fn workspace_numeric_name(workspace: &Workspace) -> Option<u32> {
+    workspace
+        .name
+        .as_deref()
+        .and_then(|name| name.parse::<u32>().ok())
+}
+
+/// Sort workspaces into a deterministic order for IPC consumers.
+///
+/// Ordering is by:
+/// 1. `output` name
+/// 2. visible `idx` on that output
+/// 3. numeric `name` value for numeric names
+/// 4. lexical `name`
+/// 5. `id`
+pub fn sort_workspaces_for_ipc(workspaces: &mut [Workspace]) {
+    workspaces.sort_by(|a, b| {
+        a.output
+            .cmp(&b.output)
+            .then_with(|| a.idx.cmp(&b.idx))
+            .then_with(|| workspace_numeric_name(a).cmp(&workspace_numeric_name(b)))
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.id.cmp(&b.id))
+    });
 }
 
 /// Configured keyboard layouts.
@@ -2199,5 +2225,75 @@ mod tests {
         );
         assert!("-".parse::<PositionChange>().is_err());
         assert!("10% ".parse::<PositionChange>().is_err());
+    }
+
+    #[test]
+    fn workspace_sort_is_deterministic_by_output_then_idx() {
+        let mut workspaces = vec![
+            Workspace {
+                id: 3,
+                idx: 3,
+                name: Some("3".to_owned()),
+                output: Some("HDMI-A-1".to_owned()),
+                is_urgent: false,
+                is_active: false,
+                is_focused: false,
+                active_window_id: None,
+            },
+            Workspace {
+                id: 1,
+                idx: 1,
+                name: Some("1".to_owned()),
+                output: Some("HDMI-A-1".to_owned()),
+                is_urgent: false,
+                is_active: false,
+                is_focused: false,
+                active_window_id: None,
+            },
+            Workspace {
+                id: 2,
+                idx: 2,
+                name: Some("2".to_owned()),
+                output: Some("HDMI-A-1".to_owned()),
+                is_urgent: false,
+                is_active: false,
+                is_focused: false,
+                active_window_id: None,
+            },
+        ];
+
+        sort_workspaces_for_ipc(&mut workspaces);
+        let names: Vec<_> = workspaces.into_iter().map(|ws| ws.name.unwrap()).collect();
+        assert_eq!(names, vec!["1".to_owned(), "2".to_owned(), "3".to_owned()]);
+    }
+
+    #[test]
+    fn workspace_sort_uses_numeric_name_as_tiebreaker() {
+        let mut workspaces = vec![
+            Workspace {
+                id: 2,
+                idx: 1,
+                name: Some("10".to_owned()),
+                output: Some("HDMI-A-1".to_owned()),
+                is_urgent: false,
+                is_active: false,
+                is_focused: false,
+                active_window_id: None,
+            },
+            Workspace {
+                id: 1,
+                idx: 1,
+                name: Some("2".to_owned()),
+                output: Some("HDMI-A-1".to_owned()),
+                is_urgent: false,
+                is_active: false,
+                is_focused: false,
+                active_window_id: None,
+            },
+        ];
+
+        sort_workspaces_for_ipc(&mut workspaces);
+        let names: Vec<_> = workspaces.into_iter().map(|ws| ws.name.unwrap()).collect();
+        assert_eq!(names, vec!["2".to_owned(), "10".to_owned()]);
     }
 }

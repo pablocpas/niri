@@ -1484,14 +1484,7 @@ impl<W: LayoutElement> Layout<W> {
         if let WorkspaceReference::Index(index) = reference {
             let numeric_name = index.to_string();
             let workspace_id = self.find_workspace_by_name(&numeric_name).map(|(_, ws)| ws.id());
-            if let Some(id) = workspace_id {
-                return self.workspaces_mut().find(|ws| ws.id() == id);
-            }
-
-            self.active_monitor().and_then(|m| {
-                let index = index.saturating_sub(1) as usize;
-                m.workspaces.get_mut(index)
-            })
+            return workspace_id.and_then(|id| self.workspaces_mut().find(|ws| ws.id() == id));
         } else {
             self.workspaces_mut().find(|ws| match &reference {
                 WorkspaceReference::Name(ref_name) => ws
@@ -4103,11 +4096,40 @@ impl<W: LayoutElement> Layout<W> {
         };
 
         let idx = monitors[*active_monitor_idx].active_workspace_idx;
-        self.move_workspace_to_output_by_id(idx, None, output)
+        self.move_workspace_to_output_by_index(idx, None, output)
     }
 
-    // FIXME: accept workspace by id
     pub fn move_workspace_to_output_by_id(
+        &mut self,
+        workspace_id: WorkspaceId,
+        new_output: &Output,
+    ) -> bool {
+        self.move_workspace_to_output_by_workspace_id(workspace_id, new_output)
+    }
+
+    pub fn move_workspace_to_output_by_workspace_id(
+        &mut self,
+        workspace_id: WorkspaceId,
+        new_output: &Output,
+    ) -> bool {
+        let MonitorSet::Normal { monitors, .. } = &self.monitor_set else {
+            return false;
+        };
+
+        let Some((mon_idx, old_idx)) = monitors.iter().enumerate().find_map(|(mon_idx, mon)| {
+            mon.workspaces
+                .iter()
+                .position(|ws| ws.id() == workspace_id)
+                .map(|idx| (mon_idx, idx))
+        }) else {
+            return false;
+        };
+
+        let old_output = monitors[mon_idx].output.clone();
+        self.move_workspace_to_output_by_index(old_idx, Some(old_output), new_output)
+    }
+
+    pub fn move_workspace_to_output_by_index(
         &mut self,
         old_idx: usize,
         old_output: Option<Output>,
@@ -5526,6 +5548,34 @@ impl<W: LayoutElement> Layout<W> {
         };
 
         monitor.move_workspace_to_idx(old_idx, new_idx);
+    }
+
+    pub fn move_workspace_to_idx_by_workspace_id(&mut self, workspace_id: WorkspaceId, new_idx: usize) {
+        match &mut self.monitor_set {
+            MonitorSet::Normal { monitors, .. } => {
+                let Some((mon_idx, old_idx)) =
+                    monitors.iter().enumerate().find_map(|(mon_idx, mon)| {
+                        mon.workspaces
+                            .iter()
+                            .position(|ws| ws.id() == workspace_id)
+                            .map(|idx| (mon_idx, idx))
+                    })
+                else {
+                    return;
+                };
+
+                monitors[mon_idx].move_workspace_to_idx(old_idx, new_idx);
+            }
+            MonitorSet::NoOutputs { workspaces } => {
+                let Some(old_idx) = workspaces.iter().position(|ws| ws.id() == workspace_id) else {
+                    return;
+                };
+
+                let ws = workspaces.remove(old_idx);
+                let new_idx = new_idx.min(workspaces.len());
+                workspaces.insert(new_idx, ws);
+            }
+        }
     }
 
     pub fn set_workspace_name(&mut self, name: String, reference: Option<WorkspaceReference>) {

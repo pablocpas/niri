@@ -32,12 +32,11 @@ But, they will also "remember" their original monitor, so when you reconnect it,
 ### Addressing workspaces by index
 
 Several actions in niri can address workspaces "by index": `focus-workspace 2`, `move-column-to-workspace 4`.
-This index refers to whichever workspace *currently happens to be* at this position on the focused monitor.
-So, `focus-workspace 2` will always put you on the second workspace of the monitor, whichever workspace that currently is.
+For numeric references, this index maps to workspace name `"N"` globally, like i3/sway.
+So, `focus-workspace 2` resolves workspace `"2"` regardless of monitor-local ordering.
+If it doesn't exist yet, it is created lazily.
 
-This is an important distinction from WMs with static workspace systems.
-In niri, workspaces *do not have indices on their own*.
-If you take the first workspace and move it further down on the monitor, `focus-workspace 1` will now put you on a different workspace (the one that was below the first workspace before you moved it).
+Auto-created numeric workspaces are temporary: if they remain empty and become unfocused, they disappear.
 
 When you want to have a more permanent workspace in niri, you can create a [named workspace](./Configuration:-Named-Workspaces.md) in the config or via the `set-workspace-name` action.
 You can refer to named workspaces by name, e.g. `focus-workspace "browser"`, and they won't disappear when they become empty.

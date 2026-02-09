@@ -118,7 +118,8 @@ impl EventStreamStatePart for EventStreamState {
 
 impl EventStreamStatePart for WorkspacesState {
     fn replicate(&self) -> Vec<Event> {
-        let workspaces = self.workspaces.values().cloned().collect();
+        let mut workspaces: Vec<_> = self.workspaces.values().cloned().collect();
+        crate::sort_workspaces_for_ipc(&mut workspaces);
         vec![Event::WorkspacesChanged { workspaces }]
     }
 

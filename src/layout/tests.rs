@@ -1363,7 +1363,7 @@ impl Op {
                     return;
                 };
 
-                layout.move_workspace_to_output_by_id(old_idx, Some(old_output), &output);
+                layout.move_workspace_to_output_by_index(old_idx, Some(old_output), &output);
             }
             Op::SwitchPresetColumnWidth => layout.toggle_width(true),
             Op::SwitchPresetColumnWidthBack => layout.toggle_width(false),
@@ -4205,6 +4205,28 @@ fn find_workspace_by_ref_index_prefers_numeric_named_workspace() {
 }
 
 #[test]
+fn find_workspace_by_ref_index_without_numeric_named_workspace_returns_none() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    layout.add_output(make_test_output("eDP-1"), None);
+
+    let resolved = layout.find_workspace_by_ref(WorkspaceReference::Index(2));
+    assert!(resolved.is_none());
+}
+
+#[test]
+fn set_workspace_name_by_index_does_not_use_positional_fallback() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    layout.add_output(make_test_output("eDP-1"), None);
+
+    layout.set_workspace_name(
+        "ws-should-not-be-created".to_owned(),
+        Some(WorkspaceReference::Index(2)),
+    );
+
+    assert!(layout.find_workspace_by_name("ws-should-not-be-created").is_none());
+}
+
+#[test]
 fn internal_empty_workspace_tail_is_hidden_only_when_inactive() {
     let mut layout: Layout<TestWindow> = Layout::default();
     layout.add_output(make_test_output("eDP-1"), None);
@@ -4246,6 +4268,55 @@ fn transient_numeric_workspace_is_cleaned_when_empty_and_unfocused() {
     }
 
     assert!(layout.find_workspace_by_name("93").is_none());
+}
+
+#[test]
+fn move_workspace_to_output_by_workspace_id_moves_correct_workspace() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output_a = make_test_output("eDP-1");
+    let output_b = make_test_output("HDMI-A-1");
+    layout.add_output(output_a.clone(), None);
+    layout.add_output(output_b.clone(), None);
+    layout.focus_output(&output_a);
+
+    layout.ensure_workspace_by_name("10");
+    let workspace_id = layout
+        .find_workspace_by_name("10")
+        .map(|(_, ws)| ws.id())
+        .expect("workspace 10 must exist");
+
+    layout.move_workspace_to_output_by_workspace_id(workspace_id, &output_b);
+
+    let (_, ws) = layout
+        .find_workspace_by_name("10")
+        .expect("workspace 10 must still exist");
+    assert_eq!(ws.current_output().map(|out| out.name()), Some(output_b.name()));
+}
+
+#[test]
+fn move_workspace_to_idx_by_workspace_id_reorders_correct_workspace() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    layout.add_output(make_test_output("eDP-1"), None);
+    layout.ensure_workspace_by_name("10");
+    layout.ensure_workspace_by_name("20");
+    layout.ensure_workspace_by_name("30");
+
+    let workspace_id = layout
+        .find_workspace_by_name("20")
+        .map(|(_, ws)| ws.id())
+        .expect("workspace 20 must exist");
+
+    layout.move_workspace_to_idx_by_workspace_id(workspace_id, 0);
+
+    let MonitorSet::Normal { monitors, .. } = &layout.monitor_set else {
+        unreachable!()
+    };
+    let names: Vec<_> = monitors[0]
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().cloned())
+        .collect();
+    assert_eq!(names, vec!["20".to_owned(), "10".to_owned(), "30".to_owned()]);
 }
 
 #[test]

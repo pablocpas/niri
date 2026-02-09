@@ -3569,25 +3569,30 @@ impl Niri {
         self.output_next_of(active)
     }
 
-    pub fn find_output_and_workspace_index(
-        &mut self,
-        workspace_reference: WorkspaceReference,
+    pub fn find_output_and_workspace_index_by_id(
+        &self,
+        workspace_id: WorkspaceId,
     ) -> Option<(Option<Output>, usize)> {
-        let (target_workspace_index, target_workspace) = match workspace_reference {
-            WorkspaceReference::Index(index) => {
-                return self
-                    .layout
-                    .ensure_workspace_by_name_transient(&index.to_string());
-            }
-            WorkspaceReference::Name(name) => self.layout.find_workspace_by_name(&name)?,
-            WorkspaceReference::Id(id) => {
-                let id = WorkspaceId::specific(id);
-                self.layout.find_workspace_by_id(id)?
-            }
-        };
-
+        let (target_workspace_index, target_workspace) = self.layout.find_workspace_by_id(workspace_id)?;
         let target_output = target_workspace.current_output();
         Some((target_output.cloned(), target_workspace_index))
+    }
+
+    pub fn find_workspace_id(&mut self, workspace_reference: WorkspaceReference) -> Option<WorkspaceId> {
+        match workspace_reference {
+            WorkspaceReference::Index(index) => {
+                self.layout
+                    .ensure_workspace_by_name_transient(&index.to_string())?;
+                self.layout
+                    .find_workspace_by_name(&index.to_string())
+                    .map(|(_, ws)| ws.id())
+            }
+            WorkspaceReference::Name(name) => self.layout.find_workspace_by_name(&name).map(|(_, ws)| ws.id()),
+            WorkspaceReference::Id(id) => {
+                let id = WorkspaceId::specific(id);
+                self.layout.find_workspace_by_id(id).map(|_| id)
+            }
+        }
     }
 
     pub fn find_window_by_id(&self, id: MappedId) -> Option<Window> {
