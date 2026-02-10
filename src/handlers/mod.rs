@@ -583,17 +583,7 @@ impl ExtWorkspaceHandler for State {
     }
 
     fn activate_workspace(&mut self, id: WorkspaceId) {
-        if let Some((mut output, index)) = self.niri.find_output_and_workspace_index_by_id(id) {
-            if let Some(active) = self.niri.layout.active_output() {
-                if output.as_ref() == Some(active) {
-                    output = None;
-                }
-            }
-
-            if let Some(output) = output {
-                self.niri.layout.focus_output(&output);
-            }
-            self.niri.layout.switch_workspace(index);
+        if self.niri.layout.focus_workspace_by_id(id, false).is_some() {
             // No mouse warp: assuming the layer-shell bar workspaces use-case.
 
             // FIXME: granular

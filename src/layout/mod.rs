@@ -2531,6 +2531,31 @@ impl<W: LayoutElement> Layout<W> {
         monitor.move_column_to_workspace(idx, activate);
     }
 
+    pub fn move_column_to_workspace_by_id(
+        &mut self,
+        workspace_id: WorkspaceId,
+        focus: bool,
+    ) -> Option<Option<Output>> {
+        let (idx, mut output) = {
+            let (idx, ws) = self.find_workspace_by_id(workspace_id)?;
+            (idx, ws.current_output().cloned())
+        };
+
+        if let Some(active) = self.active_output() {
+            if output.as_ref() == Some(active) {
+                output = None;
+            }
+        }
+
+        if let Some(target_output) = output.as_ref() {
+            self.move_column_to_output(target_output, Some(idx), focus);
+        } else {
+            self.move_column_to_workspace(idx, focus);
+        }
+
+        Some(output)
+    }
+
     pub fn switch_workspace_up(&mut self) {
         let Some(monitor) = self.active_monitor() else {
             return;
@@ -2564,6 +2589,76 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.switch_workspace_previous();
+    }
+
+    pub fn focus_workspace_by_id(
+        &mut self,
+        workspace_id: WorkspaceId,
+        auto_back_and_forth: bool,
+    ) -> Option<Option<Output>> {
+        let (idx, mut output) = {
+            let (idx, ws) = self.find_workspace_by_id(workspace_id)?;
+            (idx, ws.current_output().cloned())
+        };
+
+        if let Some(active) = self.active_output() {
+            if output.as_ref() == Some(active) {
+                output = None;
+            }
+        }
+
+        if let Some(target_output) = output.as_ref() {
+            self.focus_output(target_output);
+            let Some(monitor) = self.active_monitor() else {
+                return None;
+            };
+            monitor.switch_workspace(idx);
+        } else if auto_back_and_forth {
+            let Some(monitor) = self.active_monitor() else {
+                return None;
+            };
+            monitor.switch_workspace_auto_back_and_forth(idx);
+        } else {
+            let Some(monitor) = self.active_monitor() else {
+                return None;
+            };
+            monitor.switch_workspace(idx);
+        }
+
+        Some(output)
+    }
+
+    pub fn move_window_to_workspace_by_id(
+        &mut self,
+        window: Option<&W::Id>,
+        workspace_id: WorkspaceId,
+        activate: ActivateWindow,
+    ) -> Option<Option<Output>> {
+        let (idx, mut output) = {
+            let (idx, ws) = self.find_workspace_by_id(workspace_id)?;
+            (idx, ws.current_output().cloned())
+        };
+
+        // For the active-window action (`window == None`), keep the old fast path and move within
+        // the active monitor when the target workspace is already on it.
+        //
+        // For explicit window-id moves, keep the target output intact so cross-output moves still
+        // work even when that target output is currently active.
+        if window.is_none() {
+            if let Some(active) = self.active_output() {
+                if output.as_ref() == Some(active) {
+                    output = None;
+                }
+            }
+        }
+
+        if let Some(target_output) = output.as_ref() {
+            self.move_to_output(window, target_output, Some(idx), activate);
+        } else {
+            self.move_to_workspace(window, idx, activate);
+        }
+
+        Some(output)
     }
 
     pub fn consume_into_column(&mut self) {

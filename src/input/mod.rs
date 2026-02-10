@@ -1393,28 +1393,17 @@ impl State {
             }
             Action::MoveWindowToWorkspace(reference, focus) => {
                 if let Some(workspace_id) = self.niri.find_workspace_id(reference) {
-                    if let Some((mut output, index)) =
-                        self.niri.find_output_and_workspace_index_by_id(workspace_id)
-                    {
-                        // The source output is always the active output, so if the target output is
-                        // also the active output, we don't need to use move_to_output().
-                        if let Some(active) = self.niri.layout.active_output() {
-                            if output.as_ref() == Some(active) {
-                                output = None;
-                            }
-                        }
-
-                        let activate = if focus {
-                            ActivateWindow::Smart
-                        } else {
-                            ActivateWindow::No
-                        };
-
+                    let activate = if focus {
+                        ActivateWindow::Smart
+                    } else {
+                        ActivateWindow::No
+                    };
+                    if let Some(output) = self.niri.layout.move_window_to_workspace_by_id(
+                        None,
+                        workspace_id,
+                        activate,
+                    ) {
                         if let Some(output) = output {
-                            self.niri
-                                .layout
-                                .move_to_output(None, &output, Some(index), activate);
-
                             if focus {
                                 if !self.maybe_warp_cursor_to_focus_centered() {
                                     self.move_cursor_to_output(&output);
@@ -1423,7 +1412,6 @@ impl State {
                                 self.maybe_warp_cursor_to_focus();
                             }
                         } else {
-                            self.niri.layout.move_to_workspace(None, index, activate);
                             self.maybe_warp_cursor_to_focus();
                         }
 
@@ -1441,31 +1429,22 @@ impl State {
                 let window = window.map(|(_, m)| m.window.clone());
                 if let Some(window) = window {
                     if let Some(workspace_id) = self.niri.find_workspace_id(reference) {
-                        if let Some((output, index)) =
-                            self.niri.find_output_and_workspace_index_by_id(workspace_id)
-                        {
-                            let target_was_active = self
-                                .niri
-                                .layout
-                                .active_output()
-                                .is_some_and(|active| output.as_ref() == Some(active));
-
-                            let activate = if focus {
-                                ActivateWindow::Smart
-                            } else {
-                                ActivateWindow::No
-                            };
-
+                        let active_output_before = self.niri.layout.active_output().cloned();
+                        let activate = if focus {
+                            ActivateWindow::Smart
+                        } else {
+                            ActivateWindow::No
+                        };
+                        if let Some(output) = self.niri.layout.move_window_to_workspace_by_id(
+                            Some(&window),
+                            workspace_id,
+                            activate,
+                        ) {
                             if let Some(output) = output {
-                                self.niri.layout.move_to_output(
-                                    Some(&window),
-                                    &output,
-                                    Some(index),
-                                    activate,
-                                );
-
+                                let target_was_active = active_output_before
+                                    .as_ref()
+                                    .is_some_and(|active| active == &output);
                                 // If the active output changed (window was moved and focused).
-                                #[allow(clippy::collapsible_if)]
                                 if !target_was_active
                                     && self.niri.layout.active_output() == Some(&output)
                                 {
@@ -1474,10 +1453,6 @@ impl State {
                                     }
                                 }
                             } else {
-                                self.niri
-                                    .layout
-                                    .move_to_workspace(Some(&window), index, activate);
-
                                 // If we focused the target window.
                                 let new_focus = self.niri.layout.focus();
                                 if new_focus.is_some_and(|win| win.window == window) {
@@ -1505,24 +1480,16 @@ impl State {
             }
             Action::MoveColumnToWorkspace(reference, focus) => {
                 if let Some(workspace_id) = self.niri.find_workspace_id(reference) {
-                    if let Some((mut output, index)) =
-                        self.niri.find_output_and_workspace_index_by_id(workspace_id)
+                    if let Some(output) =
+                        self.niri
+                            .layout
+                            .move_column_to_workspace_by_id(workspace_id, focus)
                     {
-                        if let Some(active) = self.niri.layout.active_output() {
-                            if output.as_ref() == Some(active) {
-                                output = None;
-                            }
-                        }
-
                         if let Some(output) = output {
-                            self.niri
-                                .layout
-                                .move_column_to_output(&output, Some(index), focus);
                             if focus && !self.maybe_warp_cursor_to_focus_centered() {
                                 self.move_cursor_to_output(&output);
                             }
                         } else {
-                            self.niri.layout.move_column_to_workspace(index, focus);
                             if focus {
                                 self.maybe_warp_cursor_to_focus();
                             }
@@ -1575,28 +1542,18 @@ impl State {
             }
             Action::FocusWorkspace(reference) => {
                 if let Some(workspace_id) = self.niri.find_workspace_id(reference) {
-                    if let Some((mut output, index)) =
-                        self.niri.find_output_and_workspace_index_by_id(workspace_id)
+                    let auto_back_and_forth =
+                        self.niri.config.borrow().input.workspace_auto_back_and_forth;
+                    if let Some(output) = self
+                        .niri
+                        .layout
+                        .focus_workspace_by_id(workspace_id, auto_back_and_forth)
                     {
-                        if let Some(active) = self.niri.layout.active_output() {
-                            if output.as_ref() == Some(active) {
-                                output = None;
-                            }
-                        }
-
                         if let Some(output) = output {
-                            self.niri.layout.focus_output(&output);
-                            self.niri.layout.switch_workspace(index);
                             if !self.maybe_warp_cursor_to_focus_centered() {
                                 self.move_cursor_to_output(&output);
                             }
                         } else {
-                            let config = &self.niri.config;
-                            if config.borrow().input.workspace_auto_back_and_forth {
-                                self.niri.layout.switch_workspace_auto_back_and_forth(index);
-                            } else {
-                                self.niri.layout.switch_workspace(index);
-                            }
                             self.maybe_warp_cursor_to_focus();
                         }
                         self.niri.layer_shell_on_demand_focus = None;
