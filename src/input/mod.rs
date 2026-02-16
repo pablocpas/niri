@@ -3075,12 +3075,9 @@ impl State {
                 Some((hit, output, pos_within_output, location))
             };
 
-            // TODO i3-conversion: Re-implement for i3-style layout
-            /*
             if is_overview_open && !pointer.is_grabbed() && button == Some(MouseButton::Right) {
                 if let Some((output, ws)) = self.niri.workspace_under_cursor(true) {
                     let ws_id = ws.id();
-                    let ws_idx = self.niri.layout.find_workspace_by_id(ws_id).unwrap().0;
 
                     self.niri.layout.focus_output(&output);
 
@@ -3090,24 +3087,19 @@ impl State {
                         button: button_code,
                         location,
                     };
-                    self.niri
-                        .layout
-                        .view_offset_gesture_begin(&output, Some(ws_idx), false);
-                    let grab = SpatialMovementGrab::new(start_data, output, ws_id, true);
+                    let grab = SpatialMovementGrab::new(start_data, output, ws_id, false);
                     pointer.set_grab(self, grab, serial, Focus::Clear);
-                    self.niri
-                        .cursor_manager
-                        .set_cursor_image(CursorImageStatus::Named(CursorIcon::AllScroll));
+                    self.niri.cursor_manager.set_override_cursor(
+                        CursorOverride::PointerGrab,
+                        CursorImageStatus::Named(CursorIcon::AllScroll),
+                    );
 
                     // FIXME: granular.
                     self.niri.queue_redraw_all();
                     return;
                 }
             }
-            */
 
-            // TODO i3-conversion: Re-implement for i3-style layout
-            /*
             if button == Some(MouseButton::Middle) && !pointer.is_grabbed() {
                 let mod_down = modifiers_from_state(mods).contains(mod_key.to_modifiers());
                 if mod_down {
@@ -3135,9 +3127,10 @@ impl State {
                         };
                         let grab = SpatialMovementGrab::new(start_data, output, ws_id, false);
                         pointer.set_grab(self, grab, serial, Focus::Clear);
-                        self.niri
-                            .cursor_manager
-                            .set_cursor_image(CursorImageStatus::Named(CursorIcon::AllScroll));
+                        self.niri.cursor_manager.set_override_cursor(
+                            CursorOverride::PointerGrab,
+                            CursorImageStatus::Named(CursorIcon::AllScroll),
+                        );
 
                         // FIXME: granular.
                         self.niri.queue_redraw_all();
@@ -3148,7 +3141,6 @@ impl State {
                     }
                 }
             }
-            */
 
             if button == Some(MouseButton::Left) && !pointer.is_grabbed() && !is_overview_open {
                 let mod_down = modifiers_from_state(mods).contains(mod_key.to_modifiers());

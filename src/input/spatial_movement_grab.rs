@@ -20,6 +20,7 @@ pub struct SpatialMovementGrab {
     output: Output,
     workspace_id: WorkspaceId,
     gesture: GestureState,
+    cumulative_delta: Point<f64, Logical>,
 
     // Accumulated and applied in frame().
     new_location: Point<f64, Logical>,
@@ -54,6 +55,7 @@ impl SpatialMovementGrab {
             output,
             workspace_id,
             gesture,
+            cumulative_delta: Point::from((0., 0.)),
             new_location: location,
             event_timestamp: None,
             relative_delta: None,
@@ -78,17 +80,20 @@ impl SpatialMovementGrab {
             .take()
             .unwrap_or(self.new_location - self.last_location);
         self.last_location = self.new_location;
+        self.cumulative_delta += delta;
 
         let layout = &mut data.niri.layout;
         let res = match self.gesture {
             GestureState::Recognizing => {
-                let c = self.new_location - self.start_data.location;
+                let c = self.cumulative_delta;
 
                 // Check if the gesture moved far enough to decide. Threshold copied from GTK 4.
                 if c.x * c.x + c.y * c.y >= 8. * 8. {
                     if c.x.abs() > c.y.abs() {
                         self.gesture = GestureState::ViewOffset;
-                        if let Some((ws_idx, ws)) = layout.find_workspace_by_id(self.workspace_id) {
+                        let view_offset_res =
+                            if let Some((ws_idx, ws)) = layout.find_workspace_by_id(self.workspace_id)
+                        {
                             if ws.current_output() == Some(&self.output) {
                                 layout.view_offset_gesture_begin(&self.output, Some(ws_idx), false);
                                 layout.view_offset_gesture_update(-c.x, timestamp, false)
@@ -97,6 +102,17 @@ impl SpatialMovementGrab {
                             }
                         } else {
                             None
+                        };
+
+                        // i3/sway-style tiling does not support view offset. If that path is
+                        // unavailable, fall back to vertical workspace switching instead of
+                        // immediately cancelling the grab.
+                        if let Some(res) = view_offset_res {
+                            Some(res)
+                        } else {
+                            self.gesture = GestureState::WorkspaceSwitch;
+                            layout.workspace_switch_gesture_begin(&self.output, false);
+                            layout.workspace_switch_gesture_update(-c.y, timestamp, false)
                         }
                     } else {
                         self.gesture = GestureState::WorkspaceSwitch;
