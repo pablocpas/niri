@@ -661,7 +661,9 @@ impl<W: LayoutElement> Workspace<W> {
 
         match target {
             WorkspaceAddWindowTarget::Auto => {
-                let wants_floating = is_floating || floating_active;
+                // Match i3/sway: new windows should not inherit floating just because floating
+                // currently has focus.
+                let wants_floating = is_floating;
                 if !wants_floating {
                     tile.set_scratchpad(false);
                 }
@@ -709,7 +711,9 @@ impl<W: LayoutElement> Workspace<W> {
             }
             WorkspaceAddWindowTarget::NextTo(next_to) => {
                 let floating_has_window = self.floating.has_window(next_to);
-                let wants_floating = is_floating || floating_has_window;
+                // Match i3/sway: opening next to a floating parent should not force floating
+                // unless explicitly requested (for example by a window rule).
+                let wants_floating = is_floating;
                 if !wants_floating {
                     tile.set_scratchpad(false);
                 }
@@ -1491,7 +1495,12 @@ impl<W: LayoutElement> Workspace<W> {
                 .unwrap();
 
             // When going from fullscreen to maximized, don't consider restore_to_floating yet.
-            if tile.window().pending_sizing_mode().is_fullscreen() && !tile.pending_maximized {
+            // pending_sizing_mode() is asynchronous, so also check scrolling.is_fullscreen() to
+            // handle requests while the client is catching up.
+            let is_fullscreen_now =
+                self.scrolling.is_fullscreen(tile.window())
+                    || tile.window().pending_sizing_mode().is_fullscreen();
+            if is_fullscreen_now && !tile.pending_maximized {
                 if tile.restore_to_floating {
                     // Unfullscreen and float in one call so it has a chance to notice and request a
                     // (0, 0) size, rather than the scrolling tile size.
@@ -1599,6 +1608,7 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn toggle_window_floating(&mut self, id: Option<&W::Id>) {
+        let explicit_window = id.is_some();
         let active_id = self.active_window().map(|win| win.id().clone());
         let target_is_active = id.is_none_or(|id| Some(id) == active_id.as_ref());
         let Some(id) = id.cloned().or(active_id) else {
@@ -1606,7 +1616,7 @@ impl<W: LayoutElement> Workspace<W> {
         };
 
         if self.floating.has_window(&id) {
-            if self.floating.selected_is_container(Some(&id)) {
+            if !explicit_window && self.floating.selected_is_container(Some(&id)) {
                 if let Some((subtree, origin, _rect)) = self.floating.take_selected_subtree(&id) {
                     if let Some(origin) = origin {
                         self.scrolling
@@ -1623,7 +1633,7 @@ impl<W: LayoutElement> Workspace<W> {
                 return;
             }
         } else {
-            if target_is_active && self.scrolling.selected_is_container() {
+            if !explicit_window && target_is_active && self.scrolling.selected_is_container() {
                 if let Some((subtree, origin, rect)) = self.scrolling.take_selected_subtree() {
                     let focus = target_is_active.then_some(&id);
                     self.floating
@@ -1689,7 +1699,8 @@ impl<W: LayoutElement> Workspace<W> {
                 }
             }
 
-            self.floating.add_tile(removed.tile, target_is_active);
+            self.floating
+                .add_tile_with_restore_hint(removed.tile, target_is_active);
             if target_is_active {
                 self.floating_is_active = FloatingActive::Yes;
             }

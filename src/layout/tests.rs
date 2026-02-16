@@ -1796,6 +1796,74 @@ fn auto_insertion_after_split_preserves_existing_columns() {
 }
 
 #[test]
+fn auto_add_window_does_not_inherit_floating_from_focused_window() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::SetWindowFloating {
+            id: Some(1),
+            floating: true,
+        },
+        Op::FocusFloating,
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.is_floating(&2));
+    assert!(window_layout(&layout, 2).pos_in_scrolling_layout.is_some());
+}
+
+#[test]
+fn add_window_next_to_floating_does_not_inherit_floating() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::SetWindowFloating {
+            id: Some(1),
+            floating: true,
+        },
+        Op::AddWindowNextTo {
+            params: TestWindowParams::new(2),
+            next_to_id: 1,
+        },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.is_floating(&2));
+    assert!(window_layout(&layout, 2).pos_in_scrolling_layout.is_some());
+}
+
+#[test]
+fn add_window_next_to_floating_keeps_explicit_floating() {
+    let mut params = TestWindowParams::new(2);
+    params.is_floating = true;
+
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::SetWindowFloating {
+            id: Some(1),
+            floating: true,
+        },
+        Op::AddWindowNextTo {
+            params,
+            next_to_id: 1,
+        },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&2));
+}
+
+#[test]
 fn scratchpad_show_hides_focused_window() {
     let options = Options::from_config(&Config::default());
     let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
@@ -4585,6 +4653,280 @@ fn restore_to_floating_persists_across_fullscreen_maximize() {
     // In tiri, this path now remains in tiling after unmaximize.
     let scrolling = layout.active_workspace().unwrap().scrolling();
     assert!(scrolling.tiles().next().is_some());
+}
+
+#[test]
+fn floating_fullscreen_roundtrip_restores_floating() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::FullscreenWindow(1),
+        Op::Communicate(1),
+        Op::FullscreenWindow(1),
+    ];
+
+    let layout = check_ops(ops);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&1));
+}
+
+#[test]
+fn floating_quick_fullscreen_roundtrip_restores_floating() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::FullscreenWindow(1),
+        // No communicate here: quickly toggle fullscreen off.
+        Op::FullscreenWindow(1),
+    ];
+
+    let layout = check_ops(ops);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&1));
+}
+
+#[test]
+fn floating_fullscreen_roundtrip_restores_floating_with_other_tiling_windows() {
+    let mut floating_params = TestWindowParams::new(2);
+    floating_params.is_floating = true;
+
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: floating_params,
+        },
+        Op::FullscreenWindow(2),
+        Op::Communicate(2),
+        Op::FullscreenWindow(2),
+    ];
+
+    let layout = check_ops(ops);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&2));
+    assert!(!workspace.is_floating(&1));
+}
+
+#[test]
+fn floating_set_fullscreen_roundtrip_restores_floating() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(1)
+            },
+        },
+        Op::SetFullscreenWindow {
+            window: 1,
+            is_fullscreen: true,
+        },
+        Op::SetFullscreenWindow {
+            window: 1,
+            is_fullscreen: false,
+        },
+    ];
+
+    let layout = check_ops(ops);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&1));
+}
+
+#[test]
+fn floating_fullscreen_roundtrip_restores_size_and_position() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(1)
+            },
+        },
+        Op::Communicate(1),
+        Op::MoveFloatingWindow {
+            id: Some(1),
+            x: PositionChange::SetFixed(137.),
+            y: PositionChange::SetFixed(91.),
+            animate: false,
+        },
+        Op::SetWindowWidth {
+            id: Some(1),
+            change: SizeChange::SetFixed(777),
+        },
+        Op::SetWindowHeight {
+            id: Some(1),
+            change: SizeChange::SetFixed(444),
+        },
+        Op::Communicate(1),
+        Op::CompleteAnimations,
+    ]);
+
+    let before = tile_rect(&layout, 1);
+
+    check_ops_on_layout(
+        &mut layout,
+        [Op::SetFullscreenWindow {
+            window: 1,
+            is_fullscreen: true,
+        }],
+    );
+
+    {
+        let scrolling = layout.active_workspace().unwrap().scrolling();
+        let tile = scrolling
+            .tiles()
+            .find(|tile| *tile.window().id() == 1)
+            .expect("window 1 should be in scrolling after fullscreen");
+        assert_eq!(
+            tile.floating_window_size.map(|size| size.w),
+            Some(before.size.w as i32),
+            "floating width should be preserved while fullscreen"
+        );
+    }
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::Communicate(1),
+            Op::SetFullscreenWindow {
+                window: 1,
+                is_fullscreen: false,
+            },
+        ],
+    );
+
+    {
+        let workspace = layout.active_workspace().unwrap();
+        assert!(
+            workspace.is_floating(&1),
+            "window should move to floating immediately on unfullscreen"
+        );
+
+        let floating = workspace.floating();
+        let tile = floating
+            .tiles()
+            .find(|tile| *tile.window().id() == 1)
+            .expect("window 1 should be in floating");
+        assert_eq!(
+            tile.floating_window_size.map(|size| size.w),
+            Some(before.size.w as i32),
+            "stored floating width should still be present when returning to floating"
+        );
+
+        let (_mon, win) = layout
+            .windows()
+            .find(|(_, win)| *win.id() == 1)
+            .expect("window 1 should exist");
+        assert_eq!(
+            win.requested_size().map(|size| size.w),
+            Some(before.size.w as i32),
+            "unfullscreen-to-floating should request previous floating width"
+        );
+    }
+
+    check_ops_on_layout(&mut layout, [Op::Communicate(1), Op::CompleteAnimations]);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&1));
+
+    let after = tile_rect(&layout, 1);
+    let close = |a: f64, b: f64| (a - b).abs() <= 1.0;
+
+    assert!(
+        close(before.loc.x, after.loc.x),
+        "x mismatch: before={} after={}",
+        before.loc.x,
+        after.loc.x
+    );
+    assert!(
+        close(before.loc.y, after.loc.y),
+        "y mismatch: before={} after={}",
+        before.loc.y,
+        after.loc.y
+    );
+    assert!(
+        close(before.size.w, after.size.w),
+        "w mismatch: before={} after={}",
+        before.size.w,
+        after.size.w
+    );
+    assert!(
+        close(before.size.h, after.size.h),
+        "h mismatch: before={} after={}",
+        before.size.h,
+        after.size.h
+    );
+}
+
+#[test]
+fn floating_fullscreen_roundtrip_restores_position_in_container_order() {
+    let mut p1 = TestWindowParams::new(1);
+    p1.is_floating = true;
+    let mut p2 = TestWindowParams::new(2);
+    p2.is_floating = true;
+    let mut p3 = TestWindowParams::new(3);
+    p3.is_floating = true;
+
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow { params: p1 },
+        Op::SplitHorizontal,
+        Op::AddWindow { params: p2 },
+        Op::AddWindow { params: p3 },
+        Op::Communicate(1),
+        Op::Communicate(2),
+        Op::Communicate(3),
+        Op::CompleteAnimations,
+    ]);
+
+    let ws = layout.active_workspace().unwrap();
+    assert!(ws.is_floating(&1));
+    assert!(ws.is_floating(&2));
+    assert!(ws.is_floating(&3));
+
+    let before1 = tile_rect(&layout, 1);
+    let before2 = tile_rect(&layout, 2);
+    let before3 = tile_rect(&layout, 3);
+
+    let close = |a: f64, b: f64| (a - b).abs() <= 1.0;
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::FocusWindow(2),
+            Op::SetFullscreenWindow {
+                window: 2,
+                is_fullscreen: true,
+            },
+            Op::Communicate(2),
+            Op::SetFullscreenWindow {
+                window: 2,
+                is_fullscreen: false,
+            },
+            Op::Communicate(2),
+            Op::CompleteAnimations,
+        ],
+    );
+
+    let after1 = tile_rect(&layout, 1);
+    let after2 = tile_rect(&layout, 2);
+    let after3 = tile_rect(&layout, 3);
+
+    assert!(close(before1.loc.x, after1.loc.x));
+    assert!(close(before2.loc.x, after2.loc.x));
+    assert!(close(before3.loc.x, after3.loc.x));
 }
 
 #[test]

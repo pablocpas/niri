@@ -686,7 +686,24 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.add_tile_at(0, tile, activate);
     }
 
-    fn prepare_tile_for_floating(&mut self, tile: &mut Tile<W>) -> W::Id {
+    pub fn add_tile_with_restore_hint(&mut self, mut tile: Tile<W>, activate: bool) {
+        let hint = tile.floating_reinsert_hint.take();
+
+        if let Some((container_id, insert_info)) = hint {
+            if let Some(idx) = self.containers.iter().position(|container| container.id == container_id)
+            {
+                self.add_tile_to_container_idx_with_parent_info(idx, tile, activate, &insert_info);
+                return;
+            }
+        }
+
+        self.add_tile(tile, activate);
+    }
+
+    fn prepare_tile_for_floating(
+        &mut self,
+        tile: &mut Tile<W>,
+    ) -> (W::Id, Option<Size<f64, Logical>>) {
         tile.update_config(self.view_size, self.scale, self.options.clone());
 
         let win_id = tile.window().id().clone();
@@ -694,6 +711,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         // Restore the previous floating window size, and in case the tile is fullscreen,
         // unfullscreen it.
         let animate = !tile.is_scratchpad();
+        let mut requested_window_size = None;
         {
             let floating_size = tile.floating_window_size;
             let win = tile.window_mut();
@@ -714,14 +732,24 @@ impl<W: LayoutElement> FloatingSpace<W> {
             size.w = ensure_min_max_size_maybe_zero(size.w, min_size.w, max_size.w);
             size.h = ensure_min_max_size_maybe_zero(size.h, min_size.h, max_size.h);
 
+            if size.w > 0 && size.h > 0 {
+                requested_window_size = Some(size);
+            }
             win.request_size_once(size, animate);
         }
 
-        win_id
+        let requested_tile_size = requested_window_size.map(|size| {
+            Size::from((
+                tile.tile_width_for_window_width(f64::from(size.w)),
+                tile.tile_height_for_window_height(f64::from(size.h)),
+            ))
+        });
+
+        (win_id, requested_tile_size)
     }
 
     fn add_tile_at(&mut self, mut idx: usize, mut tile: Tile<W>, activate: bool) {
-        let win_id = self.prepare_tile_for_floating(&mut tile);
+        let (win_id, requested_tile_size) = self.prepare_tile_for_floating(&mut tile);
 
         if activate || self.containers.is_empty() {
             self.active_window_id = Some(win_id.clone());
@@ -740,7 +768,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             }
         }
 
-        let tile_size = tile.tile_size();
+        let tile_size = requested_tile_size.unwrap_or_else(|| tile.tile_size());
         let pos = self
             .stored_or_default_tile_pos(&tile)
             .unwrap_or_else(|| center_preferring_top_left_in_area(self.working_area, tile_size));
@@ -796,7 +824,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         mut tile: Tile<W>,
         activate: bool,
     ) -> bool {
-        let win_id = self.prepare_tile_for_floating(&mut tile);
+        let (win_id, _) = self.prepare_tile_for_floating(&mut tile);
         let focus_id = self.containers[idx]
             .tree
             .focused_window()
@@ -818,6 +846,27 @@ impl<W: LayoutElement> FloatingSpace<W> {
         }
 
         true
+    }
+
+    fn add_tile_to_container_idx_with_parent_info(
+        &mut self,
+        idx: usize,
+        mut tile: Tile<W>,
+        activate: bool,
+        info: &InsertParentInfo,
+    ) {
+        let (win_id, _) = self.prepare_tile_for_floating(&mut tile);
+
+        let _ = self.containers[idx]
+            .tree
+            .insert_leaf_with_parent_info(info, tile, activate);
+        self.containers[idx].tree.layout();
+
+        if activate {
+            self.activate_window(&win_id);
+        } else if self.active_window_id.is_none() {
+            self.active_window_id = Some(win_id);
+        }
     }
 
     pub(super) fn active_container_allows_splits(&self) -> bool {
@@ -998,6 +1047,10 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
     fn remove_tile_from_container(&mut self, idx: usize, id: &W::Id) -> RemovedTile<W> {
         let container_pos = self.containers[idx].data.pos;
+        let container_id = self.containers[idx].id;
+        let insert_hint = self.containers[idx]
+            .tree
+            .insert_parent_info_for_window(id);
         let mut tile = {
             let container = &mut self.containers[idx];
             container
@@ -1034,6 +1087,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         }
         // Store the floating position.
         tile.floating_pos = Some(container_pos);
+        tile.floating_reinsert_hint = insert_hint.map(|info| (container_id, info));
 
         let width = ColumnWidth::Fixed(tile.tile_expected_or_current_size().w as i32);
         RemovedTile {

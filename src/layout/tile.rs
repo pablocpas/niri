@@ -10,7 +10,7 @@ use smithay::backend::renderer::gles::{GlesRenderer, GlesTexProgram, GlesTexture
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 use smithay::wayland::compositor::{Blocker, BlockerState};
 
-use super::container::{Layout, TabBarTab};
+use super::container::{InsertParentInfo, Layout, TabBarTab};
 use super::focus_ring::{
     FocusRing, FocusRingEdges, FocusRingIndicatorEdge, FocusRingRenderElement, FocusRingState,
 };
@@ -90,6 +90,11 @@ pub struct Tile<W: LayoutElement> {
     /// This is generally the last position the tile had when it was floating. It can be unknown if
     /// the window starts out in the tiling layout.
     pub(super) floating_pos: Option<Point<f64, SizeFrac>>,
+
+    /// Hint for restoring the tile into its previous floating container/tree position.
+    ///
+    /// The tuple is `(container_id, insert_parent_info)`.
+    pub(super) floating_reinsert_hint: Option<(u64, InsertParentInfo)>,
 
     /// Currently selected preset width index when this tile is floating.
     pub(super) floating_preset_width_idx: Option<usize>,
@@ -320,6 +325,7 @@ impl<W: LayoutElement> Tile<W> {
             pending_maximized,
             floating_window_size: None,
             floating_pos: None,
+            floating_reinsert_hint: None,
             floating_preset_width_idx: None,
             floating_preset_height_idx: None,
             open_animation: None,
