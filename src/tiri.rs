@@ -126,50 +126,8 @@ use crate::dbus::gnome_shell_screenshot::{NiriToScreenshot, ScreenshotToNiri};
 use crate::frame_clock::FrameClock;
 use crate::handlers::{configure_lock_surface, XDG_ACTIVATION_TOKEN_TIMEOUT};
 use crate::input::pick_color_grab::PickColorGrab;
-// TODO i3-conversion: Re-enable if needed
-// use crate::input::scroll_swipe_gesture::ScrollSwipeGesture;
-// use crate::input::scroll_tracker::ScrollTracker;
-
-// TODO i3-conversion: Temporary placeholder types
-#[derive(Debug)]
-pub struct ScrollSwipeGestureAction;
-impl ScrollSwipeGestureAction {
-    pub fn begin(&self) -> bool {
-        false
-    }
-    pub fn end(&self) -> bool {
-        false
-    }
-}
-
-#[derive(Debug)]
-pub struct ScrollSwipeGesture;
-impl ScrollSwipeGesture {
-    pub fn new() -> Self {
-        Self
-    }
-    pub fn update(&mut self, _horizontal: f64, _vertical: f64) -> ScrollSwipeGestureAction {
-        ScrollSwipeGestureAction
-    }
-    pub fn is_vertical(&self) -> bool {
-        false
-    }
-    pub fn reset(&mut self) -> bool {
-        false
-    }
-}
-
-#[derive(Debug)]
-pub struct ScrollTracker;
-impl ScrollTracker {
-    pub fn new(_threshold: i32) -> Self {
-        Self
-    }
-    pub fn accumulate(&mut self, _delta: f64) -> i32 {
-        0
-    }
-    pub fn reset(&mut self) {}
-}
+use crate::input::scroll_swipe_gesture::ScrollSwipeGesture;
+use crate::input::scroll_tracker::ScrollTracker;
 use crate::input::{
     apply_libinput_settings, mods_with_finger_scroll_binds, mods_with_mouse_binds,
     mods_with_wheel_binds, TabletData,

@@ -554,15 +554,14 @@ fn key_name(screen_reader: bool, mod_key: ModKey, key: &Key) -> String {
         Trigger::MouseMiddle => String::from("Mouse Middle"),
         Trigger::MouseBack => String::from("Mouse Back"),
         Trigger::MouseForward => String::from("Mouse Forward"),
-        // TODO i3-conversion: Re-enable scroll triggers if needed
-        // Trigger::WheelScrollDown => String::from("Wheel Scroll Down"),
-        // Trigger::WheelScrollUp => String::from("Wheel Scroll Up"),
-        // Trigger::WheelScrollLeft => String::from("Wheel Scroll Left"),
-        // Trigger::WheelScrollRight => String::from("Wheel Scroll Right"),
-        // Trigger::TouchpadScrollDown => String::from("Touchpad Scroll Down"),
-        // Trigger::TouchpadScrollUp => String::from("Touchpad Scroll Up"),
-        // Trigger::TouchpadScrollLeft => String::from("Touchpad Scroll Left"),
-        // Trigger::TouchpadScrollRight => String::from("Touchpad Scroll Right"),
+        Trigger::WheelScrollDown => String::from("Wheel Scroll Down"),
+        Trigger::WheelScrollUp => String::from("Wheel Scroll Up"),
+        Trigger::WheelScrollLeft => String::from("Wheel Scroll Left"),
+        Trigger::WheelScrollRight => String::from("Wheel Scroll Right"),
+        Trigger::TouchpadScrollDown => String::from("Touchpad Scroll Down"),
+        Trigger::TouchpadScrollUp => String::from("Touchpad Scroll Up"),
+        Trigger::TouchpadScrollLeft => String::from("Touchpad Scroll Left"),
+        Trigger::TouchpadScrollRight => String::from("Touchpad Scroll Right"),
     };
     name.push_str(&pretty);
 

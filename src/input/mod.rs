@@ -61,8 +61,8 @@ pub mod move_grab;
 pub mod pick_color_grab;
 pub mod pick_window_grab;
 pub mod resize_grab;
-// REMOVED for i3-conversion: pub mod scroll_swipe_gesture;
-// REMOVED for i3-conversion: pub mod scroll_tracker;
+pub mod scroll_swipe_gesture;
+pub mod scroll_tracker;
 pub mod spatial_movement_grab;
 pub mod swipe_tracker;
 pub mod touch_overview_grab;
@@ -3386,6 +3386,7 @@ impl State {
         let pointer = &self.niri.seat.get_pointer().unwrap();
 
         let source = event.source();
+        let mod_key = self.backend.mod_key(&self.niri.config.borrow());
 
         // We received an event for the regular pointer, so show it now. This is also needed for
         // update_pointer_contents() below to return the real contents, necessary for the pointer
@@ -3420,13 +3421,11 @@ impl State {
             false
         };
 
-        let _is_mru_open = self.niri.window_mru_ui.is_open();
+        let is_mru_open = self.niri.window_mru_ui.is_open();
 
         // Handle wheel scroll bindings.
         if source == AxisSource::Wheel {
             // If we have a scroll bind with current modifiers, then accumulate and don't pass to
-            // TODO i3-conversion: Wheel scroll handling disabled
-            /*
             // Wayland. If there's no bind, reset the accumulator.
             let mods = self.niri.seat.get_keyboard().unwrap().modifier_state();
             let modifiers = modifiers_from_state(mods);
@@ -3593,7 +3592,6 @@ impl State {
                 self.niri.horizontal_wheel_tracker.reset();
                 self.niri.vertical_wheel_tracker.reset();
             }
-            */
         }
 
         let horizontal_amount = event.amount(Axis::Horizontal);
@@ -3702,8 +3700,6 @@ impl State {
                 }
             }
 
-            // TODO i3-conversion: Touchpad scroll handling disabled
-            /*
             if self.niri.mods_with_finger_scroll_binds.contains(&modifiers) {
                 let ticks = self
                     .niri
@@ -3780,7 +3776,6 @@ impl State {
                 self.niri.horizontal_finger_scroll_tracker.reset();
                 self.niri.vertical_finger_scroll_tracker.reset();
             }
-            */
         }
 
         self.update_pointer_contents();
@@ -5334,8 +5329,6 @@ pub fn mods_with_mouse_binds(mod_key: ModKey, binds: &Binds) -> HashSet<Modifier
     )
 }
 
-// TODO i3-conversion: Scroll binds disabled
-/*
 pub fn mods_with_wheel_binds(mod_key: ModKey, binds: &Binds) -> HashSet<Modifiers> {
     mods_with_binds(
         mod_key,
@@ -5360,15 +5353,6 @@ pub fn mods_with_finger_scroll_binds(mod_key: ModKey, binds: &Binds) -> HashSet<
             Trigger::TouchpadScrollRight,
         ],
     )
-}
-*/
-
-pub fn mods_with_wheel_binds(_mod_key: ModKey, _binds: &Binds) -> HashSet<Modifiers> {
-    HashSet::new()
-}
-
-pub fn mods_with_finger_scroll_binds(_mod_key: ModKey, _binds: &Binds) -> HashSet<Modifiers> {
-    HashSet::new()
 }
 
 fn grab_allows_hot_corner(grab: &(dyn PointerGrab<State> + 'static)) -> bool {
@@ -5808,5 +5792,43 @@ mod tests {
             ),
             None,
         );
+    }
+
+    #[test]
+    fn wheel_and_touchpad_mod_sets_include_comp_mod() {
+        let binds = Binds(vec![
+            Bind {
+                key: Key {
+                    trigger: Trigger::WheelScrollDown,
+                    modifiers: Modifiers::COMPOSITOR | Modifiers::SHIFT,
+                },
+                action: Action::FocusWorkspaceDown,
+                repeat: true,
+                cooldown: None,
+                allow_when_locked: false,
+                allow_inhibiting: true,
+                hotkey_overlay_title: None,
+            },
+            Bind {
+                key: Key {
+                    trigger: Trigger::TouchpadScrollUp,
+                    modifiers: Modifiers::COMPOSITOR | Modifiers::CTRL,
+                },
+                action: Action::FocusWorkspaceUp,
+                repeat: true,
+                cooldown: None,
+                allow_when_locked: false,
+                allow_inhibiting: true,
+                hotkey_overlay_title: None,
+            },
+        ]);
+
+        let wheel = mods_with_wheel_binds(ModKey::Super, &binds);
+        assert!(wheel.contains(&(Modifiers::SUPER | Modifiers::SHIFT)));
+        assert_eq!(wheel.len(), 1);
+
+        let touchpad = mods_with_finger_scroll_binds(ModKey::Super, &binds);
+        assert!(touchpad.contains(&(Modifiers::SUPER | Modifiers::CTRL)));
+        assert_eq!(touchpad.len(), 1);
     }
 }
