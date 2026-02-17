@@ -3174,26 +3174,31 @@ impl<W: LayoutElement> Layout<W> {
                             let config = is_overview_open
                                 .then_some(self.options.animations.overview_open_close.0);
 
-                            let mon = self.monitor_for_output_mut(&output).unwrap();
+                            if let Some(mon) = self.monitor_for_output_mut(&output) {
+                                let ws_idx = match hold.target {
+                                    DndHoldTarget::Window(id) => mon
+                                        .workspaces
+                                        .iter_mut()
+                                        .position(|ws| ws.activate_window(&id)),
+                                    DndHoldTarget::Workspace(id) => {
+                                        mon.workspaces.iter().position(|ws| ws.id() == id)
+                                    }
+                                };
 
-                            let ws_idx = match hold.target {
-                                DndHoldTarget::Window(id) => mon
-                                    .workspaces
-                                    .iter_mut()
-                                    .position(|ws| ws.activate_window(&id))
-                                    .unwrap(),
-                                DndHoldTarget::Workspace(id) => {
-                                    mon.workspaces.iter().position(|ws| ws.id() == id).unwrap()
+                                if let Some(ws_idx) = ws_idx {
+                                    mon.dnd_scroll_gesture_end();
+                                    mon.activate_workspace_with_anim_config(ws_idx, config);
+
+                                    self.focus_output(&output);
+
+                                    if is_overview_open {
+                                        self.close_overview();
+                                    }
+                                } else {
+                                    error!("DnD hold target disappeared before activation");
                                 }
-                            };
-
-                            mon.dnd_scroll_gesture_end();
-                            mon.activate_workspace_with_anim_config(ws_idx, config);
-
-                            self.focus_output(&output);
-
-                            if is_overview_open {
-                                self.close_overview();
+                            } else {
+                                error!("DnD hold output disappeared before activation");
                             }
                         }
                     } else {
@@ -3576,6 +3581,12 @@ impl<W: LayoutElement> Layout<W> {
     pub fn toggle_split_layout(&mut self) {
         if let Some(workspace) = self.active_workspace_mut() {
             workspace.toggle_split_layout();
+        }
+    }
+
+    pub fn toggle_layout_all(&mut self) {
+        if let Some(workspace) = self.active_workspace_mut() {
+            workspace.toggle_layout_all();
         }
     }
 

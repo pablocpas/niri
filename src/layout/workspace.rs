@@ -661,9 +661,10 @@ impl<W: LayoutElement> Workspace<W> {
 
         match target {
             WorkspaceAddWindowTarget::Auto => {
-                // Match i3/sway: new windows should not inherit floating just because floating
-                // currently has focus.
-                let wants_floating = is_floating;
+                // Match sway: if the active floating container was explicitly split/grouped,
+                // the next normal window should join that floating container.
+                let grouped_floating = floating_active && self.floating.active_container_allows_splits();
+                let wants_floating = is_floating || grouped_floating;
                 if !wants_floating {
                     tile.set_scratchpad(false);
                 }
@@ -711,45 +712,51 @@ impl<W: LayoutElement> Workspace<W> {
             }
             WorkspaceAddWindowTarget::NextTo(next_to) => {
                 let floating_has_window = self.floating.has_window(next_to);
-                // Match i3/sway: opening next to a floating parent should not force floating
-                // unless explicitly requested (for example by a window rule).
-                let wants_floating = is_floating;
+                let grouped_floating_target =
+                    floating_has_window && self.floating.container_allows_splits(next_to);
+                let wants_floating = is_floating || grouped_floating_target;
                 if !wants_floating {
                     tile.set_scratchpad(false);
                 }
                 tile.restore_to_floating = wants_floating;
 
-                let activate = activate.map_smart(|| self.active_window().unwrap().id() == next_to);
+                let activate = activate.map_smart(|| {
+                    self.active_window().is_some_and(|win| win.id() == next_to)
+                });
 
                 if wants_floating
                     && tile.window().pending_sizing_mode().is_normal()
                     && !tile.pending_maximized
                 {
                     if floating_has_window {
-                        if self.floating.container_allows_splits(next_to) {
+                        if grouped_floating_target {
                             self.floating
                                 .add_tile_to_container_of(next_to, tile, activate);
                         } else {
                             self.floating.add_tile_above(next_to, tile, activate);
                         }
                     } else {
-                        // FIXME: use static pos
-                        let (next_to_tile, render_pos, _visible) = self
+                        if let Some((next_to_tile, render_pos, _visible)) = self
                             .scrolling
                             .tiles_with_render_positions()
                             .find(|(tile, _, _)| tile.window().id() == next_to)
-                            .unwrap();
-
-                        // Position the new tile in the center above the next_to tile. Think a
-                        // dialog opening on top of a window.
-                        let tile_size = tile.tile_size();
-                        let pos = render_pos
-                            + (next_to_tile.tile_size().to_point() - tile_size.to_point())
-                                .downscale(2.);
-                        let pos = self.floating.clamp_within_working_area(pos, tile_size);
-                        let pos = self.floating.logical_to_size_frac(pos);
-                        tile.floating_pos = Some(pos);
-
+                        {
+                            // Position the new tile in the center above the next_to tile. Think
+                            // a dialog opening on top of a window.
+                            //
+                            // FIXME: use static pos
+                            let tile_size = tile.tile_size();
+                            let pos = render_pos
+                                + (next_to_tile.tile_size().to_point() - tile_size.to_point())
+                                    .downscale(2.);
+                            let pos = self.floating.clamp_within_working_area(pos, tile_size);
+                            let pos = self.floating.logical_to_size_frac(pos);
+                            tile.floating_pos = Some(pos);
+                        } else {
+                            error!(
+                                "next_to target disappeared while placing a new floating window"
+                            );
+                        }
                         self.floating.add_tile(tile, activate);
                     }
 
@@ -764,8 +771,14 @@ impl<W: LayoutElement> Workspace<W> {
                         self.floating_is_active = FloatingActive::No;
                     }
                 } else {
-                    self.scrolling
-                        .add_tile_right_of(next_to, tile, activate, width, is_full_width);
+                    if self.scrolling.tiles().any(|tile| tile.window().id() == next_to) {
+                        self.scrolling
+                            .add_tile_right_of(next_to, tile, activate, width, is_full_width);
+                    } else {
+                        error!("next_to target disappeared while placing a new tiled window");
+                        self.scrolling
+                            .add_tile(None, tile, activate, width, is_full_width, None);
+                    }
 
                     if activate {
                         self.floating_is_active = FloatingActive::No;
@@ -1284,51 +1297,58 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn consume_or_expel_window_left(&mut self, window: Option<&W::Id>) {
         if self.is_floating_target(window) {
-            return;
+            self.floating.consume_or_expel_window_left(window);
+        } else {
+            self.scrolling.consume_or_expel_window_left(window);
         }
-        self.scrolling.consume_or_expel_window_left(window);
     }
 
     pub fn consume_or_expel_window_right(&mut self, window: Option<&W::Id>) {
         if self.is_floating_target(window) {
-            return;
+            self.floating.consume_or_expel_window_right(window);
+        } else {
+            self.scrolling.consume_or_expel_window_right(window);
         }
-        self.scrolling.consume_or_expel_window_right(window);
     }
 
     pub fn consume_into_column(&mut self) {
         if self.floating_is_active.get() {
-            return;
+            self.floating.consume_into_column();
+        } else {
+            self.scrolling.consume_into_column();
         }
-        self.scrolling.consume_into_column();
     }
 
     pub fn expel_from_column(&mut self) {
         if self.floating_is_active.get() {
-            return;
+            self.floating.expel_from_column();
+        } else {
+            self.scrolling.expel_from_column();
         }
-        self.scrolling.expel_from_column();
     }
 
     pub fn swap_window_in_direction(&mut self, direction: ScrollDirection) {
         if self.floating_is_active.get() {
-            return;
+            self.floating.swap_window_in_direction(direction);
+        } else {
+            self.scrolling.swap_window_in_direction(direction);
         }
-        self.scrolling.swap_window_in_direction(direction);
     }
 
     pub fn toggle_column_tabbed_display(&mut self) {
         if self.floating_is_active.get() {
-            return;
+            self.floating.toggle_column_tabbed_display();
+        } else {
+            self.scrolling.toggle_column_tabbed_display();
         }
-        self.scrolling.toggle_column_tabbed_display();
     }
 
     pub fn set_column_display(&mut self, display: ColumnDisplay) {
         if self.floating_is_active.get() {
-            return;
+            self.floating.set_column_display(display);
+        } else {
+            self.scrolling.set_column_display(display);
         }
-        self.scrolling.set_column_display(display);
     }
 
     pub fn center_column(&mut self) {
@@ -1470,6 +1490,14 @@ impl<W: LayoutElement> Workspace<W> {
             self.floating.toggle_split_layout();
         } else {
             self.scrolling.toggle_split_layout();
+        }
+    }
+
+    pub fn toggle_layout_all(&mut self) {
+        if self.floating_is_active.get() {
+            self.floating.toggle_layout_all();
+        } else {
+            self.scrolling.toggle_layout_all();
         }
     }
 

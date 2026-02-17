@@ -801,6 +801,7 @@ enum Op {
     SetLayoutTabbed,
     SetLayoutStacked,
     ToggleSplitLayout,
+    ToggleLayoutAll,
     // Mark operations
     MarkFocused {
         #[proptest(strategy = "1..=3usize")]
@@ -1696,6 +1697,7 @@ impl Op {
             Op::SetLayoutTabbed => layout.set_layout_mode(ContainerLayout::Tabbed),
             Op::SetLayoutStacked => layout.set_layout_mode(ContainerLayout::Stacked),
             Op::ToggleSplitLayout => layout.toggle_split_layout(),
+            Op::ToggleLayoutAll => layout.toggle_layout_all(),
             // Mark operations
             Op::MarkFocused { mark_id, mode } => {
                 layout.mark_focused(format!("mark{mark_id}"), mode);
@@ -1750,6 +1752,207 @@ fn tile_rect(layout: &Layout<TestWindow>, id: usize) -> Rectangle<f64, Logical> 
     }
 
     panic!("tile not found for window {id}");
+}
+
+fn assert_no_internal_vertical_seams(layout: &Layout<TestWindow>, ids: &[usize]) {
+    let mut rects = Vec::new();
+    for (_, _, ws) in layout.workspaces() {
+        for (tile, pos, visible) in ws.tiles_with_render_positions() {
+            if !visible {
+                continue;
+            }
+            if ids.contains(tile.window().id()) {
+                rects.push(Rectangle::new(pos, tile.tile_size()));
+            }
+        }
+    }
+
+    assert_eq!(rects.len(), ids.len(), "expected {} visible tiled rects", ids.len());
+    rects.sort_by(|a, b| a.loc.y.total_cmp(&b.loc.y));
+
+    let eps = 0.001;
+    for pair in rects.windows(2) {
+        let top = pair[0];
+        let bottom = pair[1];
+        let seam = bottom.loc.y - (top.loc.y + top.size.h);
+        assert!(
+            seam.abs() <= eps,
+            "found internal vertical seam of {seam} between {:?} and {:?}",
+            top,
+            bottom
+        );
+    }
+}
+
+#[test]
+fn split_vertical_has_no_internal_transparent_seams_with_multiple_windows() {
+    let options = Options {
+        layout: tiri_config::Layout {
+            gaps: 0.,
+            border: tiri_config::Border {
+                off: false,
+                width: 2.,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let layout = check_ops_with_options(
+        options,
+        [
+            Op::AddScaledOutput {
+                id: 1,
+                scale: 1.3,
+                layout_config: None,
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::Communicate(1),
+            Op::SplitVertical,
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::Communicate(2),
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::Communicate(3),
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+            Op::Communicate(4),
+            Op::AddWindow {
+                params: TestWindowParams::new(5),
+            },
+            Op::Communicate(5),
+            Op::Communicate(1),
+            Op::Communicate(2),
+            Op::Communicate(3),
+            Op::Communicate(4),
+            Op::Communicate(5),
+        ],
+    );
+
+    assert_no_internal_vertical_seams(&layout, &[1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn split_vertical_no_seams_after_tabbed_roundtrip() {
+    let options = Options {
+        layout: tiri_config::Layout {
+            gaps: 0.,
+            border: tiri_config::Border {
+                off: false,
+                width: 2.,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let layout = check_ops_with_options(
+        options,
+        [
+            Op::AddScaledOutput {
+                id: 1,
+                scale: 1.3,
+                layout_config: None,
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::Communicate(1),
+            Op::SplitVertical,
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::Communicate(2),
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::Communicate(3),
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+            Op::Communicate(4),
+            Op::AddWindow {
+                params: TestWindowParams::new(5),
+            },
+            Op::Communicate(5),
+            Op::FocusParent,
+            Op::SetLayoutTabbed,
+            Op::SetLayoutSplitV,
+            Op::Communicate(1),
+            Op::Communicate(2),
+            Op::Communicate(3),
+            Op::Communicate(4),
+            Op::Communicate(5),
+        ],
+    );
+
+    assert_no_internal_vertical_seams(&layout, &[1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn split_vertical_no_seams_after_stacked_roundtrip() {
+    let options = Options {
+        layout: tiri_config::Layout {
+            gaps: 0.,
+            border: tiri_config::Border {
+                off: false,
+                width: 2.,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let layout = check_ops_with_options(
+        options,
+        [
+            Op::AddScaledOutput {
+                id: 1,
+                scale: 1.3,
+                layout_config: None,
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::Communicate(1),
+            Op::SplitVertical,
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::Communicate(2),
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::Communicate(3),
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+            Op::Communicate(4),
+            Op::AddWindow {
+                params: TestWindowParams::new(5),
+            },
+            Op::Communicate(5),
+            Op::FocusParent,
+            Op::SetLayoutStacked,
+            Op::SetLayoutSplitV,
+            Op::Communicate(1),
+            Op::Communicate(2),
+            Op::Communicate(3),
+            Op::Communicate(4),
+            Op::Communicate(5),
+        ],
+    );
+
+    assert_no_internal_vertical_seams(&layout, &[1, 2, 3, 4, 5]);
 }
 
 #[test]
@@ -1861,6 +2064,468 @@ fn add_window_next_to_floating_keeps_explicit_floating() {
 
     let workspace = layout.active_workspace().expect("active workspace");
     assert!(workspace.is_floating(&2));
+}
+
+#[test]
+fn auto_add_window_inherits_grouped_floating_after_split() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::SetWindowFloating {
+            id: Some(1),
+            floating: true,
+        },
+        Op::FocusFloating,
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert!(workspace.is_floating(&2));
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::SplitV)
+    );
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&2),
+        Some(ContainerLayout::SplitV)
+    );
+}
+
+#[test]
+fn add_window_next_to_grouped_floating_inherits_group() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::SetWindowFloating {
+            id: Some(1),
+            floating: true,
+        },
+        Op::FocusFloating,
+        Op::SplitVertical,
+        Op::AddWindowNextTo {
+            params: TestWindowParams::new(2),
+            next_to_id: 1,
+        },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert!(workspace.is_floating(&2));
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::SplitV)
+    );
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&2),
+        Some(ContainerLayout::SplitV)
+    );
+}
+
+#[test]
+fn floating_split_after_refocus_targets_refocused_window() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::Communicate(1),
+        Op::Communicate(2),
+        Op::Communicate(3),
+        Op::CompleteAnimations,
+    ]);
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::FocusWindow(1),
+            Op::SplitHorizontal,
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+            Op::Communicate(4),
+            Op::CompleteAnimations,
+        ],
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&4));
+
+    let r1 = tile_rect(&layout, 1);
+    let r2 = tile_rect(&layout, 2);
+    let r3 = tile_rect(&layout, 3);
+    let r4 = tile_rect(&layout, 4);
+
+    // After refocusing window 1 and splitting horizontally, window 4 should
+    // be inserted alongside window 1 (top split), not near the previously
+    // focused last window.
+    assert!((r4.loc.y - r1.loc.y).abs() <= 1.0);
+    assert!(r4.loc.y + 1.0 < r2.loc.y);
+    assert!(r4.loc.y + 1.0 < r3.loc.y);
+}
+
+#[test]
+fn tiling_focus_parent_then_split_applies_to_parent_container() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(1),
+        Op::FocusParent,
+        Op::SplitHorizontal,
+    ]);
+
+    let r1 = tile_rect(&layout, 1);
+    let r2 = tile_rect(&layout, 2);
+
+    // The split must apply to the selected parent container, not to the focused leaf.
+    assert!((r1.loc.y - r2.loc.y).abs() <= 1.0);
+    assert!((r1.loc.x - r2.loc.x).abs() > 1.0);
+}
+
+#[test]
+fn tiling_selected_parent_controls_new_window_insertion_target() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(1),
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(1),
+        Op::FocusParent,
+        Op::FocusParent,
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+    ]);
+
+    let r1 = tile_rect(&layout, 1);
+    let r2 = tile_rect(&layout, 2);
+    let r3 = tile_rect(&layout, 3);
+    let r4 = tile_rect(&layout, 4);
+
+    // Window 4 should be inserted at the selected horizontal parent level,
+    // not inside the nested vertical split.
+    assert!((r4.loc.y - r2.loc.y).abs() <= 1.0);
+    assert!((r4.loc.x - r1.loc.x).abs() > 1.0);
+    assert!(r4.loc.y + 1.0 < r3.loc.y);
+}
+
+#[test]
+fn tiling_focus_parent_once_inserts_as_sibling_of_selected_container() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(1),
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(1),
+        Op::FocusParent,
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+    ]);
+
+    let r1 = tile_rect(&layout, 1);
+    let r2 = tile_rect(&layout, 2);
+    let r3 = tile_rect(&layout, 3);
+    let r4 = tile_rect(&layout, 4);
+
+    // After one focus-parent from window 1, selected container is the nested SplitV.
+    // New window should insert as sibling of that container in the root SplitH.
+    assert!((r4.loc.y - r2.loc.y).abs() <= 1.0);
+    assert!((r4.loc.x - r1.loc.x).abs() > 1.0);
+    assert!(r4.loc.y + 1.0 < r3.loc.y);
+}
+
+#[test]
+fn floating_focus_parent_selects_wrapper_container() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::FocusParent,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert!(workspace.floating().wrapper_selected_for_window(&1));
+    assert!(workspace.floating().selected_is_container(Some(&1)));
+}
+
+#[test]
+fn floating_focus_parent_reaches_wrapper_after_root_in_nested_tree() {
+    let mut params2 = TestWindowParams::new(2);
+    params2.is_floating = true;
+    let mut params3 = TestWindowParams::new(3);
+    params3.is_floating = true;
+
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
+        Op::AddWindow { params: params2 },
+        Op::FocusWindow(1),
+        Op::SplitHorizontal,
+        Op::AddWindow { params: params3 },
+        Op::FocusWindow(1),
+        Op::FocusParent,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert!(!workspace.floating().wrapper_selected_for_window(&1));
+
+    let mut layout = layout;
+    check_ops_on_layout(&mut layout, [Op::FocusParent]);
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.floating().wrapper_selected_for_window(&1));
+}
+
+#[test]
+fn floating_focus_child_exits_wrapper_selection() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::FocusParent,
+        Op::FocusParent,
+        Op::FocusChild,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert!(!workspace.floating().wrapper_selected_for_window(&1));
+}
+
+#[test]
+fn floating_split_with_wrapper_selected_changes_root_layout() {
+    let mut params2 = TestWindowParams::new(2);
+    params2.is_floating = true;
+
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
+        Op::AddWindow { params: params2 },
+        Op::FocusParent,
+        Op::FocusParent,
+        Op::SplitHorizontal,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert!(workspace.is_floating(&2));
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::SplitH)
+    );
+}
+
+#[test]
+fn floating_set_layout_mode_uses_wrapper_selection() {
+    let mut params2 = TestWindowParams::new(2);
+    params2.is_floating = true;
+
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
+        Op::AddWindow { params: params2 },
+        Op::FocusParent,
+        Op::FocusParent,
+        Op::SetLayoutTabbed,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert!(workspace.is_floating(&2));
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::Tabbed)
+    );
+}
+
+#[test]
+fn floating_toggle_split_layout_uses_wrapper_selection() {
+    let mut params2 = TestWindowParams::new(2);
+    params2.is_floating = true;
+
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
+        Op::AddWindow { params: params2 },
+        Op::FocusParent,
+        Op::FocusParent,
+        Op::ToggleSplitLayout,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert!(workspace.is_floating(&2));
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::SplitH)
+    );
+}
+
+#[test]
+fn floating_toggle_layout_all_uses_wrapper_selection() {
+    let mut params2 = TestWindowParams::new(2);
+    params2.is_floating = true;
+
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
+        Op::AddWindow { params: params2 },
+        Op::FocusParent,
+        Op::FocusParent,
+        Op::ToggleLayoutAll,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert!(workspace.is_floating(&2));
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::Stacked)
+    );
+}
+
+#[test]
+fn floating_consume_into_column_uses_floating_tree() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::ConsumeWindowIntoColumn,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::SplitV)
+    );
+}
+
+#[test]
+fn floating_expel_from_column_uses_floating_tree() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::ExpelWindowFromColumn,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::SplitH)
+    );
+}
+
+#[test]
+fn consume_or_expel_targeting_floating_window_does_not_use_tiling_tree() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::ConsumeOrExpelWindowLeft { id: Some(1) },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert!(!workspace.is_floating(&2));
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::SplitV)
+    );
+    assert!(window_layout(&layout, 2).pos_in_scrolling_layout.is_some());
+}
+
+#[test]
+fn floating_toggle_column_tabbed_display_changes_floating_layout() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::ToggleColumnTabbedDisplay,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::Tabbed)
+    );
 }
 
 #[test]
@@ -5551,11 +6216,47 @@ fn flatten_same_layout_container_on_cleanup() {
         tree.as_str(),
         @"
     SplitV
-      SplitV
-        Window 1
-        Window 4
+      Window 1
+      Window 4
       Window 2 *
     "
+    );
+}
+
+#[test]
+fn squash_parallel_tabbed_container_on_cleanup() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_window_by_id(&2));
+    harness.tree.split_focused(ContainerLayout::Tabbed);
+    harness.add_window(3);
+    harness.add_window(4);
+    let _ = harness.tree.remove_window(&4);
+
+    let tree = harness.tree.debug_tree();
+    assert!(
+        !tree.contains("Tabbed"),
+        "parallel tabbed container should be squashed:\n{tree}"
+    );
+}
+
+#[test]
+fn squash_parallel_stacked_container_on_cleanup() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::SplitV));
+    assert!(harness.tree.focus_window_by_id(&2));
+    harness.tree.split_focused(ContainerLayout::Stacked);
+    harness.add_window(3);
+    harness.add_window(4);
+    let _ = harness.tree.remove_window(&4);
+
+    let tree = harness.tree.debug_tree();
+    assert!(
+        !tree.contains("Stacked"),
+        "parallel stacked container should be squashed:\n{tree}"
     );
 }
 
@@ -5847,6 +6548,28 @@ fn toggle_split_layout_switches_orientation() {
         tree.as_str(),
         @"
     SplitV
+      Window 1
+      Window 2 *
+    "
+    );
+}
+
+#[test]
+fn toggle_layout_all_cycles_through_all_layouts() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+
+    assert!(harness.tree.toggle_layout_all());
+    assert!(harness.tree.toggle_layout_all());
+    assert!(harness.tree.toggle_layout_all());
+    assert!(harness.tree.toggle_layout_all());
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
       Window 1
       Window 2 *
     "

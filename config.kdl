@@ -604,11 +604,11 @@ binds {
     // Switches focus between the current and the previous workspace.
     // Mod+Tab { focus-workspace-previous; }
 
-    // REMOVED: Scrolling-based column operations (not needed in i3-style tiling)
-    // Mod+BracketLeft  { consume-or-expel-window-left; }
-    // Mod+BracketRight { consume-or-expel-window-right; }
-    // Mod+Comma  { consume-window-into-column; }
-    // Mod+Period { expel-window-from-column; }
+    // i3/sway-style consume/expel container operations.
+    Mod+BracketLeft  { consume-or-expel-window-left; }
+    Mod+BracketRight { consume-or-expel-window-right; }
+    Mod+Comma  { consume-window-into-column; }
+    Mod+Period { expel-window-from-column; }
     // Mod+R { switch-preset-column-width; }
     // Mod+Shift+R { switch-preset-window-height; }
     // Mod+Ctrl+R { reset-window-height; }
@@ -633,20 +633,13 @@ binds {
     // Mod+Plus  { resize-grow-width; }    // Tecla +
     // Mod+Minus { resize-shrink-width; }  // Tecla -
 
-    // i3-style focus parent/child navigation
+    // Sway/i3 layout and floating keybinds.
     Mod+A { focus-parent; }
-    Mod+Z { focus-child; }
-
-    // i3-style split commands
     Mod+B { split-horizontal; }
     Mod+V { split-vertical; }
-
-    // i3-style layout mode commands
-    Mod+E { toggle-split-layout; }
     Mod+S { set-layout-stacked; }
     Mod+W { set-layout-tabbed; }
-
-    // Move the focused window between the floating and the tiling layout.
+    Mod+E { toggle-split-layout; }
     Mod+Shift+Space { toggle-window-floating; }
     Mod+Space       { switch-focus-between-floating-and-tiling; }
 

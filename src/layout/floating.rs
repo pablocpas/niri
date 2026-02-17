@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use tiri_config::utils::MergeWith as _;
 use tiri_config::{PresetSize, RelativeTo};
-use tiri_ipc::{PositionChange, SizeChange, WindowLayout};
+use tiri_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
 use log::warn;
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -15,9 +15,11 @@ use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
     ContainerTree, DetachedNode, Direction, InsertParentInfo, Layout, LeafLayoutInfo, TabBarInfo,
 };
-use super::focus_ring::FocusRingEdges;
+use super::focus_ring::{
+    render_container_selection, ContainerSelectionStyle, FocusRingEdges, FocusRingRenderElement,
+};
 use super::tile::{Tile, TileRenderElement, TileRenderSnapshot};
-use super::tiling::ColumnWidth;
+use super::tiling::{ColumnWidth, ScrollDirection};
 use super::workspace::{InteractiveResize, ResolvedSize};
 use super::{
     resize_edges_for_point, ConfigureIntent, InteractiveResizeData, LayoutElement, Options,
@@ -96,6 +98,7 @@ niri_render_elements! {
         Tile = TileRenderElement<R>,
         TabBar = PrimaryGpuTextureRenderElement,
         ClosingWindow = ClosingWindowRenderElement,
+        ContainerSelection = FocusRingRenderElement,
     }
 }
 
@@ -103,6 +106,7 @@ niri_render_elements! {
 struct FloatingContainer<W: LayoutElement> {
     id: u64,
     tree: ContainerTree<W>,
+    wrapper_selected: bool,
     data: FloatingContainerData,
     origin: Option<InsertParentInfo>,
 }
@@ -404,6 +408,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
     pub fn update_render_elements(&mut self, is_active: bool, view_rect: Rectangle<f64, Logical>) {
         self.is_active = is_active;
         let active = self.active_window_id.clone();
+        let selection_is_container = self
+            .active_container_idx()
+            .is_some_and(|idx| self.selected_is_container_in(idx));
         let scale = self.scale;
         for container in &mut self.containers {
             let applied = container.tree.apply_pending_layouts_if_ready();
@@ -420,7 +427,8 @@ impl<W: LayoutElement> FloatingSpace<W> {
                     let mut tile_view_rect = view_rect;
                     tile_view_rect.loc -= pos;
 
-                    let is_focused = is_active && Some(tile.window().id()) == active.as_ref();
+                    let is_focused =
+                        is_active && Some(tile.window().id()) == active.as_ref() && !selection_is_container;
                     tile.update_render_elements(
                         is_active,
                         is_focused,
@@ -639,6 +647,18 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.idx_of(active_id)
     }
 
+    fn selected_is_container_in(&self, idx: usize) -> bool {
+        self.containers[idx].wrapper_selected || self.containers[idx].tree.selected_is_container()
+    }
+
+    fn selected_path_in(&self, idx: usize) -> Vec<usize> {
+        if self.containers[idx].wrapper_selected {
+            Vec::new()
+        } else {
+            self.containers[idx].tree.selected_path()
+        }
+    }
+
     fn tile_at_mut(&mut self, id: &W::Id) -> Option<&mut Tile<W>> {
         for container in &mut self.containers {
             if let Some(path) = container.tree.find_window(id) {
@@ -679,7 +699,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let Some(idx) = self.idx_of(id) else {
             return false;
         };
-        self.containers[idx].tree.selected_is_container()
+        self.selected_is_container_in(idx)
     }
 
     pub fn add_tile(&mut self, tile: Tile<W>, activate: bool) {
@@ -789,6 +809,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let container = FloatingContainer {
             id: self.next_container_id,
             tree,
+            wrapper_selected: false,
             data: FloatingContainerData::new(self.working_area, rect),
             origin: None,
         };
@@ -948,6 +969,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let container = FloatingContainer {
             id: self.next_container_id,
             tree,
+            wrapper_selected: false,
             data: FloatingContainerData::new(self.working_area, rect),
             origin,
         };
@@ -999,7 +1021,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         id: &W::Id,
     ) -> Option<(DetachedNode<W>, Option<InsertParentInfo>, Rectangle<f64, Logical>)> {
         let idx = self.idx_of(id)?;
-        let path = self.containers[idx].tree.selected_path();
+        let path = self.selected_path_in(idx);
         let local_rect = if self.containers[idx].tree.is_leaf_at_path(&path) {
             let info = Self::display_layouts(&self.containers[idx].tree)
                 .iter()
@@ -1123,10 +1145,12 @@ impl<W: LayoutElement> FloatingSpace<W> {
     }
 
     pub fn activate_window_without_raising(&mut self, id: &W::Id) -> bool {
-        if !self.contains(id) {
+        let Some(idx) = self.idx_of(id) else {
             return false;
-        }
+        };
 
+        self.containers[idx].wrapper_selected = false;
+        let _ = self.containers[idx].tree.focus_window_by_id(id);
         self.active_window_id = Some(id.clone());
         true
     }
@@ -1139,6 +1163,10 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.raise_container(idx, 0);
         self.active_window_id = Some(id.clone());
         self.bring_up_descendants_of(0);
+        if let Some(idx) = self.idx_of(id) {
+            self.containers[idx].wrapper_selected = false;
+            let _ = self.containers[idx].tree.focus_window_by_id(id);
+        }
 
         true
     }
@@ -1424,8 +1452,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             return;
         };
         let idx = self.idx_of(target_id).unwrap();
-        let selection_is_container =
-            id.is_none() && self.containers[idx].tree.selected_is_container();
+        let selection_is_container = id.is_none() && self.selected_is_container_in(idx);
         if selection_is_container {
             self.resize_container_dimension(idx, change, true, animate);
             return;
@@ -1437,7 +1464,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 None => return,
             }
         } else {
-            self.containers[idx].tree.selected_path()
+            self.selected_path_in(idx)
         };
 
         if let Some(tile) = self.containers[idx].tree.tile_at_path_mut(&path) {
@@ -1481,8 +1508,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             return;
         };
         let idx = self.idx_of(target_id).unwrap();
-        let selection_is_container =
-            id.is_none() && self.containers[idx].tree.selected_is_container();
+        let selection_is_container = id.is_none() && self.selected_is_container_in(idx);
         if selection_is_container {
             self.resize_container_dimension(idx, change, false, animate);
             return;
@@ -1494,7 +1520,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 None => return,
             }
         } else {
-            self.containers[idx].tree.selected_path()
+            self.selected_path_in(idx)
         };
 
         if let Some(tile) = self.containers[idx].tree.tile_at_path_mut(&path) {
@@ -1589,10 +1615,12 @@ impl<W: LayoutElement> FloatingSpace<W> {
     }
 
     pub fn focus_window_by_id(&mut self, id: &W::Id) -> bool {
-        if !self.has_window(id) {
+        let Some(idx) = self.idx_of(id) else {
             return false;
-        }
+        };
 
+        self.containers[idx].wrapper_selected = false;
+        let _ = self.containers[idx].tree.focus_window_by_id(id);
         self.active_window_id = Some(id.clone());
         true
     }
@@ -1662,21 +1690,251 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let Some(idx) = self.active_container_idx() else {
             return false;
         };
-        self.containers[idx].tree.select_parent()
+        if self.containers[idx].wrapper_selected {
+            return false;
+        }
+
+        if self.containers[idx].tree.select_parent() {
+            // Without a dedicated visual for "root container selected", promote root
+            // selection to wrapper selection on the same keypress.
+            let root_selected = self.containers[idx].tree.selected_is_container()
+                && self.containers[idx].tree.selected_path().is_empty();
+            self.containers[idx].wrapper_selected = root_selected;
+            return true;
+        }
+
+        self.containers[idx].wrapper_selected = true;
+        true
     }
 
     pub fn focus_child(&mut self) -> bool {
         let Some(idx) = self.active_container_idx() else {
             return false;
         };
+        if self.containers[idx].wrapper_selected {
+            self.containers[idx].wrapper_selected = false;
+            return true;
+        }
+
         self.containers[idx].tree.select_child()
+    }
+
+    fn active_selection_layout(&self, idx: usize) -> Option<Layout> {
+        if self.containers[idx].wrapper_selected {
+            return self.containers[idx]
+                .tree
+                .root_container()
+                .map(|container| container.layout());
+        }
+
+        if self.containers[idx].tree.selected_is_container() {
+            let path = self.containers[idx].tree.selected_path();
+            return self
+                .containers[idx]
+                .tree
+                .container_info(&path)
+                .map(|(layout, _, _)| layout);
+        }
+
+        self.containers[idx].tree.focused_layout()
+    }
+
+    fn next_layout_all(current: Layout) -> Layout {
+        match current {
+            Layout::SplitH => Layout::SplitV,
+            Layout::SplitV => Layout::Stacked,
+            Layout::Stacked => Layout::Tabbed,
+            Layout::Tabbed => Layout::SplitH,
+        }
+    }
+
+    fn consume_or_expel_window(&mut self, window: Option<&W::Id>, direction: Direction) {
+        if let Some(id) = window {
+            if !self.activate_window(id) {
+                return;
+            }
+        }
+
+        let Some(idx) = self.active_container_idx() else {
+            return;
+        };
+
+        if self.containers[idx].tree.move_in_direction(direction) {
+            self.containers[idx].wrapper_selected = false;
+            self.containers[idx].tree.layout();
+            return;
+        }
+
+        if self.split_for_active_selection(idx, Layout::SplitV) {
+            self.containers[idx].tree.layout();
+        }
+    }
+
+    pub fn consume_or_expel_window_left(&mut self, window: Option<&W::Id>) {
+        self.consume_or_expel_window(window, Direction::Left);
+    }
+
+    pub fn consume_or_expel_window_right(&mut self, window: Option<&W::Id>) {
+        self.consume_or_expel_window(window, Direction::Right);
+    }
+
+    pub fn consume_into_column(&mut self) {
+        let Some(idx) = self.active_container_idx() else {
+            return;
+        };
+        if self.split_for_active_selection(idx, Layout::SplitV) {
+            self.containers[idx].tree.layout();
+        }
+    }
+
+    pub fn expel_from_column(&mut self) {
+        let Some(idx) = self.active_container_idx() else {
+            return;
+        };
+        if self.split_for_active_selection(idx, Layout::SplitH) {
+            self.containers[idx].tree.layout();
+        }
+    }
+
+    pub fn swap_window_in_direction(&mut self, direction: ScrollDirection) {
+        let Some(idx) = self.active_container_idx() else {
+            return;
+        };
+
+        let moved = match direction {
+            ScrollDirection::Left => self.containers[idx].tree.move_in_direction(Direction::Left),
+            ScrollDirection::Right => self.containers[idx].tree.move_in_direction(Direction::Right),
+            ScrollDirection::Up => self.containers[idx].tree.move_in_direction(Direction::Up),
+            ScrollDirection::Down => self.containers[idx].tree.move_in_direction(Direction::Down),
+        };
+        if moved {
+            self.containers[idx].wrapper_selected = false;
+            self.containers[idx].tree.layout();
+        }
+    }
+
+    pub fn set_column_display(&mut self, display: ColumnDisplay) {
+        let target_layout = match display {
+            ColumnDisplay::Normal => Layout::SplitV,
+            ColumnDisplay::Tabbed => Layout::Tabbed,
+        };
+
+        let Some(idx) = self.active_container_idx() else {
+            return;
+        };
+        if self.set_layout_for_active_selection(idx, target_layout) {
+            self.containers[idx].tree.layout();
+        }
+    }
+
+    pub fn toggle_column_tabbed_display(&mut self) {
+        let Some(idx) = self.active_container_idx() else {
+            return;
+        };
+        let target = match self.active_selection_layout(idx) {
+            Some(Layout::Tabbed) => Layout::SplitV,
+            _ => Layout::Tabbed,
+        };
+        if self.set_layout_for_active_selection(idx, target) {
+            self.containers[idx].tree.layout();
+        }
+    }
+
+    fn split_for_active_selection(&mut self, idx: usize, layout: Layout) -> bool {
+        if self.containers[idx].wrapper_selected {
+            if let Some(root) = self.containers[idx].tree.root_container_mut() {
+                root.set_layout_explicit(layout);
+                return true;
+            }
+
+            return self.containers[idx].tree.split_focused(layout);
+        }
+
+        if self.containers[idx].tree.selected_is_container() {
+            let path = self.containers[idx].tree.selected_path();
+            if let Some(container) = self.containers[idx].tree.container_at_path_mut(&path) {
+                container.set_layout_explicit(layout);
+                return true;
+            }
+        }
+
+        self.containers[idx].tree.split_focused(layout)
+    }
+
+    fn set_layout_for_active_selection(&mut self, idx: usize, layout: Layout) -> bool {
+        if self.containers[idx].wrapper_selected {
+            if let Some(root) = self.containers[idx].tree.root_container_mut() {
+                root.set_layout_explicit(layout);
+                return true;
+            }
+
+            return self.containers[idx].tree.set_focused_layout(layout);
+        }
+
+        if self.containers[idx].tree.selected_is_container() {
+            let path = self.containers[idx].tree.selected_path();
+            if let Some(container) = self.containers[idx].tree.container_at_path_mut(&path) {
+                container.set_layout_explicit(layout);
+                return true;
+            }
+        }
+
+        self.containers[idx].tree.set_focused_layout(layout)
+    }
+
+    fn toggle_split_for_active_selection(&mut self, idx: usize) -> bool {
+        let target_path = if self.containers[idx].wrapper_selected {
+            Some(Vec::new())
+        } else if self.containers[idx].tree.selected_is_container() {
+            Some(self.containers[idx].tree.selected_path())
+        } else {
+            None
+        };
+
+        if let Some(path) = target_path {
+            if let Some((current, _, _)) = self.containers[idx].tree.container_info(&path) {
+                let next = match current {
+                    Layout::SplitH => Layout::SplitV,
+                    Layout::SplitV => Layout::SplitH,
+                    Layout::Tabbed | Layout::Stacked => Layout::SplitH,
+                };
+                if let Some(container) = self.containers[idx].tree.container_at_path_mut(&path) {
+                    container.set_layout_explicit(next);
+                    return true;
+                }
+            }
+        }
+
+        self.containers[idx].tree.toggle_split_layout()
+    }
+
+    fn toggle_layout_all_for_active_selection(&mut self, idx: usize) -> bool {
+        let target_path = if self.containers[idx].wrapper_selected {
+            Some(Vec::new())
+        } else if self.containers[idx].tree.selected_is_container() {
+            Some(self.containers[idx].tree.selected_path())
+        } else {
+            None
+        };
+
+        if let Some(path) = target_path {
+            if let Some((current, _, _)) = self.containers[idx].tree.container_info(&path) {
+                let next = Self::next_layout_all(current);
+                if let Some(container) = self.containers[idx].tree.container_at_path_mut(&path) {
+                    container.set_layout_explicit(next);
+                    return true;
+                }
+            }
+        }
+
+        self.containers[idx].tree.toggle_layout_all()
     }
 
     pub fn split_horizontal(&mut self) {
         let Some(idx) = self.active_container_idx() else {
             return;
         };
-        if self.containers[idx].tree.split_focused(Layout::SplitH) {
+        if self.split_for_active_selection(idx, Layout::SplitH) {
             self.containers[idx].tree.layout();
         }
     }
@@ -1685,7 +1943,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let Some(idx) = self.active_container_idx() else {
             return;
         };
-        if self.containers[idx].tree.split_focused(Layout::SplitV) {
+        if self.split_for_active_selection(idx, Layout::SplitV) {
             self.containers[idx].tree.layout();
         }
     }
@@ -1694,7 +1952,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let Some(idx) = self.active_container_idx() else {
             return;
         };
-        if self.containers[idx].tree.set_focused_layout(layout) {
+        if self.set_layout_for_active_selection(idx, layout) {
             self.containers[idx].tree.layout();
         }
     }
@@ -1703,7 +1961,16 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let Some(idx) = self.active_container_idx() else {
             return;
         };
-        if self.containers[idx].tree.toggle_split_layout() {
+        if self.toggle_split_for_active_selection(idx) {
+            self.containers[idx].tree.layout();
+        }
+    }
+
+    pub fn toggle_layout_all(&mut self) {
+        let Some(idx) = self.active_container_idx() else {
+            return;
+        };
+        if self.toggle_layout_all_for_active_selection(idx) {
             self.containers[idx].tree.layout();
         }
     }
@@ -1882,6 +2149,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
         }
 
         let active = self.active_window_id.clone();
+        let selection_is_container = self
+            .active_container_idx()
+            .is_some_and(|idx| self.selected_is_container_in(idx));
         for (tile, tile_pos) in self.tiles_with_render_positions() {
             // Skip tiles entirely outside the viewport (culling)
             let tile_rect = Rectangle::new(tile_pos, tile.tile_size());
@@ -1889,7 +2159,8 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 continue;
             }
 
-            let is_focused = self.is_active && Some(tile.window().id()) == active.as_ref();
+            let is_focused =
+                self.is_active && Some(tile.window().id()) == active.as_ref() && !selection_is_container;
             let draw_focus = focus_ring && is_focused;
 
             tile.render(
@@ -1990,6 +2261,33 @@ impl<W: LayoutElement> FloatingSpace<W> {
             std::mem::swap(&mut *cache, &mut *next_cache);
         } else {
             self.tab_bar_cache.borrow_mut().clear();
+        }
+
+        if (focus_ring || self.is_active) && selection_is_container {
+            if let Some(idx) = self.active_container_idx() {
+                let path = self.selected_path_in(idx);
+                if let Some((_, local_rect, _)) =
+                    self.containers[idx].tree.container_info(&path)
+                {
+                    let rect = Rectangle::new(
+                        self.containers[idx].data.logical_pos + local_rect.loc,
+                        local_rect.size,
+                    );
+                    render_container_selection(
+                        renderer,
+                        rect,
+                        view_rect,
+                        self.scale,
+                        self.is_active,
+                        self.options.layout.focus_ring,
+                        self.options.layout.border,
+                        ContainerSelectionStyle::Floating,
+                        &mut |elem| {
+                            elements.push(FloatingSpaceRenderElement::ContainerSelection(elem))
+                        },
+                    );
+                }
+            }
         }
 
         elements
@@ -2384,6 +2682,21 @@ impl<W: LayoutElement> FloatingSpace<W> {
     #[cfg(test)]
     pub fn options(&self) -> &Rc<Options> {
         &self.options
+    }
+
+    #[cfg(test)]
+    pub fn wrapper_selected_for_window(&self, id: &W::Id) -> bool {
+        self.idx_of(id)
+            .is_some_and(|idx| self.containers[idx].wrapper_selected)
+    }
+
+    #[cfg(test)]
+    pub fn root_layout_for_window(&self, id: &W::Id) -> Option<Layout> {
+        let idx = self.idx_of(id)?;
+        self.containers[idx]
+            .tree
+            .root_container()
+            .map(|container| container.layout())
     }
 
     #[cfg(test)]

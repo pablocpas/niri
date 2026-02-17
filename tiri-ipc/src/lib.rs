@@ -488,6 +488,24 @@ pub enum Action {
     MoveWindowDownOrToWorkspaceDown {},
     /// Move the focused window up in a column or to the workspace above.
     MoveWindowUpOrToWorkspaceUp {},
+    /// Select the parent container of the focused node.
+    FocusParent {},
+    /// Select the focused child from the selected container.
+    FocusChild {},
+    /// Split the focused node horizontally.
+    SplitHorizontal {},
+    /// Split the focused node vertically.
+    SplitVertical {},
+    /// Set focused container layout to split horizontal.
+    SetLayoutSplitH {},
+    /// Set focused container layout to split vertical.
+    SetLayoutSplitV {},
+    /// Toggle focused container between split horizontal and split vertical.
+    ToggleSplitLayout {},
+    /// Set focused container layout to stacked.
+    SetLayoutStacked {},
+    /// Set focused container layout to tabbed.
+    SetLayoutTabbed {},
     /// Consume or expel a window left.
     #[cfg_attr(
         feature = "clap",
@@ -528,6 +546,8 @@ pub enum Action {
         #[cfg_attr(feature = "clap", arg())]
         display: ColumnDisplay,
     },
+    /// Cycle focused container layout: split horizontal -> split vertical -> stacked -> tabbed.
+    ToggleLayoutAll {},
     /// Center the focused column on the screen.
     CenterColumn {},
     /// Center a window on the screen.

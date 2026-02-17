@@ -26,7 +26,10 @@ use super::container::{
     LeafLayoutInfo,
 };
 use super::monitor::{InsertPosition, SplitIndicator};
-use super::focus_ring::{FocusRingEdges, FocusRingIndicatorEdge};
+use super::focus_ring::{
+    render_container_selection, ContainerSelectionStyle, FocusRingEdges, FocusRingIndicatorEdge,
+    FocusRingRenderElement,
+};
 use super::tile::{Tile, TileRenderElement};
 use super::{ConfigureIntent, InteractiveResizeData, LayoutElement, Options, RemovedTile, ResizeHit};
 use crate::animation::{Animation, Clock};
@@ -117,6 +120,7 @@ niri_render_elements! {
         Tile = TileRenderElement<R>,
         TabBar = PrimaryGpuTextureRenderElement,
         ClosingWindow = ClosingWindowRenderElement,
+        ContainerSelection = FocusRingRenderElement,
     }
 }
 
@@ -406,9 +410,29 @@ impl<W: LayoutElement> TilingSpace<W> {
             return Some(info.rect);
         }
 
-        self.tree
-            .container_info(&path)
-            .map(|(_, rect, _)| rect)
+        // For container selection visuals, prefer the on-screen leaf geometry under this
+        // container path. This stays in sync with what is currently rendered even when
+        // container cached geometry is in transition.
+        let mut bounds: Option<Rectangle<f64, Logical>> = None;
+        for info in self
+            .display_layouts()
+            .iter()
+            .filter(|info| info.path.starts_with(&path))
+        {
+            bounds = Some(match bounds {
+                Some(acc) => {
+                    let left = acc.loc.x.min(info.rect.loc.x);
+                    let top = acc.loc.y.min(info.rect.loc.y);
+                    let right = (acc.loc.x + acc.size.w).max(info.rect.loc.x + info.rect.size.w);
+                    let bottom =
+                        (acc.loc.y + acc.size.h).max(info.rect.loc.y + info.rect.size.h);
+                    Rectangle::new(Point::from((left, top)), Size::from((right - left, bottom - top)))
+                }
+                None => info.rect,
+            });
+        }
+
+        bounds.or_else(|| self.tree.container_info(&path).map(|(_, rect, _)| rect))
     }
 
     pub fn selected_is_container(&self) -> bool {
@@ -850,6 +874,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         let mut active_elements = Vec::with_capacity(8);
         let scale = Scale::from(self.scale);
         let focus_path = self.tree.focus_path();
+        let selection_is_container = self.tree.selected_is_container();
         let fullscreen_id = self.fullscreen_window.as_ref();
         let view_rect = Rectangle::from_size(self.view_size);
 
@@ -858,11 +883,42 @@ impl<W: LayoutElement> TilingSpace<W> {
             elements.push(TilingSpaceRenderElement::ClosingWindow(elem));
         }
 
+        // Render container selection before regular tiling elements so it ends up
+        // visually on top after the global reverse-order composition pass.
+        if selection_is_container && (scrolling_focus_ring || self.is_active) {
+            if let Some(rect) = self.selected_geometry() {
+                let mut selection_border = self.options.layout.border;
+                if let Some(focus_info) = self
+                    .display_layouts()
+                    .iter()
+                    .find(|info| info.path == focus_path)
+                {
+                    if let Some(tile) = self.tree.get_tile(focus_info.key) {
+                        if let Some(width) = tile.effective_border_width() {
+                            selection_border.width = width;
+                        }
+                    }
+                }
+                render_container_selection(
+                    renderer,
+                    rect,
+                    view_rect,
+                    self.scale,
+                    self.is_active,
+                    self.options.layout.focus_ring,
+                    selection_border,
+                    ContainerSelectionStyle::Tiling,
+                    &mut |elem| elements.push(TilingSpaceRenderElement::ContainerSelection(elem)),
+                );
+            }
+        }
+
         let render_layouts = self.display_layouts();
         for info in render_layouts.iter().rev() {
             // Use O(1) key lookup instead of O(depth) path lookup.
             if let Some(tile) = self.tree.get_tile(info.key) {
-                let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_tile =
+                    fullscreen_id.is_some_and(|id| id == tile.window().id());
                 let show_tile = fullscreen_id.map_or(info.visible, |_| is_fullscreen_tile);
 
                 if !show_tile {
@@ -874,11 +930,8 @@ impl<W: LayoutElement> TilingSpace<W> {
                 if is_fullscreen_tile {
                     pos = Point::from((0.0, 0.0));
                 }
-                if is_fullscreen_tile {
-                    pos = Point::from((0.0, 0.0));
-                }
 
-                let is_focused = self.is_active && info.path == focus_path;
+                let is_focused = self.is_active && info.path == focus_path && !selection_is_container;
                 let draw_focus = scrolling_focus_ring && is_focused;
                 let target_elements = if info.path == focus_path {
                     &mut active_elements
@@ -1040,6 +1093,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         };
         let workspace_view = Rectangle::from_size(self.view_size);
         let focus_path = self.tree.focus_path();
+        let selection_is_container = self.tree.selected_is_container();
         let scale = Scale::from(self.scale);
         let fullscreen_id = self.fullscreen_window.as_ref();
         let layout_rect = self.tree.layout_area();
@@ -1102,7 +1156,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
                 let show_tile = fullscreen_id.map_or(info.visible, |_| is_fullscreen_tile);
                 if show_tile {
-                    let is_focused = is_active && info.path == focus_path;
+                    let is_focused = is_active && info.path == focus_path && !selection_is_container;
                     tile.update_render_elements(
                         is_active,
                         is_focused,
@@ -1391,11 +1445,95 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn focus_parent(&mut self) -> bool {
-        self.tree.select_parent()
+        let selected = self.tree.select_parent();
+        if selected {
+            // Force immediate redraw for container-selection visuals.
+            self.tree.layout();
+        }
+        selected
     }
 
     pub fn focus_child(&mut self) -> bool {
-        self.tree.select_child()
+        let selected = self.tree.select_child();
+        if selected {
+            self.tree.layout();
+        }
+        selected
+    }
+
+    fn active_selection_layout(&self) -> Option<Layout> {
+        if self.tree.selected_is_container() {
+            let path = self.tree.selected_path();
+            return self.tree.container_info(&path).map(|(layout, _, _)| layout);
+        }
+        self.tree.focused_layout()
+    }
+
+    fn next_layout_all(current: Layout) -> Layout {
+        match current {
+            Layout::SplitH => Layout::SplitV,
+            Layout::SplitV => Layout::Stacked,
+            Layout::Stacked => Layout::Tabbed,
+            Layout::Tabbed => Layout::SplitH,
+        }
+    }
+
+    fn split_for_active_selection(&mut self, layout: Layout) -> bool {
+        if self.tree.selected_is_container() {
+            let path = self.tree.selected_path();
+            if let Some(container) = self.tree.container_at_path_mut(&path) {
+                container.set_layout_explicit(layout);
+                return true;
+            }
+        }
+
+        self.tree.split_focused(layout)
+    }
+
+    fn set_layout_for_active_selection(&mut self, layout: Layout) -> bool {
+        if self.tree.selected_is_container() {
+            let path = self.tree.selected_path();
+            if let Some(container) = self.tree.container_at_path_mut(&path) {
+                container.set_layout_explicit(layout);
+                return true;
+            }
+        }
+
+        self.tree.set_focused_layout(layout)
+    }
+
+    fn toggle_split_for_active_selection(&mut self) -> bool {
+        if self.tree.selected_is_container() {
+            let path = self.tree.selected_path();
+            if let Some((current, _, _)) = self.tree.container_info(&path) {
+                let next = match current {
+                    Layout::SplitH => Layout::SplitV,
+                    Layout::SplitV => Layout::SplitH,
+                    Layout::Tabbed | Layout::Stacked => Layout::SplitH,
+                };
+                if let Some(container) = self.tree.container_at_path_mut(&path) {
+                    container.set_layout_explicit(next);
+                    return true;
+                }
+            }
+        }
+
+        self.tree.toggle_split_layout()
+    }
+
+    fn toggle_layout_all_for_active_selection(&mut self) -> bool {
+        if self.tree.selected_is_container() {
+            let path = self.tree.selected_path();
+            if let Some((current, _, _)) = self.tree.container_info(&path) {
+                let next = Self::next_layout_all(current);
+                if let Some(container) = self.tree.container_at_path_mut(&path) {
+                    container.set_layout_explicit(next);
+                    return true;
+                }
+            }
+        }
+
+        self.tree.toggle_layout_all()
     }
 
     // Move operations using ContainerTree
@@ -1434,37 +1572,49 @@ impl<W: LayoutElement> TilingSpace<W> {
     // Container operations (replacing column operations)
     pub fn consume_into_column(&mut self) {
         // In i3 model: create vertical split
-        self.tree.split_focused(Layout::SplitV);
-        self.tree.layout();
+        if self.split_for_active_selection(Layout::SplitV) {
+            self.tree.layout();
+        }
     }
 
     pub fn expel_from_column(&mut self) {
         // In i3 model: create horizontal split
-        self.tree.split_focused(Layout::SplitH);
-        self.tree.layout();
+        if self.split_for_active_selection(Layout::SplitH) {
+            self.tree.layout();
+        }
     }
 
     /// Split focused window horizontally (i3-style)
     pub fn split_horizontal(&mut self) {
-        self.tree.split_focused(Layout::SplitH);
-        self.tree.layout();
+        if self.split_for_active_selection(Layout::SplitH) {
+            self.tree.layout();
+        }
     }
 
     /// Split focused window vertically (i3-style)
     pub fn split_vertical(&mut self) {
-        self.tree.split_focused(Layout::SplitV);
-        self.tree.layout();
+        if self.split_for_active_selection(Layout::SplitV) {
+            self.tree.layout();
+        }
     }
 
     /// Set layout mode for focused container
     pub fn set_layout_mode(&mut self, layout: Layout) {
-        self.tree.set_focused_layout(layout);
-        self.tree.layout();
+        if self.set_layout_for_active_selection(layout) {
+            self.tree.layout();
+        }
     }
 
     /// Toggle between horizontal and vertical split for the focused container.
     pub fn toggle_split_layout(&mut self) {
-        if self.tree.toggle_split_layout() {
+        if self.toggle_split_for_active_selection() {
+            self.tree.layout();
+        }
+    }
+
+    /// Cycle focused container layout in sway-style order.
+    pub fn toggle_layout_all(&mut self) {
+        if self.toggle_layout_all_for_active_selection() {
             self.tree.layout();
         }
     }
@@ -2008,20 +2158,20 @@ impl<W: LayoutElement> TilingSpace<W> {
             ColumnDisplay::Tabbed => Layout::Tabbed,
         };
 
-        if self.tree.set_focused_layout(layout) {
+        if self.set_layout_for_active_selection(layout) {
             self.tree.layout();
         }
     }
 
     /// Toggle between tabbed and normal (split) layout for focused container
     pub fn toggle_column_tabbed_display(&mut self) {
-        let current = self.tree.focused_layout();
+        let current = self.active_selection_layout();
         let target = match current {
             Some(Layout::Tabbed) => Layout::SplitV,
             _ => Layout::Tabbed,
         };
 
-        if self.tree.set_focused_layout(target) {
+        if self.set_layout_for_active_selection(target) {
             self.tree.layout();
         }
     }
@@ -2100,20 +2250,8 @@ impl<W: LayoutElement> TilingSpace<W> {
     ) {
         if let Some(index) = col_idx {
             self.tree.insert_leaf_at(index, tile, activate);
-        } else if self.tree.is_empty() {
-            self.tree.append_leaf(tile, activate);
         } else {
-            let focused_id = self
-                .tree
-                .focused_tile()
-                .map(|tile| tile.window().id().clone());
-
-            if let Some(id) = focused_id {
-                let inserted = self.tree.insert_leaf_after(&id, tile, activate);
-                assert!(inserted, "failed to insert tile after focused window");
-            } else {
-                self.tree.append_leaf(tile, activate);
-            }
+            self.tree.insert_window_with_focus(tile, activate);
         }
         self.sync_fullscreen_window();
         self.tree.layout();

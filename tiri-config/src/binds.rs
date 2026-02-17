@@ -313,6 +313,7 @@ pub enum Action {
     SetLayoutSplitH,
     SetLayoutSplitV,
     ToggleSplitLayout,
+    ToggleLayoutAll,
     SetLayoutStacked,
     SetLayoutTabbed,
     SetWindowWidth(#[knuffel(argument, str)] SizeChange),
@@ -524,6 +525,15 @@ impl From<tiri_ipc::Action> for Action {
                 Self::MoveWindowDownOrToWorkspaceDown
             }
             tiri_ipc::Action::MoveWindowUpOrToWorkspaceUp {} => Self::MoveWindowUpOrToWorkspaceUp,
+            tiri_ipc::Action::FocusParent {} => Self::FocusParent,
+            tiri_ipc::Action::FocusChild {} => Self::FocusChild,
+            tiri_ipc::Action::SplitHorizontal {} => Self::SplitHorizontal,
+            tiri_ipc::Action::SplitVertical {} => Self::SplitVertical,
+            tiri_ipc::Action::SetLayoutSplitH {} => Self::SetLayoutSplitH,
+            tiri_ipc::Action::SetLayoutSplitV {} => Self::SetLayoutSplitV,
+            tiri_ipc::Action::ToggleSplitLayout {} => Self::ToggleSplitLayout,
+            tiri_ipc::Action::SetLayoutStacked {} => Self::SetLayoutStacked,
+            tiri_ipc::Action::SetLayoutTabbed {} => Self::SetLayoutTabbed,
             tiri_ipc::Action::ConsumeOrExpelWindowLeft { id: None } => {
                 Self::ConsumeOrExpelWindowLeft
             }
@@ -542,6 +552,7 @@ impl From<tiri_ipc::Action> for Action {
             tiri_ipc::Action::SwapWindowLeft {} => Self::SwapWindowLeft,
             tiri_ipc::Action::ToggleColumnTabbedDisplay {} => Self::ToggleColumnTabbedDisplay,
             tiri_ipc::Action::SetColumnDisplay { display } => Self::SetColumnDisplay(display),
+            tiri_ipc::Action::ToggleLayoutAll {} => Self::ToggleLayoutAll,
             tiri_ipc::Action::CenterColumn {} => Self::CenterColumn,
             tiri_ipc::Action::CenterWindow { id: None } => Self::CenterWindow,
             tiri_ipc::Action::CenterWindow { id: Some(id) } => Self::CenterWindowById(id),

@@ -2,12 +2,28 @@ use std::iter::zip;
 
 use tiri_config::{CornerRadius, Gradient, GradientRelativeTo};
 use smithay::backend::renderer::element::{Element as _, Kind};
-use smithay::utils::{Logical, Point, Rectangle, Size};
+use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 
 use crate::niri_render_elements;
 use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
+use crate::utils::round_logical_in_physical_max1;
+
+/// Selects the visual style for container-selection highlight.
+///
+/// Prefer the configured focus ring when it is effectively visible; otherwise
+/// fall back to border styling, which also carries focused/active colors.
+pub fn container_selection_config(
+    focus_ring: tiri_config::FocusRing,
+    border: tiri_config::Border,
+) -> tiri_config::FocusRing {
+    if !focus_ring.off && focus_ring.width > 0.0 {
+        focus_ring
+    } else {
+        border.into()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FocusRingEdges {
@@ -75,6 +91,128 @@ pub enum FocusRingState {
     FocusedInactive,
     Unfocused,
     Urgent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainerSelectionStyle {
+    Tiling,
+    Floating,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn render_container_selection<R: NiriRenderer>(
+    renderer: &mut R,
+    mut rect: Rectangle<f64, Logical>,
+    mut clip_rect: Rectangle<f64, Logical>,
+    scale: f64,
+    is_active: bool,
+    focus_ring: tiri_config::FocusRing,
+    border: tiri_config::Border,
+    style: ContainerSelectionStyle,
+    push: &mut dyn FnMut(FocusRingRenderElement),
+) {
+    if !rect.overlaps(clip_rect) {
+        return;
+    }
+
+    let using_border_fallback = focus_ring.off || focus_ring.width <= 0.0;
+    let mut ring_config = container_selection_config(focus_ring, border);
+    ring_config.width = round_logical_in_physical_max1(scale, ring_config.width);
+    let mut ring = FocusRing::new(ring_config);
+
+    // Match tile rendering: align selection geometry to physical pixels.
+    let output_scale = Scale::from(scale);
+    rect.loc = rect.loc.to_physical_precise_round(output_scale).to_logical(output_scale);
+    rect.size = rect
+        .size
+        .to_physical_precise_round(output_scale)
+        .to_logical(output_scale);
+    clip_rect.loc = clip_rect
+        .loc
+        .to_physical_precise_round(output_scale)
+        .to_logical(output_scale);
+    clip_rect.size = clip_rect
+        .size
+        .to_physical_precise_round(output_scale)
+        .to_logical(output_scale);
+
+    let width = ring.width();
+    let style_is_tiling = style == ContainerSelectionStyle::Tiling;
+    if style_is_tiling && using_border_fallback && width > 0.0 {
+        // Match tile border semantics: occupy the existing border lane, not an
+        // extra outer lane. This makes container selection replace gray border
+        // visually in tiling.
+        let inset_x = width.min(rect.size.w / 2.0);
+        let inset_y = width.min(rect.size.h / 2.0);
+        rect.loc.x += inset_x;
+        rect.loc.y += inset_y;
+        rect.size.w = (rect.size.w - inset_x * 2.0).max(0.0);
+        rect.size.h = (rect.size.h - inset_y * 2.0).max(0.0);
+    } else if style_is_tiling && width > 0.0 {
+        // Keep the ring external by default. Optionally move clipped sides inward
+        // so the selection border stays visible even when the container touches
+        // the clip bounds.
+        let eps = 0.5;
+        let clip_right = clip_rect.loc.x + clip_rect.size.w;
+        let clip_bottom = clip_rect.loc.y + clip_rect.size.h;
+        let rect_right = rect.loc.x + rect.size.w;
+        let rect_bottom = rect.loc.y + rect.size.h;
+
+        let clipped_left = (rect.loc.x - clip_rect.loc.x).abs() <= eps;
+        let clipped_top = (rect.loc.y - clip_rect.loc.y).abs() <= eps;
+        let clipped_right = (rect_right - clip_right).abs() <= eps;
+        let clipped_bottom = (rect_bottom - clip_bottom).abs() <= eps;
+
+        if clipped_left || clipped_top || clipped_right || clipped_bottom {
+            let inset_left = if clipped_left {
+                width.min(rect.size.w / 2.0)
+            } else {
+                0.0
+            };
+            let inset_right = if clipped_right {
+                width.min(rect.size.w / 2.0)
+            } else {
+                0.0
+            };
+            let inset_top = if clipped_top {
+                width.min(rect.size.h / 2.0)
+            } else {
+                0.0
+            };
+            let inset_bottom = if clipped_bottom {
+                width.min(rect.size.h / 2.0)
+            } else {
+                0.0
+            };
+
+            rect.loc.x += inset_left;
+            rect.loc.y += inset_top;
+            rect.size.w = (rect.size.w - inset_left - inset_right).max(0.0);
+            rect.size.h = (rect.size.h - inset_top - inset_bottom).max(0.0);
+        }
+    }
+
+    if rect.size.w <= 0.0 || rect.size.h <= 0.0 {
+        return;
+    }
+
+    let ring_state = if is_active {
+        FocusRingState::Focused
+    } else {
+        FocusRingState::FocusedInactive
+    };
+    ring.update_render_elements(
+        rect.size,
+        ring_state,
+        true,
+        FocusRingEdges::all(),
+        None,
+        Rectangle::new(clip_rect.loc - rect.loc, clip_rect.size),
+        tiri_config::CornerRadius::default(),
+        scale,
+        1.0,
+    );
+    ring.render(renderer, rect.loc, &mut |elem| push(elem));
 }
 
 impl FocusRing {
@@ -389,5 +527,47 @@ impl FocusRing {
 
     pub fn config(&self) -> &tiri_config::FocusRing {
         &self.config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::container_selection_config;
+
+    #[test]
+    fn container_selection_prefers_focus_ring_when_visible() {
+        let mut focus = tiri_config::FocusRing::default();
+        focus.off = false;
+        focus.width = 3.0;
+
+        let border = tiri_config::Border::default();
+        let selected = container_selection_config(focus, border);
+        assert_eq!(selected, focus);
+    }
+
+    #[test]
+    fn container_selection_falls_back_to_border_when_focus_ring_off() {
+        let mut focus = tiri_config::FocusRing::default();
+        focus.off = true;
+        focus.width = 3.0;
+
+        let mut border = tiri_config::Border::default();
+        border.off = false;
+
+        let selected = container_selection_config(focus, border);
+        assert_eq!(selected, tiri_config::FocusRing::from(border));
+    }
+
+    #[test]
+    fn container_selection_falls_back_to_border_when_focus_ring_zero_width() {
+        let mut focus = tiri_config::FocusRing::default();
+        focus.off = false;
+        focus.width = 0.0;
+
+        let mut border = tiri_config::Border::default();
+        border.off = false;
+
+        let selected = container_selection_config(focus, border);
+        assert_eq!(selected, tiri_config::FocusRing::from(border));
     }
 }

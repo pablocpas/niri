@@ -2085,9 +2085,11 @@ impl State {
             }
             Action::FocusParent => {
                 self.niri.layout.focus_parent();
+                self.niri.queue_redraw_all();
             }
             Action::FocusChild => {
                 self.niri.layout.focus_child();
+                self.niri.queue_redraw_all();
             }
             Action::SplitHorizontal => {
                 self.niri.layout.split_horizontal();
@@ -2103,6 +2105,9 @@ impl State {
             }
             Action::ToggleSplitLayout => {
                 self.niri.layout.toggle_split_layout();
+            }
+            Action::ToggleLayoutAll => {
+                self.niri.layout.toggle_layout_all();
             }
             Action::SetLayoutStacked => {
                 self.niri.layout.set_layout_mode(ContainerLayout::Stacked);
