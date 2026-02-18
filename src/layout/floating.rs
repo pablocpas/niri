@@ -9,7 +9,7 @@ use tiri_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
 use log::warn;
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size};
+use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Serial, Size};
 
 use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
@@ -39,7 +39,7 @@ use super::tile::{TilePtrIter, TilePtrIterMut, TileWithPosIterMut};
 use crate::utils::transaction::TransactionBlocker;
 use crate::utils::{
     center_preferring_top_left_in_area, clamp_preferring_top_left_in_area,
-    ensure_min_max_size_maybe_zero, ResizeEdge,
+    ensure_min_max_size_maybe_zero, to_physical_precise_round, ResizeEdge,
 };
 use crate::window::ResolvedWindowRules;
 
@@ -544,6 +544,146 @@ impl<W: LayoutElement> FloatingSpace<W> {
             let pos = pos.to_physical_precise_round(scale).to_logical(scale);
             (tile, pos)
         })
+    }
+
+    fn tab_bar_hit(&self, pos: Point<f64, Logical>) -> Option<(&W, super::HitType)> {
+        if self.options.layout.tab_bar.off {
+            return None;
+        }
+
+        let scale = Scale::from(self.scale);
+        let cache = self.tab_bar_cache.borrow();
+        let gap = self.container_gap();
+
+        for container in &self.containers {
+            for info in container.tree.tab_bar_layouts() {
+                let mut info = info;
+                if gap > 0.0 && info.path.is_empty() {
+                    info.rect.loc.x -= gap;
+                    info.rect.loc.y -= gap;
+                    info.rect.size.w = (info.rect.size.w + gap * 2.0).max(0.0);
+                }
+
+                let inset = tab_bar_border_inset(
+                    &container.tree,
+                    &info,
+                    self.options.layout.border,
+                    self.scale,
+                );
+                if inset > 0.0 {
+                    let inset_x = inset.min(info.rect.size.w / 2.0);
+                    let inset_y = inset.min(info.rect.size.h);
+                    info.rect.loc.x += inset_x;
+                    info.rect.size.w = (info.rect.size.w - inset_x * 2.0).max(0.0);
+                    info.rect.loc.y += inset_y;
+                }
+
+                info.rect.loc += container.data.logical_pos;
+
+                let tab_count = info.tabs.len();
+                if tab_count == 0 {
+                    continue;
+                }
+
+                let bar_loc_px: Point<i32, Physical> =
+                    info.rect.loc.to_physical_precise_round(scale);
+                let pos_px: Point<i32, Physical> =
+                    pos.to_physical_precise_round(scale) - bar_loc_px;
+                let width_px = to_physical_precise_round::<i32>(self.scale, info.rect.size.w).max(1);
+                let height_px = to_physical_precise_round::<i32>(self.scale, info.rect.size.h).max(1);
+
+                if pos_px.x < 0 || pos_px.y < 0 || pos_px.x >= width_px || pos_px.y >= height_px {
+                    continue;
+                }
+
+                let row_height_px =
+                    to_physical_precise_round::<i32>(self.scale, info.row_height).max(1);
+                let focused_idx = info
+                    .tabs
+                    .iter()
+                    .position(|tab| tab.is_focused)
+                    .unwrap_or(0);
+                let key = (container.id, info.path.clone());
+
+                let tab_idx = match info.layout {
+                    Layout::Tabbed => {
+                        if pos_px.y >= row_height_px {
+                            focused_idx
+                        } else if let Some(widths) = cache.get(&key).and_then(|entry| {
+                            if entry.tab_widths_px.len() == tab_count {
+                                Some(entry.tab_widths_px.as_slice())
+                            } else {
+                                None
+                            }
+                        }) {
+                            let mut cursor = 0;
+                            let mut found = None;
+                            for (idx, width) in widths.iter().enumerate() {
+                                let end = cursor + *width;
+                                if pos_px.x < end {
+                                    found = Some(idx);
+                                    break;
+                                }
+                                cursor = end;
+                            }
+                            found.unwrap_or_else(|| tab_count.saturating_sub(1))
+                        } else {
+                            let base = width_px / tab_count as i32;
+                            let mut cursor = 0;
+                            let mut found = None;
+                            for idx in 0..tab_count {
+                                let mut width = base;
+                                if idx + 1 == tab_count {
+                                    width += width_px - base * tab_count as i32;
+                                }
+                                let end = cursor + width;
+                                if pos_px.x < end {
+                                    found = Some(idx);
+                                    break;
+                                }
+                                cursor = end;
+                            }
+                            found.unwrap_or_else(|| tab_count.saturating_sub(1))
+                        }
+                    }
+                    Layout::Stacked => {
+                        let stack_height_px = row_height_px * tab_count as i32;
+                        if pos_px.y >= stack_height_px {
+                            focused_idx
+                        } else {
+                            let max_idx = tab_count.saturating_sub(1) as i32;
+                            (pos_px.y / row_height_px).min(max_idx) as usize
+                        }
+                    }
+                    _ => continue,
+                };
+
+                if let Some(window) = container.tree.window_for_tab(&info.path, tab_idx) {
+                    return Some((
+                        window,
+                        super::HitType::Activate {
+                            is_tab_indicator: true,
+                        },
+                    ));
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn window_under(&self, pos: Point<f64, Logical>) -> Option<(&W, super::HitType)> {
+        if let Some(hit) = self.tab_bar_hit(pos) {
+            return Some(hit);
+        }
+
+        for (tile, tile_pos) in self.tiles_with_render_positions() {
+            if let Some(rv) = super::HitType::hit_tile(tile, tile_pos, pos) {
+                return Some(rv);
+            }
+        }
+
+        None
     }
 
     pub fn tiles_with_render_positions_mut(
