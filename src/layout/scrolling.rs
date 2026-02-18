@@ -1529,12 +1529,6 @@ impl<W: LayoutElement> ScrollingSpace<W> {
             self.options.animations.window_close.anim,
         );
 
-        let blocker = if self.options.disable_transactions {
-            TransactionBlocker::completed()
-        } else {
-            blocker
-        };
-
         let scale = Scale::from(self.scale);
         let res = ClosingWindow::new(
             renderer, snapshot, scale, tile_size, tile_pos, blocker, anim,
@@ -3652,10 +3646,9 @@ impl<W: LayoutElement> ScrollingSpace<W> {
             let is_tabbed = col.display_mode == ColumnDisplay::Tabbed;
             let extra_size = col.extra_size();
 
-            // If transactions are disabled, also disable combined throttling, for more intuitive
-            // behavior. In tabbed display mode, only one window is visible, so individual
-            // throttling makes more sense.
-            let individual_throttling = self.options.disable_transactions || is_tabbed;
+            // In tabbed display mode, only one window is visible, so individual throttling makes
+            // more sense.
+            let individual_throttling = is_tabbed;
 
             let intent = if self.options.disable_resize_throttling {
                 ConfigureIntent::CanSend

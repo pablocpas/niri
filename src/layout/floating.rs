@@ -13,7 +13,7 @@ use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Serial, Size};
 
 use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
-    ContainerTree, DetachedNode, Direction, InsertParentInfo, Layout, LeafLayoutInfo,
+    ContainerTree, DetachedNode, Direction, InsertParentInfo, Layout, LeafLayoutInfo, TabBarInfo,
 };
 use super::focus_ring::{
     render_container_selection, ContainerSelectionStyle, FocusRingEdges, FocusRingRenderElement,
@@ -32,8 +32,7 @@ use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::RenderTarget;
 use crate::render_helpers::texture::TextureRenderElement;
 use crate::layout::tab_bar::{
-    render_tab_bar, tab_bar_border_inset, tab_bar_state_from_info, TabBarCacheEntry,
-    TabBarRenderOutput,
+    render_tab_bar, tab_bar_state_from_info, TabBarCacheEntry, TabBarRenderOutput,
 };
 use super::tile::{TilePtrIter, TilePtrIterMut, TileWithPosIterMut};
 use crate::utils::transaction::TransactionBlocker;
@@ -260,6 +259,41 @@ fn floating_tile_iter_mut<'a, W: LayoutElement>(
 }
 
 impl<W: LayoutElement> FloatingSpace<W> {
+    fn leaf_point_hits_tab_bar(
+        tab_bar_infos: &[TabBarInfo],
+        leaf_path: &[usize],
+        pos_in_container: Point<f64, Logical>,
+        gap: f64,
+        scale: f64,
+    ) -> bool {
+        let eps = 1.0 / scale.max(1e-6);
+        tab_bar_infos.iter().any(|info| {
+            if !leaf_path.starts_with(info.path.as_slice()) {
+                return false;
+            }
+
+            let mut rect = info.rect;
+            if gap > 0.0 && info.path.is_empty() {
+                rect.loc.x -= gap;
+                rect.loc.y -= gap;
+                rect.size.w = (rect.size.w + gap * 2.0).max(0.0);
+            }
+
+            rect.loc.x -= eps;
+            rect.loc.y -= eps;
+            rect.size.w += eps * 2.0;
+            rect.size.h += eps * 2.0;
+
+            rect.contains(pos_in_container)
+        })
+    }
+
+    fn leaf_has_tab_bar_ancestor(tab_bar_infos: &[TabBarInfo], leaf_path: &[usize]) -> bool {
+        tab_bar_infos
+            .iter()
+            .any(|info| leaf_path.starts_with(info.path.as_slice()))
+    }
+
     fn external_edges_for_rect(
         container_size: Size<f64, Logical>,
         rect: Rectangle<f64, Logical>,
@@ -446,8 +480,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
         pos: Point<f64, Logical>,
     ) -> FloatingResizeResult<W::Id> {
         let scale = Scale::from(self.scale);
+        let gap = self.container_gap();
         for container in &self.containers {
             let offset = container.data.logical_pos;
+            let pos_in_container = pos - offset;
+            let tab_bar_infos = container.tree.tab_bar_layouts();
             for info in Self::display_layouts(&container.tree)
                 .iter()
                 .filter(|info| info.visible)
@@ -470,10 +507,23 @@ impl<W: LayoutElement> FloatingSpace<W> {
                     continue;
                 }
 
+                if Self::leaf_point_hits_tab_bar(
+                    &tab_bar_infos,
+                    &info.path,
+                    pos_in_container,
+                    gap,
+                    self.scale,
+                ) {
+                    return FloatingResizeResult::Blocked;
+                }
+
                 let pos_within_tile = pos - tile_pos;
                 let size = tile.tile_size();
-                let edges =
+                let mut edges =
                     resize_edges_for_point(pos_within_tile, size, tile.effective_border_width());
+                if Self::leaf_has_tab_bar_ancestor(&tab_bar_infos, &info.path) {
+                    edges.remove(ResizeEdge::TOP);
+                }
                 if edges.is_empty() {
                     return FloatingResizeResult::Blocked;
                 }
@@ -564,20 +614,6 @@ impl<W: LayoutElement> FloatingSpace<W> {
                     info.rect.size.w = (info.rect.size.w + gap * 2.0).max(0.0);
                 }
 
-                let inset = tab_bar_border_inset(
-                    &container.tree,
-                    &info,
-                    self.options.layout.border,
-                    self.scale,
-                );
-                if inset > 0.0 {
-                    let inset_x = inset.min(info.rect.size.w / 2.0);
-                    let inset_y = inset.min(info.rect.size.h);
-                    info.rect.loc.x += inset_x;
-                    info.rect.size.w = (info.rect.size.w - inset_x * 2.0).max(0.0);
-                    info.rect.loc.y += inset_y;
-                }
-
                 info.rect.loc += container.data.logical_pos;
 
                 let tab_count = info.tabs.len();
@@ -591,10 +627,19 @@ impl<W: LayoutElement> FloatingSpace<W> {
                     pos.to_physical_precise_round(scale) - bar_loc_px;
                 let width_px = to_physical_precise_round::<i32>(self.scale, info.rect.size.w).max(1);
                 let height_px = to_physical_precise_round::<i32>(self.scale, info.rect.size.h).max(1);
+                let hit_pad_px = 1;
 
-                if pos_px.x < 0 || pos_px.y < 0 || pos_px.x >= width_px || pos_px.y >= height_px {
+                if pos_px.x < -hit_pad_px
+                    || pos_px.y < -hit_pad_px
+                    || pos_px.x >= width_px + hit_pad_px
+                    || pos_px.y >= height_px + hit_pad_px
+                {
                     continue;
                 }
+                let pos_px: Point<i32, Physical> = Point::from((
+                    pos_px.x.clamp(0, width_px - 1),
+                    pos_px.y.clamp(0, height_px - 1),
+                ));
 
                 let row_height_px =
                     to_physical_precise_round::<i32>(self.scale, info.row_height).max(1);
@@ -1312,12 +1357,6 @@ impl<W: LayoutElement> FloatingSpace<W> {
             0.,
             self.options.animations.window_close.anim,
         );
-
-        let blocker = if self.options.disable_transactions {
-            TransactionBlocker::completed()
-        } else {
-            blocker
-        };
 
         let scale = Scale::from(self.scale);
         let res = ClosingWindow::new(
@@ -2308,19 +2347,6 @@ impl<W: LayoutElement> FloatingSpace<W> {
                         info.rect.loc.x -= gap;
                         info.rect.loc.y -= gap;
                         info.rect.size.w = (info.rect.size.w + gap * 2.0).max(0.0);
-                    }
-                    let inset = tab_bar_border_inset(
-                        &container.tree,
-                        &info,
-                        self.options.layout.border,
-                        self.scale,
-                    );
-                    if inset > 0.0 {
-                        let inset_x = inset.min(info.rect.size.w / 2.0);
-                        let inset_y = inset.min(info.rect.size.h);
-                        info.rect.loc.x += inset_x;
-                        info.rect.size.w = (info.rect.size.w - inset_x * 2.0).max(0.0);
-                        info.rect.loc.y += inset_y;
                     }
                     info.rect.loc += container.data.logical_pos;
                     let key = (container.id, info.path.clone());

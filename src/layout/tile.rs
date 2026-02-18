@@ -137,6 +137,8 @@ pub struct Tile<W: LayoutElement> {
     tab_bar_offset: f64,
     /// Whether this tile draws its own title bar (split layouts).
     draw_titlebar: bool,
+    /// Whether this tile is within a tabbed/stacked ancestor container.
+    in_tabbed_context: bool,
     /// Cached title bar render data.
     titlebar_cache: RefCell<Option<TitleBarCacheEntry>>,
     /// Whether this tile is on the active workspace (for titlebar styling).
@@ -340,6 +342,7 @@ impl<W: LayoutElement> Tile<W> {
             view_size,
             tab_bar_offset: 0.0,
             draw_titlebar: false,
+            in_tabbed_context: false,
             titlebar_cache: RefCell::new(None),
             render_active: false,
             scale,
@@ -405,6 +408,14 @@ impl<W: LayoutElement> Tile<W> {
 
     pub(super) fn draw_titlebar(&self) -> bool {
         self.draw_titlebar
+    }
+
+    pub(super) fn set_in_tabbed_context(&mut self, in_tabbed_context: bool) {
+        self.in_tabbed_context = in_tabbed_context;
+    }
+
+    pub(super) fn in_tabbed_context(&self) -> bool {
+        self.in_tabbed_context
     }
 
     pub fn update_shaders(&mut self) {
@@ -647,7 +658,7 @@ impl<W: LayoutElement> Tile<W> {
         let mut draw_border_with_background = rules
             .draw_border_with_background
             .unwrap_or_else(|| !self.window.has_ssd());
-        if self.tab_bar_offset > 0.0 {
+        if self.tab_bar_offset > 0.0 || self.in_tabbed_context {
             draw_border_with_background = false;
         }
         let mut draw_focus_ring_with_background = if self.border.is_off() {
@@ -655,7 +666,7 @@ impl<W: LayoutElement> Tile<W> {
         } else {
             false
         };
-        if self.tab_bar_offset > 0.0 {
+        if self.tab_bar_offset > 0.0 || self.in_tabbed_context {
             draw_focus_ring_with_background = false;
         }
         let border_is_border = !draw_border_with_background && !self.border.is_off();
@@ -1136,9 +1147,6 @@ impl<W: LayoutElement> Tile<W> {
     }
 
     fn record_pending_resize(&mut self, transaction: Option<&Transaction>) {
-        if self.options.disable_transactions {
-            return;
-        }
         let Some(transaction) = transaction else {
             return;
         };
@@ -1160,13 +1168,11 @@ impl<W: LayoutElement> Tile<W> {
     }
 
     pub fn window_size(&self) -> Size<f64, Logical> {
-        if !self.options.disable_transactions {
-            if let Some(pending) = &self.pending_resize {
-                if pending.blocker.state() == BlockerState::Pending
-                    && self.window.interactive_resize_data().is_none()
-                {
-                    return pending.size;
-                }
+        if let Some(pending) = &self.pending_resize {
+            if pending.blocker.state() == BlockerState::Pending
+                && self.window.interactive_resize_data().is_none()
+            {
+                return pending.size;
             }
         }
         if self.options.animations.off {

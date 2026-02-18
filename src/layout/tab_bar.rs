@@ -1,46 +1,17 @@
 use std::borrow::Cow;
 
 use anyhow::{bail, Context, Result};
-use tiri_config::utils::MergeWith as _;
-use tiri_config::{Border, Color, TabBar};
+use tiri_config::{Color, TabBar};
 use pangocairo::cairo::{self, ImageSurface};
 use pangocairo::pango::{self, Alignment, EllipsizeMode, FontDescription};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::reexports::gbm::Format as Fourcc;
 use smithay::utils::{Logical, Rectangle, Size, Transform};
 
-use super::container::{ContainerTree, Layout, TabBarInfo, TabBarTab};
-use super::LayoutElement;
+use super::container::{Layout, TabBarInfo, TabBarTab};
 use crate::render_helpers::texture::TextureBuffer;
 use crate::render_helpers::RenderTarget;
 use crate::utils::{round_logical_in_physical_max1, to_physical_precise_round};
-
-pub fn tab_bar_border_inset<W: LayoutElement>(
-    tree: &ContainerTree<W>,
-    info: &TabBarInfo,
-    base_border: Border,
-    scale: f64,
-) -> f64 {
-    let focused_idx = info
-        .tabs
-        .iter()
-        .position(|tab| tab.is_focused)
-        .unwrap_or(0);
-    let Some(window) = tree.window_for_tab(&info.path, focused_idx) else {
-        return 0.0;
-    };
-    if !window.sizing_mode().is_normal() {
-        return 0.0;
-    }
-
-    let mut border = base_border.merged_with(&window.rules().border);
-    border.width = round_logical_in_physical_max1(scale, border.width);
-    if border.off {
-        0.0
-    } else {
-        border.width
-    }
-}
 
 fn sanitize_title(title: &str) -> Cow<'_, str> {
     if title.chars().all(|ch| !ch.is_control()) {

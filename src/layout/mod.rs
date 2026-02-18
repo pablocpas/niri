@@ -392,7 +392,6 @@ pub struct Options {
     pub overview: tiri_config::Overview,
     // Debug flags.
     pub disable_resize_throttling: bool,
-    pub disable_transactions: bool,
     pub deactivate_unfocused_windows: bool,
 }
 
@@ -710,7 +709,6 @@ impl Options {
             gestures: config.gestures,
             overview: config.overview,
             disable_resize_throttling: config.debug.disable_resize_throttling,
-            disable_transactions: config.debug.disable_transactions,
             deactivate_unfocused_windows: config.debug.deactivate_unfocused_windows,
         }
     }
@@ -5885,7 +5883,7 @@ impl<W: LayoutElement> Layout<W> {
         blocker: TransactionBlocker,
     ) {
         let _span = tracy_client::span!("Layout::start_close_animation_for_window");
-        if self.options.animations.off && self.options.disable_transactions {
+        if self.options.animations.off {
             return;
         }
 

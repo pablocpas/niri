@@ -1710,13 +1710,10 @@ impl<W: LayoutElement> Workspace<W> {
                 // Using sway's defaults: 50% width × 75% height
                 if removed.tile.floating_window_size.is_none() {
                     let working_size = self.floating.working_area().size;
-                    let mut size = Size::from((
-                        working_size.w * 0.5,
-                        working_size.h * 0.75,
-                    ))
-                    .to_i32_floor();
+                    let mut size = Size::from((working_size.w * 0.5, working_size.h * 0.75))
+                        .to_i32_floor();
 
-                    // Apply min/max size constraints
+                    // Apply min/max size constraints.
                     let min_size = removed.tile.window().min_size();
                     let max_size = removed.tile.window().max_size();
                     size.w = ensure_min_max_size(size.w, min_size.w, max_size.w);

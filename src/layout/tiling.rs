@@ -42,8 +42,7 @@ use crate::utils::transaction::Transaction;
 use crate::utils::ResizeEdge;
 use crate::window::ResolvedWindowRules;
 use crate::layout::tab_bar::{
-    render_tab_bar, tab_bar_border_inset, tab_bar_state_from_info, TabBarCacheEntry,
-    TabBarRenderOutput,
+    render_tab_bar, tab_bar_state_from_info, TabBarCacheEntry, TabBarRenderOutput,
 };
 use super::tile::{TilePtrIter, TilePtrIterMut};
 use log::warn;
@@ -956,21 +955,6 @@ impl<W: LayoutElement> TilingSpace<W> {
             let tab_bar_config = self.effective_tab_bar_config();
             let is_active_workspace = self.is_active;
             for info in tab_bar_infos {
-                let mut info = info;
-                let inset = tab_bar_border_inset(
-                    &self.tree,
-                    &info,
-                    self.options.layout.border,
-                    self.scale,
-                );
-                if inset > 0.0 {
-                    let inset_x = inset.min(info.rect.size.w / 2.0);
-                    let inset_y = inset.min(info.rect.size.h);
-                    info.rect.loc.x += inset_x;
-                    info.rect.size.w = (info.rect.size.w - inset_x * 2.0).max(0.0);
-                    info.rect.loc.y += inset_y;
-                }
-
                 let state = tab_bar_state_from_info(
                     &info,
                     &tab_bar_config,
@@ -2425,9 +2409,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.layout();
     }
     pub fn remove_tile(&mut self, window: &W::Id, transaction: Transaction) -> RemovedTile<W> {
-        if !self.options.disable_transactions {
-            self.tree.set_pending_transaction(transaction.clone());
-        }
+        self.tree.set_pending_transaction(transaction.clone());
         let tile = self
             .tree
             .remove_window(window)
@@ -2958,12 +2940,6 @@ impl<W: LayoutElement> TilingSpace<W> {
             0.,
             self.options.animations.window_close.anim,
         );
-
-        let blocker = if self.options.disable_transactions {
-            crate::utils::transaction::TransactionBlocker::completed()
-        } else {
-            blocker
-        };
 
         let scale = Scale::from(self.scale);
         let res = ClosingWindow::new(

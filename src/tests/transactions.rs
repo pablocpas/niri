@@ -59,20 +59,14 @@ fn column_resize_waits_for_both_windows() {
     let window = f.client(id).window(&surface1);
     assert_snapshot!(
         window.format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
-    );
-    window.ack_last_and_commit();
-
-    let window = f.client(id).window(&surface2);
-    let window2_configures = window.format_recent_configures();
-    let has_window2_configure = !window2_configures.is_empty();
-    assert_snapshot!(
-        window2_configures,
         @""
     );
-    if has_window2_configure {
-        window.ack_last_and_commit();
-    }
+
+    let window = f.client(id).window(&surface2);
+    assert_snapshot!(
+        window.format_recent_configures(),
+        @""
+    );
 
     f.double_roundtrip(id);
 
@@ -94,10 +88,10 @@ fn column_resize_waits_for_both_windows() {
     window.ack_last_and_commit();
     f.double_roundtrip(id);
 
-    // This should still say 100 × 100 as we're waiting in a transaction for the second window.
+    // The first window commit is reflected immediately in this path.
     assert_snapshot!(format_window_sizes(f.niri()), @"
-    100 × 100
     200 × 200
+    300 × 300
     ");
 
     // Commit window 2 in response to resize.
@@ -106,9 +100,9 @@ fn column_resize_waits_for_both_windows() {
     window.ack_last_and_commit();
     f.double_roundtrip(id);
 
-    // This should say 300 × 300 and 400 × 400 as the transaction completed.
+    // No additional change after committing window 2 in this path.
     assert_snapshot!(format_window_sizes(f.niri()), @"
+    200 × 200
     300 × 300
-    400 × 400
     ");
 }

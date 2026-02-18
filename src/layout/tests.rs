@@ -2529,6 +2529,145 @@ fn floating_toggle_column_tabbed_display_changes_floating_layout() {
 }
 
 #[test]
+fn floating_tab_bar_hit_does_not_report_resize_edges() {
+    let mut layout = Layout::default();
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+    layout.toggle_window_floating(None);
+    layout.toggle_column_tabbed_display();
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::NextTo(&1),
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(workspace.is_floating(&1));
+        assert!(workspace.is_floating(&2));
+        assert_eq!(
+            workspace.floating().root_layout_for_window(&1),
+            Some(ContainerLayout::Tabbed)
+        );
+    }
+
+    let rect = tile_rect(&layout, 2);
+    let mut tab_pos = None;
+    for dy in 1..96 {
+        for frac in [0.2, 0.5, 0.8] {
+            let candidate = rect.loc + Point::from((rect.size.w * frac, -(dy as f64)));
+            if matches!(
+                layout.window_under(&output, candidate),
+                Some((_, HitType::Activate { is_tab_indicator: true }))
+            ) {
+                tab_pos = Some(candidate);
+                break;
+            }
+        }
+        if tab_pos.is_some() {
+            break;
+        }
+    }
+
+    let tab_pos = tab_pos.expect("expected a tab-bar hit position above floating tile");
+    assert_eq!(layout.resize_edges_under(&output, tab_pos), None);
+
+    let mut tab_pos_top = None;
+    for dy in (1..96).rev() {
+        for frac in [0.2, 0.5, 0.8] {
+            let candidate = rect.loc + Point::from((rect.size.w * frac, -(dy as f64)));
+            if matches!(
+                layout.window_under(&output, candidate),
+                Some((_, HitType::Activate { is_tab_indicator: true }))
+            ) {
+                tab_pos_top = Some(candidate);
+                break;
+            }
+        }
+        if tab_pos_top.is_some() {
+            break;
+        }
+    }
+
+    let tab_pos_top = tab_pos_top.expect("expected a top tab-bar hit position above floating tile");
+    assert_eq!(layout.resize_edges_under(&output, tab_pos_top), None);
+}
+
+#[test]
+fn floating_tab_bar_hit_does_not_fall_through_to_tiling_window() {
+    let mut layout = Layout::default();
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+    layout.toggle_window_floating(None);
+    layout.toggle_column_tabbed_display();
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(3)),
+        AddWindowTarget::NextTo(&2),
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let rect = tile_rect(&layout, 3);
+    let mut hit = None;
+    for dy in 1..96 {
+        for frac in [0.2, 0.5, 0.8] {
+            let candidate = rect.loc + Point::from((rect.size.w * frac, -(dy as f64)));
+            if let Some((win, HitType::Activate { is_tab_indicator: true })) =
+                layout.window_under(&output, candidate)
+            {
+                if *win.id() != 1 {
+                    hit = Some((candidate, *win.id()));
+                    break;
+                }
+            }
+        }
+        if hit.is_some() {
+            break;
+        }
+    }
+
+    let (candidate, id) = hit.expect("expected floating tab bar hit to capture pointer");
+    assert_ne!(id, 1, "tab bar hit must not fall through to tiling window below");
+    assert_eq!(layout.resize_edges_under(&output, candidate), None);
+}
+
+#[test]
 fn scratchpad_show_hides_focused_window() {
     let options = Options::from_config(&Config::default());
     let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
@@ -6534,6 +6673,79 @@ fn split_inside_tabbed_creates_nested_split() {
       Window 2
     "
     );
+}
+
+#[test]
+fn direct_tabbed_tiles_use_content_rect_without_tile_tab_offset() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    harness.tree.layout();
+
+    let tiles = harness.tree.all_tiles();
+    for id in [1usize, 2] {
+        let tile = tiles
+            .iter()
+            .find(|tile| tile.window().id() == &id)
+            .expect("tile should exist");
+        assert!(
+            tile.in_tabbed_context(),
+            "window {id} should be in tabbed context"
+        );
+        assert_eq!(
+            tile.tab_bar_offset(),
+            0.0,
+            "window {id} should not embed tab bar offset in tile geometry"
+        );
+    }
+}
+
+#[test]
+fn tabbed_context_propagates_to_nested_split_tiles() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    assert!(harness.tree.focus_window_by_id(&1));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(3);
+    harness.tree.layout();
+
+    let tiles = harness.tree.all_tiles();
+    for id in [1usize, 2, 3] {
+        let in_tabbed_context = tiles
+            .iter()
+            .find(|tile| tile.window().id() == &id)
+            .map(|tile| tile.in_tabbed_context());
+        assert_eq!(
+            in_tabbed_context,
+            Some(true),
+            "window {id} should inherit tabbed border context"
+        );
+    }
+}
+
+#[test]
+fn split_only_tiles_do_not_use_tabbed_context() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.add_window(3);
+    harness.tree.layout();
+
+    let tiles = harness.tree.all_tiles();
+    for id in [1usize, 2, 3] {
+        let in_tabbed_context = tiles
+            .iter()
+            .find(|tile| tile.window().id() == &id)
+            .map(|tile| tile.in_tabbed_context());
+        assert_eq!(
+            in_tabbed_context,
+            Some(false),
+            "window {id} should not use tabbed border context in split layout"
+        );
+    }
 }
 
 #[test]
