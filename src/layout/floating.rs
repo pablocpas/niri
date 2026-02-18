@@ -13,7 +13,7 @@ use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size};
 
 use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
-    ContainerTree, DetachedNode, Direction, InsertParentInfo, Layout, LeafLayoutInfo, TabBarInfo,
+    ContainerTree, DetachedNode, Direction, InsertParentInfo, Layout, LeafLayoutInfo,
 };
 use super::focus_ring::{
     render_container_selection, ContainerSelectionStyle, FocusRingEdges, FocusRingRenderElement,
@@ -32,13 +32,14 @@ use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::RenderTarget;
 use crate::render_helpers::texture::TextureRenderElement;
 use crate::layout::tab_bar::{
-    render_tab_bar, tab_bar_state_from_info, TabBarCacheEntry, TabBarRenderOutput,
+    render_tab_bar, tab_bar_border_inset, tab_bar_state_from_info, TabBarCacheEntry,
+    TabBarRenderOutput,
 };
 use super::tile::{TilePtrIter, TilePtrIterMut, TileWithPosIterMut};
 use crate::utils::transaction::TransactionBlocker;
 use crate::utils::{
     center_preferring_top_left_in_area, clamp_preferring_top_left_in_area,
-    ensure_min_max_size_maybe_zero, round_logical_in_physical_max1, ResizeEdge,
+    ensure_min_max_size_maybe_zero, ResizeEdge,
 };
 use crate::window::ResolvedWindowRules;
 
@@ -305,28 +306,6 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let mut adjusted = (**options).clone();
         adjusted.layout.gaps = gap;
         Rc::new(adjusted)
-    }
-
-    fn tab_bar_border_inset(&self, tree: &ContainerTree<W>, info: &TabBarInfo) -> f64 {
-        let focused_idx = info
-            .tabs
-            .iter()
-            .position(|tab| tab.is_focused)
-            .unwrap_or(0);
-        let Some(window) = tree.window_for_tab(&info.path, focused_idx) else {
-            return 0.0;
-        };
-        if !window.sizing_mode().is_normal() {
-            return 0.0;
-        }
-
-        let mut border = self.options.layout.border.merged_with(&window.rules().border);
-        border.width = round_logical_in_physical_max1(self.scale, border.width);
-        if border.off {
-            0.0
-        } else {
-            border.width
-        }
     }
 
     pub fn new(
@@ -2190,7 +2169,12 @@ impl<W: LayoutElement> FloatingSpace<W> {
                         info.rect.loc.y -= gap;
                         info.rect.size.w = (info.rect.size.w + gap * 2.0).max(0.0);
                     }
-                    let inset = self.tab_bar_border_inset(&container.tree, &info);
+                    let inset = tab_bar_border_inset(
+                        &container.tree,
+                        &info,
+                        self.options.layout.border,
+                        self.scale,
+                    );
                     if inset > 0.0 {
                         let inset_x = inset.min(info.rect.size.w / 2.0);
                         let inset_y = inset.min(info.rect.size.h);

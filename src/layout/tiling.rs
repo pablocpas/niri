@@ -42,7 +42,8 @@ use crate::utils::transaction::Transaction;
 use crate::utils::ResizeEdge;
 use crate::window::ResolvedWindowRules;
 use crate::layout::tab_bar::{
-    render_tab_bar, tab_bar_state_from_info, TabBarCacheEntry, TabBarRenderOutput,
+    render_tab_bar, tab_bar_border_inset, tab_bar_state_from_info, TabBarCacheEntry,
+    TabBarRenderOutput,
 };
 use super::tile::{TilePtrIter, TilePtrIterMut};
 use log::warn;
@@ -955,6 +956,21 @@ impl<W: LayoutElement> TilingSpace<W> {
             let tab_bar_config = self.effective_tab_bar_config();
             let is_active_workspace = self.is_active;
             for info in tab_bar_infos {
+                let mut info = info;
+                let inset = tab_bar_border_inset(
+                    &self.tree,
+                    &info,
+                    self.options.layout.border,
+                    self.scale,
+                );
+                if inset > 0.0 {
+                    let inset_x = inset.min(info.rect.size.w / 2.0);
+                    let inset_y = inset.min(info.rect.size.h);
+                    info.rect.loc.x += inset_x;
+                    info.rect.size.w = (info.rect.size.w - inset_x * 2.0).max(0.0);
+                    info.rect.loc.y += inset_y;
+                }
+
                 let state = tab_bar_state_from_info(
                     &info,
                     &tab_bar_config,
