@@ -2289,6 +2289,46 @@ fn mixed_tiling_floating_tabbed_stacked_focus_parent_keeps_insertion_targets() {
 }
 
 #[test]
+fn closing_tab_in_nested_tabbed_container_keeps_tabbed_parent() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(2),
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::SetLayoutTabbed,
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::CloseWindow(4),
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.is_floating(&1));
+    assert!(!workspace.is_floating(&2));
+    assert!(!workspace.is_floating(&3));
+
+    let r1 = tile_rect(&layout, 1);
+    let r2 = tile_rect(&layout, 2);
+    let r3 = tile_rect(&layout, 3);
+
+    // Window 1 stays in the split parent lane.
+    assert!((r1.loc.x - r2.loc.x).abs() > 1.0);
+
+    // Remaining windows in the nested container must keep tabbed geometry
+    // (same content rect), not be flattened into split siblings.
+    assert!((r2.loc.x - r3.loc.x).abs() <= 1.0);
+    assert!((r2.loc.y - r3.loc.y).abs() <= 1.0);
+}
+
+#[test]
 fn tiling_focus_parent_then_split_applies_to_parent_container() {
     let layout = check_ops([
         Op::AddOutput(1),
@@ -6447,7 +6487,7 @@ fn focus_descends_into_last_focused_child() {
 }
 
 #[test]
-fn flatten_same_layout_container_on_cleanup() {
+fn preserve_explicit_same_layout_container_on_cleanup() {
     let mut harness = TreeHarness::new();
     harness.add_window(1);
     harness.add_window(2);
@@ -6464,8 +6504,9 @@ fn flatten_same_layout_container_on_cleanup() {
         tree.as_str(),
         @"
     SplitV
-      Window 1
-      Window 4
+      SplitV
+        Window 1
+        Window 4
       Window 2 *
     "
     );
@@ -6516,7 +6557,7 @@ fn cleanup_preserves_single_explicit_split_for_future_inserts() {
 }
 
 #[test]
-fn squash_parallel_tabbed_container_on_cleanup() {
+fn keep_tabbed_container_on_cleanup_with_split_parent() {
     let mut harness = TreeHarness::new();
     harness.add_window(1);
     harness.add_window(2);
@@ -6528,13 +6569,13 @@ fn squash_parallel_tabbed_container_on_cleanup() {
 
     let tree = harness.tree.debug_tree();
     assert!(
-        !tree.contains("Tabbed"),
-        "parallel tabbed container should be squashed:\n{tree}"
+        tree.contains("Tabbed"),
+        "tabbed container should be preserved on cleanup:\n{tree}"
     );
 }
 
 #[test]
-fn squash_parallel_stacked_container_on_cleanup() {
+fn keep_stacked_container_on_cleanup_with_split_parent() {
     let mut harness = TreeHarness::new();
     harness.add_window(1);
     harness.add_window(2);
@@ -6547,8 +6588,8 @@ fn squash_parallel_stacked_container_on_cleanup() {
 
     let tree = harness.tree.debug_tree();
     assert!(
-        !tree.contains("Stacked"),
-        "parallel stacked container should be squashed:\n{tree}"
+        tree.contains("Stacked"),
+        "stacked container should be preserved on cleanup:\n{tree}"
     );
 }
 
@@ -7185,6 +7226,47 @@ fn move_left_swaps_single_child_container_immediately() {
       Window 2 *
       Window 1
       Window 3
+    "
+    );
+}
+
+#[test]
+fn move_out_of_explicit_parallel_split_preserves_container_for_reentry() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(3);
+    harness.add_window(4);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::SplitH));
+    assert!(harness.tree.focus_window_by_id(&4));
+
+    assert!(harness.tree.move_in_direction(Direction::Right));
+    let after_move_out = harness.tree.debug_tree();
+    assert_snapshot!(
+        after_move_out.as_str(),
+        @"
+    SplitH
+      SplitH
+        Window 1
+        Window 3
+      Window 4 *
+      Window 2
+    "
+    );
+
+    assert!(harness.tree.move_in_direction(Direction::Left));
+    let after_move_back = harness.tree.debug_tree();
+    assert_snapshot!(
+        after_move_back.as_str(),
+        @"
+    SplitH
+      SplitH
+        Window 1
+        Window 3
+        Window 4 *
+      Window 2
     "
     );
 }

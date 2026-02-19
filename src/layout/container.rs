@@ -2902,6 +2902,15 @@ impl<W: LayoutElement> ContainerTree<W> {
         )
     }
 
+    fn layouts_squashable(parent: Layout, child: Layout) -> bool {
+        // i3/sway-like squash: only collapse truly redundant split levels.
+        // Tabbed/stacked containers must keep their own node to preserve semantics.
+        matches!(
+            (parent, child),
+            (Layout::SplitH, Layout::SplitH) | (Layout::SplitV, Layout::SplitV)
+        )
+    }
+
     /// Split the focused container in a direction
     pub fn split_focused(&mut self, layout: Layout) -> bool {
         self.clear_focus_history();
@@ -4345,8 +4354,9 @@ impl<W: LayoutElement> ContainerTree<W> {
             } else if child_count == 1 && can_replace_with_child {
                 replace_with_child = container_children.first().copied();
             } else if child_count > 1
+                && !container_preserve_on_single
                 && parent_layout
-                    .map(|layout| Self::layouts_parallel(layout, container_layout))
+                    .map(|layout| Self::layouts_squashable(layout, container_layout))
                     .unwrap_or(false)
             {
                 squash_with_parent = true;
