@@ -1742,6 +1742,14 @@ fn requested_width(layout: &Layout<TestWindow>, id: usize) -> i32 {
         .expect("expected requested size")
 }
 
+fn requested_size(layout: &Layout<TestWindow>, id: usize) -> Size<i32, Logical> {
+    layout
+        .windows()
+        .find(|(_, win)| *win.id() == id)
+        .and_then(|(_, win)| win.requested_size())
+        .expect("expected requested size")
+}
+
 fn tile_rect(layout: &Layout<TestWindow>, id: usize) -> Rectangle<f64, Logical> {
     for (_, _, ws) in layout.workspaces() {
         for (tile, pos, _visible) in ws.tiles_with_render_positions() {
@@ -2177,6 +2185,107 @@ fn floating_split_after_refocus_targets_refocused_window() {
     assert!((r4.loc.y - r1.loc.y).abs() <= 1.0);
     assert!(r4.loc.y + 1.0 < r2.loc.y);
     assert!(r4.loc.y + 1.0 < r3.loc.y);
+}
+
+#[test]
+fn floating_initial_size_is_stable_across_focus_changes_and_width_resize() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddOutput(2),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+    ]);
+
+    let initial_size = requested_size(&layout, 1);
+    assert_eq!(
+        initial_size,
+        Size::from((640, 540)),
+        "first floating request should use the deterministic 50% x 75% preset"
+    );
+
+    check_ops_on_layout(&mut layout, [Op::FocusOutput(2), Op::FocusOutput(1)]);
+
+    assert_eq!(
+        requested_size(&layout, 1),
+        initial_size,
+        "output focus changes should not mutate stored initial floating size"
+    );
+
+    check_ops_on_layout(
+        &mut layout,
+        [Op::SetWindowWidth {
+            id: Some(1),
+            change: SizeChange::SetFixed(500),
+        }],
+    );
+
+    let resized = requested_size(&layout, 1);
+    assert_eq!(resized.w, 500);
+    assert_eq!(
+        resized.h, initial_size.h,
+        "explicit width resize should keep current floating height"
+    );
+}
+
+#[test]
+fn mixed_tiling_floating_tabbed_stacked_focus_parent_keeps_insertion_targets() {
+    let mut floating_params = TestWindowParams::new(4);
+    floating_params.is_floating = true;
+
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(1),
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(2),
+        Op::ToggleWindowFloating { id: Some(2) },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: floating_params,
+        },
+        Op::FocusParent,
+        Op::SetLayoutTabbed,
+        Op::SetLayoutStacked,
+        Op::SwitchFocusFloatingTiling,
+        Op::FocusWindow(1),
+        Op::FocusParent,
+        Op::AddWindow {
+            params: TestWindowParams::new(5),
+        },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&2));
+    assert!(workspace.is_floating(&4));
+    assert!(!workspace.is_floating(&1));
+    assert!(!workspace.is_floating(&3));
+    assert!(!workspace.is_floating(&5));
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&2),
+        Some(ContainerLayout::Stacked)
+    );
+
+    let r1 = tile_rect(&layout, 1);
+    let r3 = tile_rect(&layout, 3);
+    let r5 = tile_rect(&layout, 5);
+
+    // Windows 1 and 3 stay as a vertical pair in tiling.
+    assert!((r1.loc.x - r3.loc.x).abs() <= 1.0);
+    assert!((r1.loc.y - r3.loc.y).abs() > 1.0);
+
+    // Window 5 must be inserted next to the selected tiling container, not into floating.
+    assert!((r5.loc.y - r1.loc.y).abs() <= 1.0);
+    assert!((r5.loc.x - r1.loc.x).abs() > 1.0);
 }
 
 #[test]
@@ -6358,6 +6467,50 @@ fn flatten_same_layout_container_on_cleanup() {
       Window 1
       Window 4
       Window 2 *
+    "
+    );
+}
+
+#[test]
+fn cleanup_reuses_last_root_layout_after_tree_becomes_empty() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    let _ = harness.tree.remove_window(&1);
+
+    harness.add_window(2);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    Tabbed
+      Window 2 *
+    "
+    );
+}
+
+#[test]
+fn cleanup_preserves_single_explicit_split_for_future_inserts() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    harness.tree.split_focused(ContainerLayout::SplitV);
+    harness.add_window(3);
+    let _ = harness.tree.remove_window(&3);
+
+    harness.add_window(4);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      SplitV
+        Window 1
+        Window 4 *
+      Window 2
     "
     );
 }

@@ -80,6 +80,7 @@ nav:
     - Screencasting: Screencasting.md
     - Layer‐Shell Components: Layer‐Shell-Components.md
     - IPC, tiri msg: IPC.md
+    - i3/sway Parity Matrix: i3-sway-parity.md
     - Application-Specific Issues: Application-Issues.md
     - Nvidia: Nvidia.md
     - Xwayland: Xwayland.md

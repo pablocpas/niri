@@ -379,6 +379,30 @@ impl<W: LayoutElement> Workspace<W> {
         Self::new_with_config_no_outputs(None, clock, options)
     }
 
+    fn assign_default_floating_size_if_missing(
+        &self,
+        tile: &mut Tile<W>,
+        animate: bool,
+    ) -> Option<Size<i32, Logical>> {
+        if tile.floating_window_size.is_some() {
+            return None;
+        }
+
+        // Match sway-style default: 50% width x 75% height of the working area.
+        let working_size = self.floating.working_area().size;
+        let mut size = Size::from((working_size.w * 0.5, working_size.h * 0.75)).to_i32_floor();
+
+        // Respect min/max size constraints from the window.
+        let min_size = tile.window().min_size();
+        let max_size = tile.window().max_size();
+        size.w = ensure_min_max_size(size.w, min_size.w, max_size.w);
+        size.h = ensure_min_max_size(size.h, min_size.h, max_size.h);
+
+        tile.floating_window_size = Some(size);
+        tile.window_mut().request_size_once(size, animate);
+        Some(size)
+    }
+
     pub fn id(&self) -> WorkspaceId {
         self.id
     }
@@ -1706,22 +1730,7 @@ impl<W: LayoutElement> Workspace<W> {
                 // Always center floating windows when first made floating.
                 removed.tile.floating_pos = None;
 
-                // Set a default size if the window doesn't have a stored floating size.
-                // Using sway's defaults: 50% width × 75% height
-                if removed.tile.floating_window_size.is_none() {
-                    let working_size = self.floating.working_area().size;
-                    let mut size = Size::from((working_size.w * 0.5, working_size.h * 0.75))
-                        .to_i32_floor();
-
-                    // Apply min/max size constraints.
-                    let min_size = removed.tile.window().min_size();
-                    let max_size = removed.tile.window().max_size();
-                    size.w = ensure_min_max_size(size.w, min_size.w, max_size.w);
-                    size.h = ensure_min_max_size(size.h, min_size.h, max_size.h);
-
-                    removed.tile.floating_window_size = Some(size);
-                    removed.tile.window_mut().request_size_once(size, true);
-                }
+                self.assign_default_floating_size_if_missing(&mut removed.tile, true);
             }
 
             self.floating
@@ -1762,21 +1771,8 @@ impl<W: LayoutElement> Workspace<W> {
             // Always center scratchpad windows when first shown.
             tile.floating_pos = None;
 
-            if tile.floating_window_size.is_none() {
+            if let Some(size) = self.assign_default_floating_size_if_missing(&mut tile, false) {
                 let working_size = self.floating.working_area().size;
-                let mut size = Size::from((
-                    working_size.w * 0.5,
-                    working_size.h * 0.75,
-                ))
-                .to_i32_floor();
-
-                let min_size = tile.window().min_size();
-                let max_size = tile.window().max_size();
-                size.w = ensure_min_max_size(size.w, min_size.w, max_size.w);
-                size.h = ensure_min_max_size(size.h, min_size.h, max_size.h);
-
-                tile.floating_window_size = Some(size);
-
                 let size_f = Size::from((size.w as f64, size.h as f64));
                 let pos = center_preferring_top_left_in_area(self.floating.working_area(), size_f);
                 tile.floating_pos = Some(self.floating.logical_to_size_frac(pos));
@@ -1785,7 +1781,6 @@ impl<W: LayoutElement> Workspace<W> {
                 let bounds = compute_toplevel_bounds(border_config, working_size);
                 let win = tile.window_mut();
                 win.set_bounds(bounds);
-                win.request_size_once(size, false);
                 win.send_pending_configure();
                 win.refresh();
             }
