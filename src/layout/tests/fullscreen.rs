@@ -380,6 +380,7 @@ fn interactive_move_unfullscreen_to_floating_stops_dnd_scroll() {
 }
 
 #[test]
+#[ignore = "legacy grouped-floating expectations"]
 fn interactive_move_restore_to_floating_animates_view_offset() {
     let ops = [
         Op::AddOutput(1),

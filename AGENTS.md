@@ -6,7 +6,6 @@
 - `docs/`, `resources/`: documentation and static assets.
 - `tiri-visual-tests/`: visual/snapshot test helpers.
 - `config.kdl`: example config; user config typically lives at `~/.config/tiri/config.kdl`.
-- Reference docs for i3 parity and design notes live in `ROADMAP_I3_CLONE.md`, `tiling_wm_context.md`.
 
 ## Build, Test, and Development Commands
 - `cargo build`: compile the compositor and supporting crates.
