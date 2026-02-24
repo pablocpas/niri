@@ -26,6 +26,20 @@ pub struct Cli {
     /// on a TTY as your non-main compositor instance, to avoid messing up the global environment.
     #[arg(long)]
     pub session: bool,
+    /// Run with the internal headless backend.
+    ///
+    /// Intended for automated testing and parity harnesses.
+    #[arg(long)]
+    pub headless: bool,
+    /// Number of virtual outputs to create in headless mode.
+    #[arg(long, default_value_t = 1)]
+    pub headless_outputs: u8,
+    /// Width of each virtual headless output, in logical pixels.
+    #[arg(long, default_value_t = 1920)]
+    pub headless_output_width: u16,
+    /// Height of each virtual headless output, in logical pixels.
+    #[arg(long, default_value_t = 1080)]
+    pub headless_output_height: u16,
     /// Command to run upon compositor startup.
     #[arg(last = true)]
     pub command: Vec<OsString>,

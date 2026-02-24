@@ -837,8 +837,16 @@ impl State {
                 }
             }
             Action::CloseWindow => {
-                if let Some(mapped) = self.niri.layout.focus() {
-                    mapped.toplevel().send_close();
+                let ids = self.niri.layout.close_window_ids_for_active_selection();
+                for id in ids {
+                    let window = self
+                        .niri
+                        .layout
+                        .windows()
+                        .find(|(_, mapped)| crate::layout::LayoutElement::id(*mapped) == &id);
+                    if let Some((_, mapped)) = window {
+                        mapped.toplevel().send_close();
+                    }
                 }
             }
             Action::CloseWindowById(id) => {

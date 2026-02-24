@@ -866,6 +866,61 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.selected_is_container_in(idx)
     }
 
+    pub(super) fn selected_container_window_count(&self, id: Option<&W::Id>) -> usize {
+        let Some(id) = id.or(self.active_window_id.as_ref()) else {
+            return 0;
+        };
+        let Some(idx) = self.idx_of(id) else {
+            return 0;
+        };
+
+        if self.containers[idx].wrapper_selected {
+            return self.containers[idx].tree.window_ids_under_path(&[]).len();
+        }
+
+        if self.containers[idx].tree.selected_is_container() {
+            let path = self.containers[idx].tree.selected_path();
+            return self.containers[idx].tree.window_ids_under_path(&path).len();
+        }
+
+        0
+    }
+
+    pub(super) fn active_wrapper_selected(&self) -> bool {
+        let Some(idx) = self.active_container_idx() else {
+            return false;
+        };
+        self.containers[idx].wrapper_selected
+    }
+
+    pub(super) fn close_window_ids_for_active_selection(&self) -> Vec<W::Id> {
+        let Some(idx) = self.active_container_idx() else {
+            return Vec::new();
+        };
+        if self.containers[idx].wrapper_selected {
+            return self.containers[idx].tree.window_ids_under_path(&[]);
+        }
+
+        if self.containers[idx].tree.selected_is_container() {
+            let path = self.containers[idx].tree.selected_path();
+            return self.containers[idx].tree.window_ids_under_path(&path);
+        }
+
+        self.active_window_id
+            .as_ref()
+            .map(|id| vec![id.clone()])
+            .unwrap_or_default()
+    }
+
+    pub(super) fn select_wrapper_for_window(&mut self, id: &W::Id) -> bool {
+        let Some(idx) = self.idx_of(id) else {
+            return false;
+        };
+        self.containers[idx].tree.clear_selection();
+        self.containers[idx].wrapper_selected = true;
+        true
+    }
+
     pub fn add_tile(&mut self, tile: Tile<W>, activate: bool) {
         self.add_tile_at(0, tile, activate);
     }
@@ -1010,22 +1065,21 @@ impl<W: LayoutElement> FloatingSpace<W> {
         activate: bool,
     ) -> bool {
         let (win_id, _) = self.prepare_tile_for_floating(&mut tile);
-        let focus_id = self.containers[idx]
-            .tree
-            .focused_window()
-            .map(|win| win.id().clone());
-
-        if let Some(focus_id) = focus_id {
+        if self.containers[idx].wrapper_selected {
+            let insert_idx = self.containers[idx].tree.root_children_len();
             self.containers[idx]
                 .tree
-                .insert_leaf_after(&focus_id, tile, activate);
+                .insert_leaf_at(insert_idx, tile, activate);
         } else {
-            self.containers[idx].tree.append_leaf(tile, activate);
+            self.containers[idx]
+                .tree
+                .insert_window_with_focus(tile, activate);
         }
         self.containers[idx].tree.layout();
 
         if activate {
             self.activate_window(&win_id);
+            self.containers[idx].wrapper_selected = false;
         } else if self.active_window_id.is_none() {
             self.active_window_id = Some(win_id);
         }
@@ -1180,44 +1234,19 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.remove_tile_from_container(idx, id)
     }
 
-    pub(super) fn take_selected_subtree(
+    pub(super) fn take_container_subtree(
         &mut self,
         id: &W::Id,
     ) -> Option<(DetachedNode<W>, Option<InsertParentInfo>, Rectangle<f64, Logical>)> {
         let idx = self.idx_of(id)?;
-        let path = self.selected_path_in(idx);
-        let local_rect = if self.containers[idx].tree.is_leaf_at_path(&path) {
-            let info = Self::display_layouts(&self.containers[idx].tree)
-                .iter()
-                .find(|info| info.path == path)?;
-            info.rect
-        } else {
-            self.containers[idx]
-                .tree
-                .container_info(&path)
-                .map(|(_, rect, _)| rect)?
-        };
-
-        let rect = Rectangle::new(
-            self.containers[idx].data.logical_pos + local_rect.loc,
-            local_rect.size,
-        );
-
-        let origin = if path.is_empty() {
-            self.containers[idx].origin.take()
-        } else {
-            None
-        };
-
-        let subtree = {
-            let container = &mut self.containers[idx];
-            let (subtree, _origin) = container.tree.take_subtree_at_path(&path)?;
-            subtree
-        };
-
-        if self.containers[idx].tree.window_count() == 0 {
-            self.containers.remove(idx);
-        }
+        let mut container = self.containers.remove(idx);
+        let rect = Rectangle::new(container.data.logical_pos, container.data.size);
+        let origin = container.origin.take();
+        let (subtree, _insert_info) = container.tree.take_subtree_at_path(&[])?;
+        let subtree = subtree
+            .collapse_implicit_single_child_split_root()
+            .collapse_redundant_single_child_split_root()
+            .normalize_root_focus_for_tiling_restore();
 
         if let Some(active) = &self.active_window_id {
             if !self.contains(active) {
@@ -1848,21 +1877,38 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let Some(idx) = self.active_container_idx() else {
             return false;
         };
-        if self.containers[idx].wrapper_selected {
+        let container = &mut self.containers[idx];
+        if container.wrapper_selected {
             return false;
         }
 
-        if self.containers[idx].tree.select_parent() {
-            // Without a dedicated visual for "root container selected", promote root
-            // selection to wrapper selection on the same keypress.
-            let root_selected = self.containers[idx].tree.selected_is_container()
-                && self.containers[idx].tree.selected_path().is_empty();
-            self.containers[idx].wrapper_selected = root_selected;
-            return true;
-        }
+        let tree = &mut container.tree;
+        loop {
+            if !tree.select_parent() {
+                // No further parent in the container tree. Only expose wrapper selection
+                // if root is a meaningful container; otherwise let workspace fallback
+                // to tiling focus (sway behavior for redundant single-child wrappers).
+                if tree.container_is_meaningful_parent(&[]).unwrap_or(false) {
+                    container.wrapper_selected = true;
+                    return true;
+                }
+                tree.clear_selection();
+                return false;
+            }
 
-        self.containers[idx].wrapper_selected = true;
-        true
+            let path = tree.selected_path();
+            let is_meaningful = tree.container_is_meaningful_parent(&path).unwrap_or(false);
+            if is_meaningful {
+                let root_selected = path.is_empty();
+                container.wrapper_selected = root_selected;
+                return true;
+            }
+
+            if path.is_empty() {
+                tree.clear_selection();
+                return false;
+            }
+        }
     }
 
     pub fn focus_child(&mut self) -> bool {
@@ -1895,6 +1941,30 @@ impl<W: LayoutElement> FloatingSpace<W> {
         }
 
         self.containers[idx].tree.focused_layout()
+    }
+
+    pub(super) fn active_selection_layout_hint(&self) -> Option<Layout> {
+        let idx = self.active_container_idx()?;
+        self.active_selection_layout(idx)
+    }
+
+    fn has_implicit_single_leaf_root(&self, idx: usize) -> bool {
+        if self.containers[idx].wrapper_selected || self.containers[idx].tree.selected_is_container() {
+            return false;
+        }
+
+        let focus_path = self.containers[idx].tree.focus_path();
+        if focus_path.len() != 1 {
+            return false;
+        }
+
+        let Some(root) = self.containers[idx].tree.root_container() else {
+            return false;
+        };
+
+        root.child_count() == 1
+            && !root.preserve_on_single()
+            && matches!(root.layout(), Layout::SplitH | Layout::SplitV)
     }
 
     fn next_layout_all(current: Layout) -> Layout {
@@ -2037,6 +2107,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
             }
         }
 
+        // Match sway: layout commands on a standalone floating leaf are no-op.
+        if self.active_selection_layout(idx).is_none() || self.has_implicit_single_leaf_root(idx) {
+            return false;
+        }
+
         self.containers[idx].tree.set_focused_layout(layout)
     }
 
@@ -2063,6 +2138,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
             }
         }
 
+        // Match sway: layout commands on a standalone floating leaf are no-op.
+        if self.active_selection_layout(idx).is_none() || self.has_implicit_single_leaf_root(idx) {
+            return false;
+        }
+
         self.containers[idx].tree.toggle_split_layout()
     }
 
@@ -2083,6 +2163,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
                     return true;
                 }
             }
+        }
+
+        // Match sway: layout commands on a standalone floating leaf are no-op.
+        if self.active_selection_layout(idx).is_none() || self.has_implicit_single_leaf_root(idx) {
+            return false;
         }
 
         self.containers[idx].tree.toggle_layout_all()
@@ -2847,6 +2932,15 @@ impl<W: LayoutElement> FloatingSpace<W> {
             .tree
             .root_container()
             .map(|container| container.layout())
+    }
+
+    #[cfg(test)]
+    pub fn debug_tree_for_window(&self, id: &W::Id) -> Option<String>
+    where
+        W::Id: std::fmt::Display,
+    {
+        let idx = self.idx_of(id)?;
+        Some(self.containers[idx].tree.debug_tree())
     }
 
     #[cfg(test)]

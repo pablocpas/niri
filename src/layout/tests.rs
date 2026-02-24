@@ -2289,6 +2289,2374 @@ fn mixed_tiling_floating_tabbed_stacked_focus_parent_keeps_insertion_targets() {
 }
 
 #[test]
+fn floating_focus_parent_then_open_keeps_split_shape_for_toggle_back() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(2),
+        Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
+        Op::SetLayoutTabbed,
+        Op::SplitVertical,
+        Op::SplitHorizontal,
+        Op::FocusChild,
+        Op::SetLayoutSplitV,
+        Op::FocusColumnLeft,
+        Op::FocusParent,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindowUp,
+        Op::FocusWindowDown,
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::SetLayoutSplitV,
+        Op::FocusWindowUp,
+        Op::ToggleSplitLayout,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&2));
+    assert!(workspace.is_floating(&3));
+    assert!(workspace.is_floating(&4));
+
+    let tree = workspace
+        .floating()
+        .debug_tree_for_window(&2)
+        .expect("floating tree should exist");
+    assert!(
+        !tree.contains("Tabbed"),
+        "floating tree should not retain a tabbed wrapper before toggle back:\n{tree}"
+    );
+    assert!(
+        tree.contains("SplitH") && tree.contains("SplitV"),
+        "floating tree should keep nested split structure before toggle back:\n{tree}"
+    );
+}
+
+fn apply_parity_replay_op(layout: &mut Layout<TestWindow>, op: &str, next_id: &mut usize) {
+    match op {
+        "focus_left" => layout.focus_left(),
+        "focus_right" => layout.focus_right(),
+        "focus_up" => layout.focus_up(),
+        "focus_down" => layout.focus_down(),
+        "split_h" => layout.split_horizontal(),
+        "split_v" => layout.split_vertical(),
+        "layout_splith" => layout.set_layout_mode(ContainerLayout::SplitH),
+        "layout_splitv" => layout.set_layout_mode(ContainerLayout::SplitV),
+        "layout_toggle_split" => layout.toggle_split_layout(),
+        "layout_tabbed" => layout.set_layout_mode(ContainerLayout::Tabbed),
+        "layout_stacked" => layout.set_layout_mode(ContainerLayout::Stacked),
+        "focus_parent" => layout.focus_parent(),
+        "focus_child" => layout.focus_child(),
+        "toggle_floating" => layout.toggle_window_floating(None),
+        "toggle_focus_mode" => layout.switch_focus_floating_tiling(),
+        "toggle_fullscreen" => {
+            if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                layout.toggle_fullscreen(&id);
+            }
+        }
+        "close_focused" => {
+            let ids = layout.close_window_ids_for_active_selection();
+            for id in ids {
+                layout.remove_window(&id, Transaction::new());
+            }
+        }
+        "open_window" => {
+            layout.add_window(
+                TestWindow::new(TestWindowParams::new(*next_id)),
+                AddWindowTarget::Auto,
+                None,
+                None,
+                false,
+                false,
+                ActivateWindow::default(),
+            );
+            *next_id += 1;
+        }
+        _ => panic!("unsupported op in replay: {op}"),
+    }
+}
+
+fn replay_seed1_prefix(layout: &mut Layout<TestWindow>, steps: usize) {
+    let ops = include_str!("tests/parity_seed1_ops.txt");
+    let mut next_id = 5usize;
+    for op in ops.lines().take(steps) {
+        apply_parity_replay_op(layout, op, &mut next_id);
+    }
+}
+
+#[test]
+fn parity_seed1_step53_replay_includes_floating_roundtrip_shape() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    let ops = [
+        "focus_up",
+        "close_focused",
+        "focus_right",
+        "split_v",
+        "focus_up",
+        "toggle_floating",
+        "focus_child",
+        "focus_child",
+        "layout_stacked",
+        "split_h",
+        "focus_up",
+        "toggle_floating",
+        "focus_left",
+        "layout_stacked",
+        "focus_parent",
+        "open_window",
+        "focus_left",
+        "focus_child",
+        "layout_splith",
+        "split_v",
+        "open_window",
+        "focus_up",
+        "layout_toggle_split",
+        "focus_left",
+        "focus_left",
+        "focus_left",
+        "toggle_focus_mode",
+        "focus_left",
+        "layout_stacked",
+        "split_h",
+        "focus_parent",
+        "focus_left",
+        "toggle_focus_mode",
+        "split_h",
+        "focus_child",
+        "toggle_floating",
+        "toggle_fullscreen",
+        "split_v",
+        "layout_tabbed",
+        "split_v",
+        "split_h",
+        "focus_child",
+        "layout_splitv",
+        "focus_left",
+        "focus_parent",
+        "toggle_fullscreen",
+        "open_window",
+        "focus_up",
+        "focus_down",
+        "open_window",
+        "layout_splitv",
+        "focus_up",
+        "layout_toggle_split",
+        "toggle_floating",
+    ];
+
+    let mut next_id = 5usize;
+    for op in ops {
+        match op {
+            "focus_left" => layout.focus_left(),
+            "focus_right" => layout.focus_right(),
+            "focus_up" => layout.focus_up(),
+            "focus_down" => layout.focus_down(),
+            "split_h" => layout.split_horizontal(),
+            "split_v" => layout.split_vertical(),
+            "layout_splith" => layout.set_layout_mode(ContainerLayout::SplitH),
+            "layout_splitv" => layout.set_layout_mode(ContainerLayout::SplitV),
+            "layout_toggle_split" => layout.toggle_split_layout(),
+            "layout_tabbed" => layout.set_layout_mode(ContainerLayout::Tabbed),
+            "layout_stacked" => layout.set_layout_mode(ContainerLayout::Stacked),
+            "focus_parent" => layout.focus_parent(),
+            "focus_child" => layout.focus_child(),
+            "toggle_floating" => layout.toggle_window_floating(None),
+            "toggle_focus_mode" => layout.switch_focus_floating_tiling(),
+            "toggle_fullscreen" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.toggle_fullscreen(&id);
+                }
+            }
+            "close_focused" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.remove_window(&id, Transaction::new());
+                }
+            }
+            "open_window" => {
+                layout.add_window(
+                    TestWindow::new(TestWindowParams::new(next_id)),
+                    AddWindowTarget::Auto,
+                    None,
+                    None,
+                    false,
+                    false,
+                    ActivateWindow::default(),
+                );
+                next_id += 1;
+            }
+            _ => panic!("unsupported op in replay: {op}"),
+        }
+
+    }
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let raw_tree = workspace.scrolling().debug_tree();
+    let tree = raw_tree.replace(" *", "");
+    assert!(
+        !tree.contains("Tabbed"),
+        "seed replay should not keep a tabbed wrapper after floating roundtrip:\n{tree}"
+    );
+    assert!(
+        tree.contains("Stacked\n  SplitH\n    Window 2\n    SplitH\n      SplitV\n        Window 5"),
+        "expected sway-like nested split structure around step 53 replay:\n{tree}"
+    );
+    assert!(
+        raw_tree.contains("SplitV\n        Window 5 *")
+            || raw_tree.contains("SplitH\n      SplitV\n        Window 5\n      Window 7 *"),
+        "focus after toggle_floating should stay within the restored subtree:\n{raw_tree}"
+    );
+}
+
+#[test]
+fn parity_seed1_step54_toggle_floating_keeps_sway_focus_leaf() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay through step 53, then apply step 54 (`toggle_floating`).
+    replay_seed1_prefix(&mut layout, 53);
+    layout.toggle_window_floating(None);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.floating_is_active());
+    assert_eq!(workspace.scrolling().focus_path(), vec![0, 1, 0, 0]);
+}
+
+#[test]
+fn parity_seed1_step181_split_h_wraps_root_with_tabbed_parent() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay until just before scenario step 180 (`split_h`).
+    replay_seed1_prefix(&mut layout, 180);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(
+            workspace.floating_is_active(),
+            "precondition: seed1 step180 replay should still be in floating mode",
+        );
+    }
+
+    layout.split_horizontal();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        workspace.floating_is_active(),
+        "split_h at this parity point should keep floating mode active",
+    );
+
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.starts_with("Tabbed\n"),
+        "split_h around seed1 step181 should wrap tiling root in a Tabbed parent (sway parity):\n{tree}",
+    );
+
+    layout.split_vertical();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.starts_with("SplitH\n  Tabbed\n"),
+        "split_v around seed1 step182 should wrap tiling root in a SplitH parent (sway parity):\n{tree}",
+    );
+
+    layout.focus_up();
+    layout.split_vertical();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.starts_with("SplitV\n") && tree.contains("SplitH\n    Tabbed\n"),
+        "split_v around seed1 step184 should keep wrapping root chain with SplitV (sway parity):\n{tree}",
+    );
+}
+
+#[test]
+fn parity_seed1_step186_open_window_starts_tiling_while_floating_active() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay until just before scenario step 186 (`open_window`).
+    replay_seed1_prefix(&mut layout, 186);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        workspace.floating_is_active(),
+        "precondition: parity path should keep floating mode active before step 186 open",
+    );
+    assert!(
+        workspace.force_tiling_auto_open_while_floating(),
+        "precondition: parity path should force next auto-open into tiling while floating is active",
+    );
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(9999)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(
+        workspace.scrolling().tiles().count(),
+        1,
+        "step 186 open_window should create/target tiling, not append to floating",
+    );
+    assert_eq!(
+        workspace.floating().tiles().count(),
+        5,
+        "step 186 open_window should keep floating population unchanged",
+    );
+}
+
+#[test]
+fn parity_seed1_step59_open_window_joins_floating_when_tiling_not_empty() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay until just before scenario step 59 (`open_window`).
+    replay_seed1_prefix(&mut layout, 59);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tiling_before = workspace.scrolling().tiles().count();
+    let floating_before = workspace.floating().tiles().count();
+    assert!(
+        workspace.floating_is_active(),
+        "precondition: parity path keeps floating focus active before step 59 open",
+    );
+    assert!(
+        tiling_before > 0,
+        "precondition: tiling must still be non-empty at step 59 parity point",
+    );
+    assert!(
+        !workspace.force_tiling_auto_open_while_floating(),
+        "when tiling is not empty at this parity point, auto-open should not be forced to tiling",
+    );
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(9998)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(
+        workspace.scrolling().tiles().count(),
+        tiling_before,
+        "step 59 open_window should not change tiling count in this floating-grouped path",
+    );
+    assert_eq!(
+        workspace.floating().tiles().count(),
+        floating_before + 1,
+        "step 59 open_window should join floating in this parity path",
+    );
+}
+
+#[test]
+fn parity_seed1_step189_split_h_wraps_single_tiling_leaf_while_floating_active() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay until just before scenario step 189 (`split_h`).
+    replay_seed1_prefix(&mut layout, 189);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.floating_is_active());
+    assert!(workspace.force_tiling_auto_open_while_floating());
+    assert_eq!(
+        workspace.scrolling().tiles().count(),
+        1,
+        "precondition: parity path should have a single tiling leaf at this point",
+    );
+    assert_eq!(workspace.floating().tiles().count(), 5);
+
+    layout.split_horizontal();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.floating_is_active());
+    assert_eq!(workspace.scrolling().tiles().count(), 1);
+    assert_eq!(workspace.floating().tiles().count(), 5);
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.starts_with("SplitH\n  Window "),
+        "step 189 split_h should wrap the single tiling leaf into SplitH while floating stays active:\n{tree}",
+    );
+}
+
+#[test]
+fn parity_seed1_step196_toggle_floating_targets_tiling_in_force_tiling_scope() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay until just before scenario step 196 (`toggle_floating`).
+    replay_seed1_prefix(&mut layout, 196);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.floating_is_active());
+    assert!(workspace.force_tiling_auto_open_while_floating());
+    assert_eq!(
+        workspace.scrolling().tiles().count(),
+        1,
+        "precondition: parity path should keep exactly one tiling window before step 196",
+    );
+    assert_eq!(workspace.floating().tiles().count(), 5);
+
+    layout.toggle_window_floating(None);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.floating_is_active());
+    assert_eq!(
+        workspace.scrolling().tiles().count(),
+        0,
+        "step 196 toggle_floating should move the last tiling window into floating (sway parity)",
+    );
+    assert_eq!(
+        workspace.floating().tiles().count(),
+        6,
+        "step 196 toggle_floating should result in six floating windows",
+    );
+}
+
+#[test]
+fn parity_seed1_step200_open_window_recreates_tiling_after_force_scope_drain() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay until just before scenario step 200 (`open_window`).
+    replay_seed1_prefix(&mut layout, 200);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.floating_is_active());
+    assert!(
+        workspace.force_tiling_auto_open_while_floating(),
+        "precondition: force-tiling scope should remain armed after step 196 drain",
+    );
+    assert_eq!(workspace.scrolling().tiles().count(), 0);
+    assert_eq!(workspace.floating().tiles().count(), 6);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(9997)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.floating_is_active());
+    assert_eq!(
+        workspace.scrolling().tiles().count(),
+        1,
+        "step 200 open_window should recreate tiling in this force scope",
+    );
+    assert_eq!(workspace.floating().tiles().count(), 6);
+}
+
+#[test]
+fn parity_seed1_step201_toggle_focus_mode_is_noop_in_force_tiling_scope() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay until just before scenario step 201 (`toggle_focus_mode`).
+    replay_seed1_prefix(&mut layout, 201);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.floating_is_active());
+    assert!(workspace.force_tiling_auto_open_while_floating());
+    assert_eq!(workspace.scrolling().tiles().count(), 1);
+    assert_eq!(workspace.floating().tiles().count(), 6);
+
+    layout.switch_focus_floating_tiling();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        workspace.floating_is_active(),
+        "step 201 toggle_focus_mode should keep floating active in force-tiling scope (sway parity)",
+    );
+    assert!(
+        workspace.force_tiling_auto_open_while_floating(),
+        "step 201 toggle_focus_mode should keep force-tiling scope armed",
+    );
+}
+
+#[test]
+fn parity_seed1_step255_open_window_switches_focus_to_tiling_outside_force_scope() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay until just before scenario step 255 (`open_window`).
+    replay_seed1_prefix(&mut layout, 254);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(workspace.floating_is_active());
+        assert!(
+            !workspace.force_tiling_auto_open_while_floating(),
+            "precondition: step 255 path should be outside force-tiling scope",
+        );
+        assert_eq!(workspace.scrolling().tiles().count(), 0);
+        assert_eq!(workspace.floating().tiles().count(), 1);
+    }
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(9996)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        !workspace.floating_is_active(),
+        "step 255 open_window should switch focus to tiling outside force-tiling scope",
+    );
+    assert_eq!(workspace.scrolling().tiles().count(), 1);
+    assert_eq!(workspace.floating().tiles().count(), 1);
+    let tree = workspace.scrolling().debug_tree();
+    assert!(
+        !tree.contains("SplitH")
+            && !tree.contains("SplitV")
+            && !tree.contains("Tabbed")
+            && !tree.contains("Stacked"),
+        "step 255 open_window should create a plain tiling leaf:\n{tree}",
+    );
+}
+
+#[test]
+fn parity_seed1_step261_layout_toggle_split_wraps_existing_single_split_root() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay until just before scenario step 261 (`layout_toggle_split`).
+    replay_seed1_prefix(&mut layout, 260);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        let tree = workspace.scrolling().debug_tree().replace(" *", "");
+        assert!(
+            tree.starts_with("SplitH\n  Window"),
+            "precondition: step 260 should expose a single-child SplitH root:\n{tree}",
+        );
+    }
+
+    layout.toggle_split_layout();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.starts_with("SplitV\n  SplitH\n    Window"),
+        "step 261 layout_toggle_split should wrap previous single-child split root (sway parity):\n{tree}",
+    );
+}
+
+#[test]
+fn parity_seed1_step273_toggle_floating_restores_single_leaf_in_empty_tiling() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay until just before scenario step 273 (`toggle_floating`).
+    replay_seed1_prefix(&mut layout, 272);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(workspace.floating_is_active());
+        assert_eq!(workspace.scrolling().tiles().count(), 0);
+        assert_eq!(workspace.floating().tiles().count(), 1);
+    }
+
+    layout.toggle_window_floating(None);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.floating_is_active());
+    assert_eq!(workspace.scrolling().tiles().count(), 1);
+    assert_eq!(workspace.floating().tiles().count(), 0);
+
+    let tree = workspace.scrolling().debug_tree();
+    assert!(
+        !tree.contains("SplitH")
+            && !tree.contains("SplitV")
+            && !tree.contains("Tabbed")
+            && !tree.contains("Stacked"),
+        "step 273 toggle_floating should restore a plain tiling leaf (sway parity):\n{tree}",
+    );
+}
+
+#[test]
+fn parity_seed1_step283_layout_then_toggle_split_keeps_single_split_root_flat() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay until just before scenario step 283 (`layout_splith`).
+    replay_seed1_prefix(&mut layout, 283);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        let tree = workspace.scrolling().debug_tree().replace(" *", "");
+        assert!(
+            tree.starts_with("SplitH\n  Window"),
+            "precondition: step 282 should expose a single-child SplitH root:\n{tree}",
+        );
+    }
+
+    layout.set_layout_mode(ContainerLayout::SplitH);
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        let tree = workspace.scrolling().debug_tree().replace(" *", "");
+        assert!(
+            tree.starts_with("SplitH\n  Window"),
+            "step 283 layout_splith should be no-op on single-child SplitH root (sway parity):\n{tree}",
+        );
+    }
+
+    layout.toggle_split_layout();
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.starts_with("SplitV\n  Window"),
+        "step 284 layout_toggle_split should toggle root layout without nesting (sway parity):\n{tree}",
+    );
+}
+
+#[test]
+fn parity_seed1_step295_toggle_floating_drops_redundant_split_wrapper() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay until just before scenario step 295 (`toggle_floating`).
+    replay_seed1_prefix(&mut layout, 295);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(workspace.floating_is_active());
+        assert_eq!(workspace.scrolling().tiles().count(), 1);
+        assert_eq!(workspace.floating().tiles().count(), 2);
+    }
+
+    layout.toggle_window_floating(None);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        !tree.contains("SplitV\n      SplitV\n"),
+        "step 295 toggle_floating should not reintroduce redundant nested SplitV wrapper:\n{tree}",
+    );
+}
+
+#[test]
+fn parity_seed1_step296_toggle_floating_keeps_sway_focus_leaf() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    // Replay through step 295, then apply step 296 (`toggle_floating`).
+    replay_seed1_prefix(&mut layout, 295);
+    layout.toggle_window_floating(None);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.floating_is_active());
+    assert_eq!(workspace.scrolling().focus_path(), vec![1, 1]);
+}
+
+#[test]
+fn parity_seed1_focus_parent_on_single_child_floating_wrapper_keeps_floating_mode() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    let ops = [
+        "focus_up",
+        "close_focused",
+        "focus_right",
+        "split_v",
+        "focus_up",
+        "toggle_floating",
+        "focus_child",
+        "focus_child",
+        "layout_stacked",
+        "split_h",
+        "focus_up",
+        "toggle_floating",
+        "focus_left",
+        "layout_stacked",
+        "focus_parent",
+        "open_window",
+        "focus_left",
+        "focus_child",
+        "layout_splith",
+        "split_v",
+        "open_window",
+        "focus_up",
+        "layout_toggle_split",
+        "focus_left",
+        "focus_left",
+        "focus_left",
+        "toggle_focus_mode",
+        "focus_left",
+        "layout_stacked",
+        "split_h",
+        "focus_parent",
+        "focus_left",
+        "toggle_focus_mode",
+        "split_h",
+        "focus_child",
+        "toggle_floating",
+        "toggle_fullscreen",
+        "split_v",
+        "layout_tabbed",
+        "split_v",
+        "split_h",
+        "focus_child",
+        "layout_splitv",
+        "focus_left",
+        "focus_parent",
+        "toggle_fullscreen",
+        "open_window",
+        "focus_up",
+        "focus_down",
+        "open_window",
+        "layout_splitv",
+        "focus_up",
+        "layout_toggle_split",
+        "toggle_floating",
+        "focus_parent",
+        "toggle_floating",
+        "split_h",
+        "layout_splitv",
+        "layout_splith",
+        "open_window",
+        "toggle_floating",
+        "toggle_floating",
+    ];
+
+    let mut next_id = 5usize;
+    for op in ops {
+        match op {
+            "focus_left" => layout.focus_left(),
+            "focus_right" => layout.focus_right(),
+            "focus_up" => layout.focus_up(),
+            "focus_down" => layout.focus_down(),
+            "split_h" => layout.split_horizontal(),
+            "split_v" => layout.split_vertical(),
+            "layout_splith" => layout.set_layout_mode(ContainerLayout::SplitH),
+            "layout_splitv" => layout.set_layout_mode(ContainerLayout::SplitV),
+            "layout_toggle_split" => layout.toggle_split_layout(),
+            "layout_tabbed" => layout.set_layout_mode(ContainerLayout::Tabbed),
+            "layout_stacked" => layout.set_layout_mode(ContainerLayout::Stacked),
+            "focus_parent" => layout.focus_parent(),
+            "focus_child" => layout.focus_child(),
+            "toggle_floating" => layout.toggle_window_floating(None),
+            "toggle_focus_mode" => layout.switch_focus_floating_tiling(),
+            "toggle_fullscreen" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.toggle_fullscreen(&id);
+                }
+            }
+            "close_focused" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.remove_window(&id, Transaction::new());
+                }
+            }
+            "open_window" => {
+                layout.add_window(
+                    TestWindow::new(TestWindowParams::new(next_id)),
+                    AddWindowTarget::Auto,
+                    None,
+                    None,
+                    false,
+                    false,
+                    ActivateWindow::default(),
+                );
+                next_id += 1;
+            }
+            _ => panic!("unsupported op in replay: {op}"),
+        }
+    }
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let focus_id = layout.focus().map(|w| *w.id());
+    assert!(workspace.floating_is_active());
+    if let Some(id) = focus_id {
+        assert!(!workspace.floating().selected_is_container(Some(&id)));
+        assert!(!workspace.floating().wrapper_selected_for_window(&id));
+    }
+
+    layout.focus_parent();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        workspace.floating_is_active(),
+        "focus_parent on this redundant single-child floating wrapper should keep floating mode (sway parity)",
+    );
+    let focus_id = layout.focus().map(|w| *w.id()).expect("focused window");
+    assert!(!workspace.floating().selected_is_container(Some(&focus_id)));
+    assert!(!workspace.floating().wrapper_selected_for_window(&focus_id));
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(next_id)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let workspace_after_open = layout.active_workspace().expect("active workspace");
+    assert!(
+        workspace_after_open.floating_is_active(),
+        "open_window after focus_parent in this scenario should keep floating mode (sway parity)",
+    );
+    let focus_id_after_open = layout
+        .focus()
+        .map(|w| *w.id())
+        .expect("focused window after open");
+    assert_eq!(
+        focus_id_after_open, focus_id,
+        "open_window should not steal focus from active floating window in this scenario"
+    );
+}
+
+#[test]
+fn parity_seed1_step67_split_v_wraps_root_like_sway() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    let ops = [
+        "focus_up",
+        "close_focused",
+        "focus_right",
+        "split_v",
+        "focus_up",
+        "toggle_floating",
+        "focus_child",
+        "focus_child",
+        "layout_stacked",
+        "split_h",
+        "focus_up",
+        "toggle_floating",
+        "focus_left",
+        "layout_stacked",
+        "focus_parent",
+        "open_window",
+        "focus_left",
+        "focus_child",
+        "layout_splith",
+        "split_v",
+        "open_window",
+        "focus_up",
+        "layout_toggle_split",
+        "focus_left",
+        "focus_left",
+        "focus_left",
+        "toggle_focus_mode",
+        "focus_left",
+        "layout_stacked",
+        "split_h",
+        "focus_parent",
+        "focus_left",
+        "toggle_focus_mode",
+        "split_h",
+        "focus_child",
+        "toggle_floating",
+        "toggle_fullscreen",
+        "split_v",
+        "layout_tabbed",
+        "split_v",
+        "split_h",
+        "focus_child",
+        "layout_splitv",
+        "focus_left",
+        "focus_parent",
+        "toggle_fullscreen",
+        "open_window",
+        "focus_up",
+        "focus_down",
+        "open_window",
+        "layout_splitv",
+        "focus_up",
+        "layout_toggle_split",
+        "toggle_floating",
+        "focus_parent",
+        "toggle_floating",
+        "split_h",
+        "layout_splitv",
+        "layout_splith",
+        "open_window",
+        "toggle_floating",
+        "toggle_floating",
+        "focus_parent",
+        "open_window",
+        "focus_left",
+        "focus_child",
+        "split_v",
+    ];
+
+    let mut next_id = 5usize;
+    for op in ops {
+        match op {
+            "focus_left" => layout.focus_left(),
+            "focus_right" => layout.focus_right(),
+            "focus_up" => layout.focus_up(),
+            "focus_down" => layout.focus_down(),
+            "split_h" => layout.split_horizontal(),
+            "split_v" => layout.split_vertical(),
+            "layout_splith" => layout.set_layout_mode(ContainerLayout::SplitH),
+            "layout_splitv" => layout.set_layout_mode(ContainerLayout::SplitV),
+            "layout_toggle_split" => layout.toggle_split_layout(),
+            "layout_tabbed" => layout.set_layout_mode(ContainerLayout::Tabbed),
+            "layout_stacked" => layout.set_layout_mode(ContainerLayout::Stacked),
+            "focus_parent" => layout.focus_parent(),
+            "focus_child" => layout.focus_child(),
+            "toggle_floating" => layout.toggle_window_floating(None),
+            "toggle_focus_mode" => layout.switch_focus_floating_tiling(),
+            "toggle_fullscreen" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.toggle_fullscreen(&id);
+                }
+            }
+            "close_focused" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.remove_window(&id, Transaction::new());
+                }
+            }
+            "open_window" => {
+                layout.add_window(
+                    TestWindow::new(TestWindowParams::new(next_id)),
+                    AddWindowTarget::Auto,
+                    None,
+                    None,
+                    false,
+                    false,
+                    ActivateWindow::default(),
+                );
+                next_id += 1;
+            }
+            _ => panic!("unsupported op in replay: {op}"),
+        }
+    }
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.contains("SplitH\n  Stacked\n    SplitH\n      Window 2"),
+        "split_v around step 67 should wrap the root stacked tree into a SplitH parent (sway trace):\n{tree}"
+    );
+}
+
+#[test]
+fn parity_seed1_step76_toggle_floating_moves_selected_tiling_subtree_into_floating() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    let ops = [
+        "focus_up",
+        "close_focused",
+        "focus_right",
+        "split_v",
+        "focus_up",
+        "toggle_floating",
+        "focus_child",
+        "focus_child",
+        "layout_stacked",
+        "split_h",
+        "focus_up",
+        "toggle_floating",
+        "focus_left",
+        "layout_stacked",
+        "focus_parent",
+        "open_window",
+        "focus_left",
+        "focus_child",
+        "layout_splith",
+        "split_v",
+        "open_window",
+        "focus_up",
+        "layout_toggle_split",
+        "focus_left",
+        "focus_left",
+        "focus_left",
+        "toggle_focus_mode",
+        "focus_left",
+        "layout_stacked",
+        "split_h",
+        "focus_parent",
+        "focus_left",
+        "toggle_focus_mode",
+        "split_h",
+        "focus_child",
+        "toggle_floating",
+        "toggle_fullscreen",
+        "split_v",
+        "layout_tabbed",
+        "split_v",
+        "split_h",
+        "focus_child",
+        "layout_splitv",
+        "focus_left",
+        "focus_parent",
+        "toggle_fullscreen",
+        "open_window",
+        "focus_up",
+        "focus_down",
+        "open_window",
+        "layout_splitv",
+        "focus_up",
+        "layout_toggle_split",
+        "toggle_floating",
+        "focus_parent",
+        "toggle_floating",
+        "split_h",
+        "layout_splitv",
+        "layout_splith",
+        "open_window",
+        "toggle_floating",
+        "toggle_floating",
+        "focus_parent",
+        "open_window",
+        "focus_left",
+        "focus_child",
+        "split_v",
+        "focus_parent",
+        "focus_parent",
+        "focus_down",
+        "layout_tabbed",
+        "toggle_fullscreen",
+        "layout_stacked",
+        "focus_right",
+        "focus_child",
+        "toggle_floating",
+    ];
+
+    let mut next_id = 5usize;
+    for op in ops {
+        match op {
+            "focus_left" => layout.focus_left(),
+            "focus_right" => layout.focus_right(),
+            "focus_up" => layout.focus_up(),
+            "focus_down" => layout.focus_down(),
+            "split_h" => layout.split_horizontal(),
+            "split_v" => layout.split_vertical(),
+            "layout_splith" => layout.set_layout_mode(ContainerLayout::SplitH),
+            "layout_splitv" => layout.set_layout_mode(ContainerLayout::SplitV),
+            "layout_toggle_split" => layout.toggle_split_layout(),
+            "layout_tabbed" => layout.set_layout_mode(ContainerLayout::Tabbed),
+            "layout_stacked" => layout.set_layout_mode(ContainerLayout::Stacked),
+            "focus_parent" => layout.focus_parent(),
+            "focus_child" => layout.focus_child(),
+            "toggle_floating" => layout.toggle_window_floating(None),
+            "toggle_focus_mode" => layout.switch_focus_floating_tiling(),
+            "toggle_fullscreen" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.toggle_fullscreen(&id);
+                }
+            }
+            "close_focused" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.remove_window(&id, Transaction::new());
+                }
+            }
+            "open_window" => {
+                layout.add_window(
+                    TestWindow::new(TestWindowParams::new(next_id)),
+                    AddWindowTarget::Auto,
+                    None,
+                    None,
+                    false,
+                    false,
+                    ActivateWindow::default(),
+                );
+                next_id += 1;
+            }
+            _ => panic!("unsupported op in replay: {op}"),
+        }
+    }
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        workspace.floating_is_active(),
+        "toggle_floating around step 76 should keep focus mode in floating (sway parity)",
+    );
+    assert_eq!(
+        workspace.scrolling().tiles().count(),
+        0,
+        "expected selected tiling subtree to fully move to floating",
+    );
+    assert_eq!(
+        workspace.floating().tiles().count(),
+        9,
+        "expected all windows in floating after sway-like toggle_floating behavior",
+    );
+}
+
+#[test]
+fn parity_seed1_step82_toggle_floating_is_noop_on_selected_floating_container() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    let ops = [
+        "focus_up",
+        "close_focused",
+        "focus_right",
+        "split_v",
+        "focus_up",
+        "toggle_floating",
+        "focus_child",
+        "focus_child",
+        "layout_stacked",
+        "split_h",
+        "focus_up",
+        "toggle_floating",
+        "focus_left",
+        "layout_stacked",
+        "focus_parent",
+        "open_window",
+        "focus_left",
+        "focus_child",
+        "layout_splith",
+        "split_v",
+        "open_window",
+        "focus_up",
+        "layout_toggle_split",
+        "focus_left",
+        "focus_left",
+        "focus_left",
+        "toggle_focus_mode",
+        "focus_left",
+        "layout_stacked",
+        "split_h",
+        "focus_parent",
+        "focus_left",
+        "toggle_focus_mode",
+        "split_h",
+        "focus_child",
+        "toggle_floating",
+        "toggle_fullscreen",
+        "split_v",
+        "layout_tabbed",
+        "split_v",
+        "split_h",
+        "focus_child",
+        "layout_splitv",
+        "focus_left",
+        "focus_parent",
+        "toggle_fullscreen",
+        "open_window",
+        "focus_up",
+        "focus_down",
+        "open_window",
+        "layout_splitv",
+        "focus_up",
+        "layout_toggle_split",
+        "toggle_floating",
+        "focus_parent",
+        "toggle_floating",
+        "split_h",
+        "layout_splitv",
+        "layout_splith",
+        "open_window",
+        "toggle_floating",
+        "toggle_floating",
+        "focus_parent",
+        "open_window",
+        "focus_left",
+        "focus_child",
+        "split_v",
+        "focus_parent",
+        "focus_parent",
+        "focus_down",
+        "layout_tabbed",
+        "toggle_fullscreen",
+        "layout_stacked",
+        "focus_right",
+        "focus_child",
+        "toggle_floating",
+        "focus_up",
+        "focus_down",
+        "toggle_focus_mode",
+        "focus_parent",
+        "layout_stacked",
+    ];
+
+    let mut next_id = 5usize;
+    for op in ops {
+        match op {
+            "focus_left" => layout.focus_left(),
+            "focus_right" => layout.focus_right(),
+            "focus_up" => layout.focus_up(),
+            "focus_down" => layout.focus_down(),
+            "split_h" => layout.split_horizontal(),
+            "split_v" => layout.split_vertical(),
+            "layout_splith" => layout.set_layout_mode(ContainerLayout::SplitH),
+            "layout_splitv" => layout.set_layout_mode(ContainerLayout::SplitV),
+            "layout_toggle_split" => layout.toggle_split_layout(),
+            "layout_tabbed" => layout.set_layout_mode(ContainerLayout::Tabbed),
+            "layout_stacked" => layout.set_layout_mode(ContainerLayout::Stacked),
+            "focus_parent" => layout.focus_parent(),
+            "focus_child" => layout.focus_child(),
+            "toggle_floating" => layout.toggle_window_floating(None),
+            "toggle_focus_mode" => layout.switch_focus_floating_tiling(),
+            "toggle_fullscreen" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.toggle_fullscreen(&id);
+                }
+            }
+            "close_focused" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.remove_window(&id, Transaction::new());
+                }
+            }
+            "open_window" => {
+                layout.add_window(
+                    TestWindow::new(TestWindowParams::new(next_id)),
+                    AddWindowTarget::Auto,
+                    None,
+                    None,
+                    false,
+                    false,
+                    ActivateWindow::default(),
+                );
+                next_id += 1;
+            }
+            _ => panic!("unsupported op in replay: {op}"),
+        }
+    }
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(workspace.floating_is_active());
+        assert_eq!(workspace.scrolling().tiles().count(), 0);
+        assert_eq!(workspace.floating().tiles().count(), 9);
+    }
+
+    layout.toggle_window_floating(None);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        workspace.floating_is_active(),
+        "toggle_floating at step 82 should be a no-op on floating container selection (sway parity)",
+    );
+    assert_eq!(
+        workspace.scrolling().tiles().count(),
+        0,
+        "toggle_floating should not move floating-selected subtree into tiling here",
+    );
+    assert_eq!(
+        workspace.floating().tiles().count(),
+        9,
+        "floating window count should remain unchanged at step 82 parity point",
+    );
+}
+
+#[test]
+fn parity_seed1_step87_open_window_starts_tiling_when_floating_selection_is_leaf() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    let ops = [
+        "focus_up",
+        "close_focused",
+        "focus_right",
+        "split_v",
+        "focus_up",
+        "toggle_floating",
+        "focus_child",
+        "focus_child",
+        "layout_stacked",
+        "split_h",
+        "focus_up",
+        "toggle_floating",
+        "focus_left",
+        "layout_stacked",
+        "focus_parent",
+        "open_window",
+        "focus_left",
+        "focus_child",
+        "layout_splith",
+        "split_v",
+        "open_window",
+        "focus_up",
+        "layout_toggle_split",
+        "focus_left",
+        "focus_left",
+        "focus_left",
+        "toggle_focus_mode",
+        "focus_left",
+        "layout_stacked",
+        "split_h",
+        "focus_parent",
+        "focus_left",
+        "toggle_focus_mode",
+        "split_h",
+        "focus_child",
+        "toggle_floating",
+        "toggle_fullscreen",
+        "split_v",
+        "layout_tabbed",
+        "split_v",
+        "split_h",
+        "focus_child",
+        "layout_splitv",
+        "focus_left",
+        "focus_parent",
+        "toggle_fullscreen",
+        "open_window",
+        "focus_up",
+        "focus_down",
+        "open_window",
+        "layout_splitv",
+        "focus_up",
+        "layout_toggle_split",
+        "toggle_floating",
+        "focus_parent",
+        "toggle_floating",
+        "split_h",
+        "layout_splitv",
+        "layout_splith",
+        "open_window",
+        "toggle_floating",
+        "toggle_floating",
+        "focus_parent",
+        "open_window",
+        "focus_left",
+        "focus_child",
+        "split_v",
+        "focus_parent",
+        "focus_parent",
+        "focus_down",
+        "layout_tabbed",
+        "toggle_fullscreen",
+        "layout_stacked",
+        "focus_right",
+        "focus_child",
+        "toggle_floating",
+        "focus_up",
+        "focus_down",
+        "toggle_focus_mode",
+        "focus_parent",
+        "layout_stacked",
+        "toggle_floating",
+        "focus_left",
+        "focus_child",
+        "focus_left",
+        "layout_splitv",
+    ];
+
+    let mut next_id = 5usize;
+    for op in ops {
+        match op {
+            "focus_left" => layout.focus_left(),
+            "focus_right" => layout.focus_right(),
+            "focus_up" => layout.focus_up(),
+            "focus_down" => layout.focus_down(),
+            "split_h" => layout.split_horizontal(),
+            "split_v" => layout.split_vertical(),
+            "layout_splith" => layout.set_layout_mode(ContainerLayout::SplitH),
+            "layout_splitv" => layout.set_layout_mode(ContainerLayout::SplitV),
+            "layout_toggle_split" => layout.toggle_split_layout(),
+            "layout_tabbed" => layout.set_layout_mode(ContainerLayout::Tabbed),
+            "layout_stacked" => layout.set_layout_mode(ContainerLayout::Stacked),
+            "focus_parent" => layout.focus_parent(),
+            "focus_child" => layout.focus_child(),
+            "toggle_floating" => layout.toggle_window_floating(None),
+            "toggle_focus_mode" => layout.switch_focus_floating_tiling(),
+            "toggle_fullscreen" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.toggle_fullscreen(&id);
+                }
+            }
+            "close_focused" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.remove_window(&id, Transaction::new());
+                }
+            }
+            "open_window" => {
+                layout.add_window(
+                    TestWindow::new(TestWindowParams::new(next_id)),
+                    AddWindowTarget::Auto,
+                    None,
+                    None,
+                    false,
+                    false,
+                    ActivateWindow::default(),
+                );
+                next_id += 1;
+            }
+            _ => panic!("unsupported op in replay: {op}"),
+        }
+    }
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(workspace.floating_is_active());
+        assert_eq!(workspace.scrolling().tiles().count(), 0);
+        assert_eq!(workspace.floating().tiles().count(), 9);
+    }
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(next_id)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        workspace.floating_is_active(),
+        "open_window at step 87 should keep floating mode active (no focus steal)",
+    );
+    assert_eq!(
+        workspace.scrolling().tiles().count(),
+        1,
+        "open_window should start/reuse tiling, not join floating container at this parity point",
+    );
+    assert_eq!(
+        workspace.floating().tiles().count(),
+        9,
+        "floating window count should remain unchanged at step 87 parity point",
+    );
+    let tree = workspace.scrolling().debug_tree();
+    assert!(
+        !tree.contains("SplitH") && !tree.contains("SplitV"),
+        "first tiling window after this parity path should be a leaf, not wrapped in split container:\n{tree}",
+    );
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(next_id + 1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.contains("SplitV") && !tree.contains("SplitH"),
+        "second tiling open in this parity path should split vertically (sway):\n{tree}",
+    );
+}
+
+#[test]
+fn parity_seed1_step89_close_focused_on_floating_wrapper_closes_workspace() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+        ],
+    );
+
+    let ops = [
+        "focus_up",
+        "close_focused",
+        "focus_right",
+        "split_v",
+        "focus_up",
+        "toggle_floating",
+        "focus_child",
+        "focus_child",
+        "layout_stacked",
+        "split_h",
+        "focus_up",
+        "toggle_floating",
+        "focus_left",
+        "layout_stacked",
+        "focus_parent",
+        "open_window",
+        "focus_left",
+        "focus_child",
+        "layout_splith",
+        "split_v",
+        "open_window",
+        "focus_up",
+        "layout_toggle_split",
+        "focus_left",
+        "focus_left",
+        "focus_left",
+        "toggle_focus_mode",
+        "focus_left",
+        "layout_stacked",
+        "split_h",
+        "focus_parent",
+        "focus_left",
+        "toggle_focus_mode",
+        "split_h",
+        "focus_child",
+        "toggle_floating",
+        "toggle_fullscreen",
+        "split_v",
+        "layout_tabbed",
+        "split_v",
+        "split_h",
+        "focus_child",
+        "layout_splitv",
+        "focus_left",
+        "focus_parent",
+        "toggle_fullscreen",
+        "open_window",
+        "focus_up",
+        "focus_down",
+        "open_window",
+        "layout_splitv",
+        "focus_up",
+        "layout_toggle_split",
+        "toggle_floating",
+        "focus_parent",
+        "toggle_floating",
+        "split_h",
+        "layout_splitv",
+        "layout_splith",
+        "open_window",
+        "toggle_floating",
+        "toggle_floating",
+        "focus_parent",
+        "open_window",
+        "focus_left",
+        "focus_child",
+        "split_v",
+        "focus_parent",
+        "focus_parent",
+        "focus_down",
+        "layout_tabbed",
+        "toggle_fullscreen",
+        "layout_stacked",
+        "focus_right",
+        "focus_child",
+        "toggle_floating",
+        "focus_up",
+        "focus_down",
+        "toggle_focus_mode",
+        "focus_parent",
+        "layout_stacked",
+        "toggle_floating",
+        "focus_left",
+        "focus_child",
+        "focus_left",
+        "layout_splitv",
+    ];
+
+    let mut next_id = 5usize;
+    for op in ops {
+        match op {
+            "focus_left" => layout.focus_left(),
+            "focus_right" => layout.focus_right(),
+            "focus_up" => layout.focus_up(),
+            "focus_down" => layout.focus_down(),
+            "split_h" => layout.split_horizontal(),
+            "split_v" => layout.split_vertical(),
+            "layout_splith" => layout.set_layout_mode(ContainerLayout::SplitH),
+            "layout_splitv" => layout.set_layout_mode(ContainerLayout::SplitV),
+            "layout_toggle_split" => layout.toggle_split_layout(),
+            "layout_tabbed" => layout.set_layout_mode(ContainerLayout::Tabbed),
+            "layout_stacked" => layout.set_layout_mode(ContainerLayout::Stacked),
+            "focus_parent" => layout.focus_parent(),
+            "focus_child" => layout.focus_child(),
+            "toggle_floating" => layout.toggle_window_floating(None),
+            "toggle_focus_mode" => layout.switch_focus_floating_tiling(),
+            "toggle_fullscreen" => {
+                if let Some(id) = layout.focus().map(|win| win.id().clone()) {
+                    layout.toggle_fullscreen(&id);
+                }
+            }
+            "close_focused" => {
+                let ids = layout.close_window_ids_for_active_selection();
+                for id in ids {
+                    layout.remove_window(&id, Transaction::new());
+                }
+            }
+            "open_window" => {
+                layout.add_window(
+                    TestWindow::new(TestWindowParams::new(next_id)),
+                    AddWindowTarget::Auto,
+                    None,
+                    None,
+                    false,
+                    false,
+                    ActivateWindow::default(),
+                );
+                next_id += 1;
+            }
+            _ => panic!("unsupported op in replay: {op}"),
+        }
+    }
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(workspace.floating_is_active());
+        assert_eq!(workspace.scrolling().tiles().count(), 0);
+        assert_eq!(workspace.floating().tiles().count(), 9);
+    }
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(next_id)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(next_id + 1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(workspace.floating_is_active());
+        assert_eq!(workspace.scrolling().tiles().count(), 2);
+        assert_eq!(workspace.floating().tiles().count(), 9);
+    }
+
+    let ids = layout.close_window_ids_for_active_selection();
+    for id in ids {
+        layout.remove_window(&id, Transaction::new());
+    }
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(workspace.scrolling().tiles().count(), 0);
+    assert_eq!(workspace.floating().tiles().count(), 0);
+    assert!(layout.focus().is_none());
+}
+
+#[test]
+fn floating_toggle_single_selected_container_moves_to_tiling() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
+        Op::FocusParent,
+    ]);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(workspace.floating_is_active());
+        let focus_id = layout.focus().map(|window| *window.id()).expect("focused window");
+        assert!(
+            workspace.floating().selected_is_container(Some(&focus_id)),
+            "test precondition: expected floating container selection before toggle"
+        );
+    }
+
+    layout.toggle_window_floating(None);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        !workspace.floating_is_active(),
+        "toggle_floating on a single-window floating container selection should switch to tiling"
+    );
+    assert_eq!(workspace.floating().tiles().count(), 0);
+    assert_eq!(workspace.scrolling().tiles().count(), 1);
+}
+
+#[test]
+fn floating_single_window_roundtrip_does_not_reintroduce_implicit_split_wrapper() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+    ]);
+
+    // Defer a split hint on single tiling leaf, then roundtrip through floating.
+    layout.split_horizontal();
+    layout.toggle_window_floating(None);
+    layout.focus_up();
+    layout.set_layout_mode(ContainerLayout::Stacked);
+    layout.set_layout_mode(ContainerLayout::SplitV);
+    layout.toggle_window_floating(None);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(!workspace.floating_is_active());
+        assert_eq!(workspace.floating().tiles().count(), 0);
+        assert_eq!(workspace.scrolling().tiles().count(), 1);
+        let tree = workspace.scrolling().debug_tree();
+        assert!(
+            !tree.contains("SplitH")
+                && !tree.contains("SplitV")
+                && !tree.contains("Tabbed")
+                && !tree.contains("Stacked"),
+            "floating->tiling roundtrip for a single implicit container should restore a leaf root:\n{tree}",
+        );
+    }
+
+    // Toggling back to floating should now match sway semantics (no hidden split wrapper in tiling).
+    layout.toggle_window_floating(None);
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.floating_is_active());
+    assert_eq!(workspace.floating().tiles().count(), 1);
+    assert_eq!(workspace.scrolling().tiles().count(), 0);
+}
+
+#[test]
+fn empty_workspace_layout_commands_do_not_wrap_next_open() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::CloseWindow(1),
+    ]);
+
+    layout.set_layout_mode(ContainerLayout::Tabbed);
+    layout.focus_child();
+    layout.set_layout_mode(ContainerLayout::SplitH);
+    layout.toggle_fullscreen(&99999);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(workspace.floating().tiles().count(), 0);
+    assert_eq!(workspace.scrolling().tiles().count(), 1);
+    let tree = workspace.scrolling().debug_tree();
+    assert!(
+        !tree.contains("SplitH")
+            && !tree.contains("SplitV")
+            && !tree.contains("Tabbed")
+            && !tree.contains("Stacked"),
+        "open_window after empty-workspace layout commands should create a leaf root:\n{tree}",
+    );
+}
+
+#[test]
+fn empty_workspace_layout_applies_on_second_open() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [Op::AddOutput(1)],
+    );
+
+    layout.set_layout_mode(ContainerLayout::Tabbed);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        let tree = workspace.scrolling().debug_tree();
+        assert!(
+            !tree.contains("Tabbed"),
+            "first open on empty workspace must still be a leaf root:\n{tree}",
+        );
+    }
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.contains("Tabbed"),
+        "second open should apply pending empty-workspace layout:\n{tree}",
+    );
+}
+
+#[test]
+fn single_leaf_layout_command_defers_wrap_until_next_split() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+        ],
+    );
+
+    layout.set_layout_mode(ContainerLayout::SplitV);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        let tree = workspace.scrolling().debug_tree();
+        assert!(
+            !tree.contains("SplitV"),
+            "layout_splitv on a single tiling leaf should not wrap immediately:\n{tree}",
+        );
+    }
+
+    layout.split_horizontal();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.starts_with("SplitV\n  Window 1"),
+        "next split command should consume pending layout and wrap with SplitV:\n{tree}",
+    );
+}
+
+#[test]
+fn single_leaf_stacked_layout_wraps_immediately() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+        ],
+    );
+
+    layout.set_layout_mode(ContainerLayout::Stacked);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.starts_with("Stacked\n  Window 1"),
+        "layout_stacked on a single tiling leaf should wrap immediately:\n{tree}",
+    );
+}
+
+#[test]
+fn single_leaf_split_command_defers_wrap_until_new_window() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+        ],
+    );
+
+    layout.split_horizontal();
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        let tree = workspace.scrolling().debug_tree();
+        assert!(
+            !tree.contains("SplitH") && !tree.contains("SplitV"),
+            "split_h on a single tiled leaf should defer wrap:\n{tree}",
+        );
+    }
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.starts_with("SplitH\n"),
+        "deferred split_h on single leaf should apply when a sibling is inserted:\n{tree}",
+    );
+}
+
+#[test]
+fn layout_splitv_on_single_child_preserved_split_wraps_focused_leaf() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+        ],
+    );
+
+    // Seed a preserved single-child split root.
+    layout.set_layout_mode(ContainerLayout::SplitV);
+    layout.split_horizontal();
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        let tree = workspace.scrolling().debug_tree().replace(" *", "");
+        assert!(tree.starts_with("SplitV\n  Window 1"), "precondition:\n{tree}");
+    }
+
+    layout.set_layout_mode(ContainerLayout::SplitV);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.starts_with("SplitV\n  SplitV\n    Window 1"),
+        "layout_splitv on focused leaf inside preserved single-child SplitV should wrap leaf:\n{tree}",
+    );
+}
+
+#[test]
+fn repeated_layout_split_on_nested_single_child_split_is_noop() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+        ],
+    );
+
+    // Build sway-like base shape: SplitV(root) -> Window via pending layout + split command.
+    layout.set_layout_mode(ContainerLayout::SplitV);
+    layout.split_horizontal();
+
+    // First explicit layout_splitv on the focused leaf under preserved single-child root wraps once.
+    layout.set_layout_mode(ContainerLayout::SplitV);
+    // Repeating it should be a no-op (must not keep nesting splitv wrappers).
+    layout.set_layout_mode(ContainerLayout::SplitV);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    let splitv_count = tree.match_indices("SplitV").count();
+    assert_eq!(
+        splitv_count, 2,
+        "repeated layout_splitv should not keep nesting single-child SplitV wrappers:\n{tree}",
+    );
+}
+
+#[test]
+fn layout_splith_on_single_child_preserved_split_stays_flat() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+        ],
+    );
+
+    // Seed a preserved single-child SplitH root.
+    layout.set_layout_mode(ContainerLayout::SplitH);
+    layout.split_horizontal();
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        let tree = workspace.scrolling().debug_tree().replace(" *", "");
+        assert!(tree.starts_with("SplitH\n  Window 1"), "precondition:\n{tree}");
+    }
+
+    layout.set_layout_mode(ContainerLayout::SplitH);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.starts_with("SplitH\n  Window 1"),
+        "layout_splith on focused leaf inside preserved single-child SplitH should stay flat:\n{tree}",
+    );
+}
+
+#[test]
 fn closing_tab_in_nested_tabbed_container_keeps_tabbed_parent() {
     let layout = check_ops([
         Op::AddOutput(1),
@@ -2422,7 +4790,7 @@ fn tiling_focus_parent_once_inserts_as_sibling_of_selected_container() {
 }
 
 #[test]
-fn floating_focus_parent_selects_wrapper_container() {
+fn floating_focus_parent_ignores_redundant_single_child_wrapper() {
     let layout = check_ops([
         Op::AddOutput(1),
         Op::AddWindow {
@@ -2434,8 +4802,428 @@ fn floating_focus_parent_selects_wrapper_container() {
 
     let workspace = layout.active_workspace().expect("active workspace");
     assert!(workspace.is_floating(&1));
-    assert!(workspace.floating().wrapper_selected_for_window(&1));
-    assert!(workspace.floating().selected_is_container(Some(&1)));
+    assert!(!workspace.floating().wrapper_selected_for_window(&1));
+    assert!(!workspace.floating().selected_is_container(Some(&1)));
+    assert!(workspace.floating_is_active());
+}
+
+#[test]
+fn floating_focus_parent_at_wrapper_keeps_floating_mode() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(2),
+        Op::SplitVertical,
+        Op::FocusParent,
+        Op::ToggleWindowFloating { id: None },
+    ]);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(workspace.floating_is_active());
+        assert!(workspace.is_floating(&2));
+        assert!(!workspace.is_floating(&1));
+    }
+
+    check_ops_on_layout(&mut layout, [Op::FocusParent]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        workspace.floating_is_active(),
+        "focus_parent at floating wrapper should keep floating mode (sway parity)",
+    );
+}
+
+#[test]
+fn tiling_focus_parent_on_root_inserts_new_window_as_sibling() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(2),
+        Op::SetLayoutStacked,
+        Op::FocusParent,
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.contains("SplitH\n  Stacked\n    Window 1\n    Window 2\n    Window 3\n  Window 4")
+            || tree.contains(
+                "SplitH\n  Window 4\n  Stacked\n    Window 1\n    Window 2\n    Window 3"
+            ),
+        "expected new window to be inserted as sibling of selected root container:\n{tree}"
+    );
+}
+
+#[test]
+fn focus_left_wraps_within_split_container_like_sway() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(2),
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::FocusWindow(1),
+        Op::FocusColumnLeft,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree();
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(3));
+    assert!(
+        tree.contains("Window 3 *"),
+        "expected focus to wrap to last child inside current split container:\n{tree}"
+    );
+}
+
+#[test]
+fn fullscreen_directional_focus_stays_on_active_window_like_sway() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(3),
+        Op::FullscreenWindow(3),
+        Op::SplitVertical,
+    ]);
+
+    let focused_before = layout.focus().map(|win| *win.id());
+    check_ops_on_layout(&mut layout, [Op::FocusColumnLeft]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        focused_before,
+        "focus_left should not escape active fullscreen subtree (sway parity)"
+    );
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnRight]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        focused_before,
+        "focus_right should not escape active fullscreen subtree (sway parity)"
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree();
+    assert!(
+        tree.contains("Window 3 *"),
+        "focus should remain on the fullscreen window after directional focus:\n{tree}"
+    );
+}
+
+#[test]
+fn fullscreen_open_window_does_not_steal_focus_like_sway() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(3),
+        Op::FullscreenWindow(3),
+        Op::SplitVertical,
+    ]);
+
+    let focused_before = layout.focus().map(|win| *win.id());
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(4)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        focused_before,
+        "open_window should not steal focus from active fullscreen tiling window (sway parity)"
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree();
+    assert!(
+        tree.contains("Window 3 *"),
+        "focus should remain on fullscreen window after opening a new tiling window:\n{tree}"
+    );
+}
+
+#[test]
+fn fullscreen_open_then_focus_right_stays_locked_like_sway() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(3),
+        Op::FullscreenWindow(3),
+        Op::SplitVertical,
+    ]);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(4)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    check_ops_on_layout(
+        &mut layout,
+        [Op::SetLayoutTabbed, Op::SetLayoutSplitV, Op::FocusColumnRight],
+    );
+
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(3),
+        "focus_right should remain locked on fullscreen tiling window after open/layout ops (sway parity)"
+    );
+}
+
+#[test]
+fn fullscreen_focus_down_can_move_within_fullscreen_subtree_like_sway() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(3),
+        Op::FullscreenWindow(3),
+        Op::SplitVertical,
+    ]);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(4)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::SetLayoutTabbed,
+            Op::SetLayoutSplitV,
+            Op::FocusColumnRight,
+            Op::FocusWindowDown,
+        ],
+    );
+
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(4),
+        "focus_down should move within fullscreen subtree after split/tabbed transitions (sway parity)"
+    );
+
+    check_ops_on_layout(&mut layout, [Op::FocusWindowDown]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(4),
+        "second focus_down at bottom of fullscreen subtree should be no-op (no wrap, sway parity)"
+    );
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(5)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(4),
+        "open_window should not steal focus even when focus is on non-fullscreen leaf inside fullscreen subtree (sway parity)"
+    );
+}
+
+#[test]
+fn floating_explicit_split_returns_to_tiling_as_container() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::ToggleWindowFloating { id: None },
+            Op::SplitHorizontal,
+            Op::ToggleWindowFloating { id: None },
+        ],
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.is_floating(&2));
+    let tree_after_return = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree_after_return.contains("SplitH\n  Window 1\n  SplitH\n    Window 2"),
+        "floating split should return as nested tiling container:\n{tree_after_return}"
+    );
+
+    check_ops_on_layout(
+        &mut layout,
+        [Op::AddWindow {
+            params: TestWindowParams::new(3),
+        }],
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree_after_insert = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree_after_insert.contains("SplitH\n  Window 1\n  SplitH\n    Window 2\n    Window 3")
+            || tree_after_insert
+                .contains("SplitH\n  Window 1\n  SplitH\n    Window 3\n    Window 2"),
+        "new tiling window should insert inside preserved split container:\n{tree_after_insert}"
+    );
+}
+
+#[test]
+fn floating_stacked_then_split_roundtrip_preserves_container() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::FocusChild,
+        Op::FocusChild,
+        Op::SetLayoutStacked,
+        Op::SplitHorizontal,
+        Op::FocusWindowUp,
+        Op::ToggleWindowFloating { id: None },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.is_floating(&2));
+    assert!(!workspace.is_floating(&3));
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    assert!(
+        tree.contains("SplitH\n  Window 1\n  SplitH\n    Window 2\n    Window 3")
+            || tree.contains("SplitH\n  Window 1\n  SplitH\n    Window 3\n    Window 2"),
+        "expected nested split container after floating roundtrip:\n{tree}"
+    );
+}
+
+#[test]
+fn floating_toggle_after_split_marks_container_as_grouped() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::AddOutput(1),
+            Op::AddWindow {
+                params: TestWindowParams::new(1),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(2),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(3),
+            },
+            Op::AddWindow {
+                params: TestWindowParams::new(4),
+            },
+            Op::FocusWindowUp,
+            Op::CloseWindow(4),
+            Op::FocusColumnRight,
+            Op::SplitVertical,
+            Op::FocusWindowUp,
+            Op::ToggleWindowFloating { id: None },
+            Op::FocusChild,
+            Op::FocusChild,
+            Op::SetLayoutStacked,
+            Op::SplitHorizontal,
+            Op::FocusWindowUp,
+        ],
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let floating_id = workspace
+        .floating()
+        .active_window()
+        .expect("floating window should stay active")
+        .id()
+        .clone();
+    assert!(workspace.is_floating(&floating_id));
+    assert!(
+        workspace.floating_container_allows_splits(&floating_id),
+        "floating explicit split should be considered grouped for toggle back"
+    );
+
+    check_ops_on_layout(&mut layout, [Op::ToggleWindowFloating { id: None }]);
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree().replace(" *", "");
+    let has_single_leaf_split = tree.contains("\n  SplitH\n    Window ");
+    assert!(
+        has_single_leaf_split,
+        "expected explicit floating split to return as single-leaf split container:\n{tree}"
+    );
 }
 
 #[test]
@@ -2666,6 +5454,7 @@ fn floating_toggle_column_tabbed_display_changes_floating_layout() {
             params: TestWindowParams::new(1),
         },
         Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
         Op::ToggleColumnTabbedDisplay,
     ]);
 
@@ -2693,7 +5482,7 @@ fn floating_tab_bar_hit_does_not_report_resize_edges() {
         ActivateWindow::Yes,
     );
     layout.toggle_window_floating(None);
-    layout.toggle_column_tabbed_display();
+    layout.split_vertical();
     layout.add_window(
         TestWindow::new(TestWindowParams::new(2)),
         AddWindowTarget::NextTo(&1),
@@ -2703,6 +5492,7 @@ fn floating_tab_bar_hit_does_not_report_resize_edges() {
         false,
         ActivateWindow::Yes,
     );
+    layout.toggle_column_tabbed_display();
 
     {
         let workspace = layout.active_workspace().expect("active workspace");
@@ -2781,7 +5571,7 @@ fn floating_tab_bar_hit_does_not_fall_through_to_tiling_window() {
         ActivateWindow::Yes,
     );
     layout.toggle_window_floating(None);
-    layout.toggle_column_tabbed_display();
+    layout.split_vertical();
     layout.add_window(
         TestWindow::new(TestWindowParams::new(3)),
         AddWindowTarget::NextTo(&2),
@@ -2791,6 +5581,7 @@ fn floating_tab_bar_hit_does_not_fall_through_to_tiling_window() {
         false,
         ActivateWindow::Yes,
     );
+    layout.toggle_column_tabbed_display();
 
     let rect = tile_rect(&layout, 3);
     let mut hit = None;
@@ -5695,6 +8486,15 @@ fn floating_set_fullscreen_roundtrip_restores_floating() {
 
     let workspace = layout.active_workspace().unwrap();
     assert!(workspace.is_floating(&1));
+
+    let (_mon, win) = layout
+        .windows()
+        .find(|(_, win)| *win.id() == 1)
+        .expect("window 1 should exist");
+    assert!(
+        !win.is_pending_windowed_fullscreen(),
+        "windowed fullscreen should be cleared after roundtrip"
+    );
 }
 
 #[test]
@@ -5737,15 +8537,24 @@ fn floating_fullscreen_roundtrip_restores_size_and_position() {
     );
 
     {
-        let scrolling = layout.active_workspace().unwrap().scrolling();
-        let tile = scrolling
+        let workspace = layout.active_workspace().unwrap();
+        assert!(
+            workspace.is_floating(&1),
+            "window should remain floating while fullscreen is toggled"
+        );
+        let floating = workspace.floating();
+        let _tile = floating
             .tiles()
             .find(|tile| *tile.window().id() == 1)
-            .expect("window 1 should be in scrolling after fullscreen");
-        assert_eq!(
-            tile.floating_window_size.map(|size| size.w),
-            Some(before.size.w as i32),
-            "floating width should be preserved while fullscreen"
+            .expect("window 1 should remain in floating after fullscreen");
+
+        let (_mon, win) = layout
+            .windows()
+            .find(|(_, win)| *win.id() == 1)
+            .expect("window 1 should exist");
+        assert!(
+            win.is_pending_windowed_fullscreen(),
+            "floating fullscreen should set windowed fullscreen state"
         );
     }
 
@@ -5764,28 +8573,22 @@ fn floating_fullscreen_roundtrip_restores_size_and_position() {
         let workspace = layout.active_workspace().unwrap();
         assert!(
             workspace.is_floating(&1),
-            "window should move to floating immediately on unfullscreen"
+            "window should remain floating on unfullscreen"
         );
 
         let floating = workspace.floating();
-        let tile = floating
+        let _tile = floating
             .tiles()
             .find(|tile| *tile.window().id() == 1)
             .expect("window 1 should be in floating");
-        assert_eq!(
-            tile.floating_window_size.map(|size| size.w),
-            Some(before.size.w as i32),
-            "stored floating width should still be present when returning to floating"
-        );
 
         let (_mon, win) = layout
             .windows()
             .find(|(_, win)| *win.id() == 1)
             .expect("window 1 should exist");
-        assert_eq!(
-            win.requested_size().map(|size| size.w),
-            Some(before.size.w as i32),
-            "unfullscreen-to-floating should request previous floating width"
+        assert!(
+            !win.is_pending_windowed_fullscreen(),
+            "unfullscreen should clear windowed fullscreen state"
         );
     }
 
@@ -7173,6 +9976,86 @@ fn split_on_single_window_persists_after_close() {
     SplitV
       Window 2 *
     "
+    );
+}
+
+#[test]
+fn split_parallel_with_siblings_wraps_focused_leaf_horizontal() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_window_by_id(&2));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitH));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      Window 1
+      SplitH
+        Window 2 *
+    "
+    );
+}
+
+#[test]
+fn split_parallel_with_siblings_wraps_focused_leaf_vertical() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::SplitV));
+    assert!(harness.tree.focus_window_by_id(&2));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitV
+      Window 1
+      SplitV
+        Window 2 *
+    "
+    );
+}
+
+#[test]
+fn removing_last_sibling_flattens_non_preserved_root_container() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+
+    assert!(harness.tree.focus_window_by_id(&1));
+    assert!(harness.tree.split_focused(ContainerLayout::Stacked));
+    assert!(harness.tree.focus_window_by_id(&2));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitH));
+
+    let _ = harness.tree.remove_window(&2);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    Stacked
+      Window 1 *
+    "
+    );
+}
+
+#[test]
+fn wrap_root_for_sibling_insert_uses_pending_layout_hint() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+
+    harness.tree.set_pending_layout(ContainerLayout::Tabbed);
+    assert!(harness.tree.wrap_root_for_sibling_insert());
+
+    let tree = harness.tree.debug_tree().replace(" *", "");
+    assert!(
+        tree.contains("Tabbed\n  SplitH\n    Window 1\n    Window 2"),
+        "wrapping root for sibling insert should honor pending layout hint:\n{tree}"
     );
 }
 

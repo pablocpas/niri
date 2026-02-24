@@ -439,6 +439,18 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.selected_is_container()
     }
 
+    pub(super) fn close_window_ids_for_active_selection(&self) -> Vec<W::Id> {
+        if self.tree.selected_is_container() {
+            let path = self.tree.selected_path();
+            return self.tree.window_ids_under_path(&path);
+        }
+
+        self.tree
+            .focused_window()
+            .map(|window| vec![window.id().clone()])
+            .unwrap_or_default()
+    }
+
     pub(super) fn take_selected_subtree(
         &mut self,
     ) -> Option<(DetachedNode<W>, Option<InsertParentInfo>, Rectangle<f64, Logical>)> {
@@ -792,6 +804,19 @@ impl<W: LayoutElement> TilingSpace<W> {
             self.tree.leaf_layouts().len() <= self.tree.window_count(),
             "cached leaf layouts exceed window count"
         );
+    }
+
+    #[cfg(test)]
+    pub fn debug_tree(&self) -> String
+    where
+        W::Id: std::fmt::Display,
+    {
+        self.tree.debug_tree()
+    }
+
+    #[cfg(test)]
+    pub fn focus_path(&self) -> Vec<usize> {
+        self.tree.focus_path()
     }
 
     // Window management using ContainerTree
@@ -1412,36 +1437,58 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
-    pub fn focus_left(&mut self) -> bool {
-        let focused = self.tree.focus_in_direction(Direction::Left);
-        if focused {
-            self.tree.layout();
+    fn focus_in_direction_with_fullscreen_scope(&mut self, direction: Direction) -> bool {
+        // Match sway: with active fullscreen in tiling, directional focus can move inside the
+        // fullscreen subtree, but must not escape to another root sibling.
+        let fullscreen_scope = self.fullscreen_window.as_ref().map(|id| {
+            let root_idx = self.tree.find_window(id).and_then(|path| path.first().copied());
+            (id.clone(), root_idx)
+        });
+
+        // If fullscreen is active but we cannot determine its root scope, be conservative.
+        if fullscreen_scope
+            .as_ref()
+            .is_some_and(|(_, root_idx)| root_idx.is_none())
+        {
+            return false;
         }
-        focused
+
+        let focused = if fullscreen_scope.is_some() {
+            self.tree.focus_in_direction_no_wrap(direction)
+        } else {
+            self.tree.focus_in_direction(direction)
+        };
+        if !focused {
+            return false;
+        }
+
+        if let Some((fullscreen_id, Some(scope_root_idx))) = fullscreen_scope {
+            let escaped_scope = self.tree.focus_path().first().copied() != Some(scope_root_idx);
+            if escaped_scope {
+                let _ = self.tree.focus_window_by_id(&fullscreen_id);
+                self.tree.layout();
+                return false;
+            }
+        }
+
+        self.tree.layout();
+        true
+    }
+
+    pub fn focus_left(&mut self) -> bool {
+        self.focus_in_direction_with_fullscreen_scope(Direction::Left)
     }
 
     pub fn focus_right(&mut self) -> bool {
-        let focused = self.tree.focus_in_direction(Direction::Right);
-        if focused {
-            self.tree.layout();
-        }
-        focused
+        self.focus_in_direction_with_fullscreen_scope(Direction::Right)
     }
 
     pub fn focus_down(&mut self) -> bool {
-        let focused = self.tree.focus_in_direction(Direction::Down);
-        if focused {
-            self.tree.layout();
-        }
-        focused
+        self.focus_in_direction_with_fullscreen_scope(Direction::Down)
     }
 
     pub fn focus_up(&mut self) -> bool {
-        let focused = self.tree.focus_in_direction(Direction::Up);
-        if focused {
-            self.tree.layout();
-        }
-        focused
+        self.focus_in_direction_with_fullscreen_scope(Direction::Up)
     }
 
     pub fn focus_parent(&mut self) -> bool {
@@ -1459,6 +1506,14 @@ impl<W: LayoutElement> TilingSpace<W> {
             self.tree.layout();
         }
         selected
+    }
+
+    pub fn wrap_root_for_sibling_insert(&mut self) -> bool {
+        let changed = self.tree.wrap_root_for_sibling_insert();
+        if changed {
+            self.tree.layout();
+        }
+        changed
     }
 
     fn active_selection_layout(&self) -> Option<Layout> {
@@ -1502,7 +1557,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.set_focused_layout(layout)
     }
 
-    fn toggle_split_for_active_selection(&mut self) -> bool {
+    fn toggle_split_for_active_selection(&mut self, wrap_single_root: bool) -> bool {
         if self.tree.selected_is_container() {
             let path = self.tree.selected_path();
             if let Some((current, _, _)) = self.tree.container_info(&path) {
@@ -1518,7 +1573,8 @@ impl<W: LayoutElement> TilingSpace<W> {
             }
         }
 
-        self.tree.toggle_split_layout()
+        self.tree
+            .toggle_split_layout_with_single_root_wrap(wrap_single_root)
     }
 
     fn toggle_layout_all_for_active_selection(&mut self) -> bool {
@@ -1607,7 +1663,14 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     /// Toggle between horizontal and vertical split for the focused container.
     pub fn toggle_split_layout(&mut self) {
-        if self.toggle_split_for_active_selection() {
+        if self.toggle_split_for_active_selection(false) {
+            self.tree.layout();
+        }
+    }
+
+    /// Toggle split layout with optional single-root wrap hint.
+    pub fn toggle_split_layout_with_single_root_wrap_hint(&mut self, wrap_single_root: bool) {
+        if self.toggle_split_for_active_selection(wrap_single_root) {
             self.tree.layout();
         }
     }
@@ -2151,6 +2214,10 @@ impl<W: LayoutElement> TilingSpace<W> {
             .is_some_and(|id| id == window.id())
     }
 
+    pub fn has_fullscreen_window(&self) -> bool {
+        self.fullscreen_window.is_some()
+    }
+
     /// Set the display mode for the focused container
     pub fn set_column_display(&mut self, display: ColumnDisplay) {
         let layout = match display {
@@ -2239,6 +2306,14 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.is_empty()
     }
 
+    pub fn clear_pending_layout_hint(&mut self) {
+        self.tree.clear_pending_layout();
+    }
+
+    pub fn set_pending_layout_hint(&mut self, layout: Layout) {
+        self.tree.set_pending_layout(layout);
+    }
+
     pub fn add_tile(
         &mut self,
         col_idx: Option<usize>,
@@ -2299,6 +2374,12 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn insert_subtree_at_root(&mut self, index: usize, subtree: DetachedNode<W>, focus: bool) {
         self.tree.insert_subtree_at_root(index, subtree, focus);
+        self.tree.layout();
+    }
+
+    pub fn insert_subtree_with_focus(&mut self, subtree: DetachedNode<W>, focus: bool) {
+        self.tree.insert_subtree_with_focus(subtree, focus);
+        self.sync_fullscreen_window();
         self.tree.layout();
     }
 
@@ -2490,6 +2571,14 @@ impl<W: LayoutElement> TilingSpace<W> {
     pub fn focus_column_first(&mut self) {
         self.tree.focus_root_child(0);
         self.tree.layout();
+    }
+
+    pub fn focus_first_leaf(&mut self) {
+        if self.tree.focus_leaf_in_root_child(0, 1) {
+            self.tree.layout();
+        } else if self.tree.focus_root_child(0) {
+            self.tree.layout();
+        }
     }
 
     pub fn focus_column_last(&mut self) {
@@ -2825,15 +2914,12 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     fn sync_fullscreen_window(&mut self) {
-        let keep_existing = self.fullscreen_window.as_ref().and_then(|id| {
-            self.tree
-                .find_window(id)
-                .and_then(|path| self.tree.tile_at_path(&path))
-                .filter(|tile| tile.window().pending_sizing_mode().is_fullscreen())
-                .map(|_| id.clone())
-        });
-        if keep_existing.is_some() {
-            return;
+        if let Some(id) = self.fullscreen_window.as_ref() {
+            // Keep compositor-level fullscreen sticky while the tracked window still exists.
+            // This matches sway behavior better than relying on pending_sizing_mode() snapshots.
+            if self.tree.find_window(id).is_some() {
+                return;
+            }
         }
 
         let next_fullscreen = self

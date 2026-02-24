@@ -174,11 +174,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         event_loop.handle(),
         event_loop.get_signal(),
         display,
-        false,
+        cli.headless,
         true,
         cli.session,
     )
     .unwrap();
+
+    if cli.headless {
+        let size = (cli.headless_output_width, cli.headless_output_height);
+        let count = cli.headless_outputs.max(1);
+        for n in 1..=count {
+            state
+                .backend
+                .headless()
+                .add_output(&mut state.niri, n, size);
+        }
+        info!(
+            "headless mode enabled with {} output(s), size={}x{}",
+            count, cli.headless_output_width, cli.headless_output_height
+        );
+    }
 
     // Set WAYLAND_DISPLAY for children.
     let socket_name = state.niri.socket_name.as_deref().unwrap();

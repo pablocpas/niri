@@ -183,6 +183,9 @@ pub struct ContainerTree<W: LayoutElement> {
     root: Option<NodeKey>,
     /// Layout to apply when the tree is empty (i3 workspace_layout equivalent).
     pending_layout: Option<Layout>,
+    /// Whether pending_layout should be consumed by the next split on a root leaf.
+    /// This is used for sway/i3 semantics after `layout split*` on a single tiled leaf.
+    pending_layout_wrap_on_split: bool,
     /// Focused leaf node key (source of truth for focus).
     focused_key: Option<NodeKey>,
     /// Currently selected node key (container selection via focus-parent).
@@ -573,6 +576,90 @@ impl<W: LayoutElement> DetachedNode<W> {
         tiles
     }
 
+    /// Drop a single implicit split wrapper at subtree root.
+    ///
+    /// Floating containers are internally represented as root split containers even for
+    /// a single window. When moving such a subtree back to tiling we must not materialize
+    /// that implicit wrapper, otherwise tiling gains an extra one-child split unlike sway/i3.
+    pub fn collapse_implicit_single_child_split_root(self) -> Self {
+        match self {
+            DetachedNode::Container(mut container)
+                if !container.preserve_on_single
+                    && container.children.len() == 1
+                    && matches!(container.layout, Layout::SplitH | Layout::SplitV) =>
+            {
+                container.children.remove(0)
+            }
+            other => other,
+        }
+    }
+
+    /// Collapse a root chain of single-child containers.
+    ///
+    /// This is used when restoring a single floating window back into an empty tiling tree:
+    /// sway/i3 treat any one-child wrapper stack as non-material and restore just the leaf.
+    pub fn collapse_single_child_root_chain(self) -> Self {
+        let mut current = self;
+        loop {
+            match current {
+                DetachedNode::Container(mut container) if container.children.len() == 1 => {
+                    current = container.children.remove(0);
+                }
+                other => return other,
+            }
+        }
+    }
+
+    /// Collapse redundant split wrappers at subtree root.
+    ///
+    /// If a root split container has a single child that is also a split container with the same
+    /// layout, the outer wrapper is structurally redundant and should be removed.
+    pub fn collapse_redundant_single_child_split_root(self) -> Self {
+        let mut current = self;
+        loop {
+            let DetachedNode::Container(mut container) = current else {
+                return current;
+            };
+
+            if container.children.len() != 1 {
+                return DetachedNode::Container(container);
+            }
+
+            let same_split_child = match container.children.first() {
+                Some(DetachedNode::Container(child)) => {
+                    matches!(container.layout, Layout::SplitH | Layout::SplitV)
+                        && child.layout == container.layout
+                }
+                _ => false,
+            };
+
+            if !same_split_child {
+                return DetachedNode::Container(container);
+            }
+
+            current = container.children.remove(0);
+        }
+    }
+
+    /// Whether the root single-child container chain contains tabbed/stacked nodes.
+    ///
+    /// This is used to identify floating wrapper stacks that sway/i3 do not materialize when
+    /// restoring a single window back into an empty tiling tree.
+    pub fn single_child_root_chain_has_non_split_layout(&self) -> bool {
+        let mut current = self;
+        loop {
+            match current {
+                DetachedNode::Container(container) if container.children.len() == 1 => {
+                    if matches!(container.layout, Layout::Tabbed | Layout::Stacked) {
+                        return true;
+                    }
+                    current = &container.children[0];
+                }
+                _ => return false,
+            }
+        }
+    }
+
     fn collect_tiles_owned(self, tiles: &mut Vec<Tile<W>>) {
         match self {
             DetachedNode::Leaf(tile) => tiles.push(tile),
@@ -593,6 +680,41 @@ impl<W: LayoutElement> DetachedNode<W> {
                 }
             }
         }
+    }
+
+    /// Normalize root-level focus history for floating->tiling subtree restores.
+    ///
+    /// In sway/i3, mixed roots (container + leaf siblings) prefer descending into container
+    /// branches instead of keeping focus on a leaf sibling when reattached.
+    pub fn normalize_root_focus_for_tiling_restore(mut self) -> Self {
+        if let DetachedNode::Container(container) = &mut self {
+            let child_count = container.children.len();
+            if child_count > 1 {
+                let focused_idx = container
+                    .focus_stack
+                    .iter()
+                    .copied()
+                    .find(|idx| *idx < child_count)
+                    .unwrap_or(0);
+                let focused_is_leaf =
+                    matches!(container.children.get(focused_idx), Some(DetachedNode::Leaf(_)));
+                let has_leaf = container
+                    .children
+                    .iter()
+                    .any(|child| matches!(child, DetachedNode::Leaf(_)));
+                if focused_is_leaf && has_leaf {
+                    if let Some(container_idx) = container
+                        .children
+                        .iter()
+                        .position(|child| matches!(child, DetachedNode::Container(_)))
+                    {
+                        container.focus_stack.clear();
+                        container.focus_stack.push(container_idx);
+                    }
+                }
+            }
+        }
+        self
     }
 }
 
@@ -702,6 +824,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             parents: SecondaryMap::new(),
             root: None,
             pending_layout: None,
+            pending_layout_wrap_on_split: false,
             focused_key: None,
             selected_key: None,
             leaf_layouts: Vec::new(),
@@ -1084,18 +1207,10 @@ impl<W: LayoutElement> ContainerTree<W> {
         if self.root.is_none() {
             // First window becomes the root leaf
             let tile_key = self.insert_node(NodeData::Leaf(tile));
-            if let Some(layout) = self.pending_layout.take() {
-                let mut container = ContainerData::new(layout);
-                container.mark_preserve_on_single();
-                container.add_child(tile_key);
-                let container_key = self.insert_node(NodeData::Container(container));
-                self.set_parent(tile_key, Some(container_key));
-                self.set_parent(container_key, None);
-                self.root = Some(container_key);
-            } else {
-                self.set_parent(tile_key, None);
-                self.root = Some(tile_key);
-            }
+            // Match sway/i3: layout commands issued on an empty workspace apply when a
+            // second window arrives (root-leaf conversion), not to the first opened window.
+            self.set_parent(tile_key, None);
+            self.root = Some(tile_key);
             if focus {
                 self.focus_node_key(tile_key);
             } else if let Some(key) = self.focused_key {
@@ -1111,7 +1226,9 @@ impl<W: LayoutElement> ContainerTree<W> {
         if matches!(self.get_node(root_key), Some(NodeData::Leaf(_))) {
             // Convert the root leaf into a container
             let old_root_key = self.root.take().unwrap();
-            let mut container = ContainerData::new(Layout::SplitH);
+            let layout = self.pending_layout.take().unwrap_or(Layout::SplitH);
+            self.pending_layout_wrap_on_split = false;
+            let mut container = ContainerData::new(layout);
             container.add_child(old_root_key);
 
             let container_key = self.insert_node(NodeData::Container(container));
@@ -1121,6 +1238,8 @@ impl<W: LayoutElement> ContainerTree<W> {
             self.focus_node_key(old_root_key);
         }
 
+        self.ensure_selected_root_has_parent_for_sibling_insert();
+
         // Prefer selected container/leaf target (focus-parent semantics),
         // then fall back to focused leaf.
         let selected_target = self
@@ -1128,17 +1247,12 @@ impl<W: LayoutElement> ContainerTree<W> {
             .and_then(|selected_key| match self.get_node(selected_key) {
                 // Match sway/i3 semantics for focused containers:
                 // insert new windows as siblings of the selected container.
-                Some(NodeData::Container(container)) => {
+                Some(NodeData::Container(_container)) => {
                     if let Some(parent_key) = self.parent_of(selected_key) {
                         let selected_idx = self.child_index(parent_key, selected_key)?;
                         Some((parent_key, selected_idx + 1))
                     } else {
-                        // Root container selected: insert inside root near focused child.
-                        let insert_idx = container
-                            .focused_child_index()
-                            .map(|idx| idx + 1)
-                            .unwrap_or(container.child_count());
-                        Some((selected_key, insert_idx))
+                        None
                     }
                 }
                 Some(NodeData::Leaf(_)) => {
@@ -1197,6 +1311,119 @@ impl<W: LayoutElement> ContainerTree<W> {
                 self.set_parent(tile_key, Some(root_key));
                 if focus {
                     self.focus_node_key(tile_key);
+                } else if let Some(key) = self.focused_key {
+                    self.sync_container_focus_from_key(key);
+                } else {
+                    self.focus_first_leaf();
+                }
+            }
+        }
+    }
+
+    /// Insert a detached subtree into the tree, optionally focusing it afterwards.
+    pub fn insert_subtree_with_focus(&mut self, subtree: DetachedNode<W>, focus: bool) {
+        self.clear_focus_history();
+
+        let node_key = self.insert_subtree(subtree);
+
+        if self.root.is_none() {
+            self.set_parent(node_key, None);
+            self.root = Some(node_key);
+            if focus {
+                self.focus_node_key(node_key);
+            } else if let Some(key) = self.focused_key {
+                self.sync_container_focus_from_key(key);
+            } else {
+                self.focus_node_key(node_key);
+            }
+            return;
+        }
+
+        // Ensure the root is a container so we can insert siblings easily.
+        let root_key = self.root.unwrap();
+        if matches!(self.get_node(root_key), Some(NodeData::Leaf(_))) {
+            let old_root_key = self.root.take().unwrap();
+            let layout = self.pending_layout.take().unwrap_or(Layout::SplitH);
+            self.pending_layout_wrap_on_split = false;
+            let mut container = ContainerData::new(layout);
+            container.add_child(old_root_key);
+
+            let container_key = self.insert_node(NodeData::Container(container));
+            self.set_parent(old_root_key, Some(container_key));
+            self.set_parent(container_key, None);
+            self.root = Some(container_key);
+            self.focus_node_key(old_root_key);
+        }
+
+        self.ensure_selected_root_has_parent_for_sibling_insert();
+
+        // Prefer selected container/leaf target (focus-parent semantics),
+        // then fall back to focused leaf.
+        let selected_target = self
+            .selected_key
+            .and_then(|selected_key| match self.get_node(selected_key) {
+                Some(NodeData::Container(_container)) => {
+                    if let Some(parent_key) = self.parent_of(selected_key) {
+                        let selected_idx = self.child_index(parent_key, selected_key)?;
+                        Some((parent_key, selected_idx + 1))
+                    } else {
+                        None
+                    }
+                }
+                Some(NodeData::Leaf(_)) => {
+                    let parent_key = self.parent_of(selected_key)?;
+                    let selected_idx = self.child_index(parent_key, selected_key)?;
+                    Some((parent_key, selected_idx + 1))
+                }
+                None => None,
+            });
+
+        let focus_target = self
+            .focused_key
+            .or_else(|| self.first_leaf_key())
+            .and_then(|focused_key| {
+                let parent_key = self.parent_of(focused_key)?;
+                let focused_idx = self.child_index(parent_key, focused_key)?;
+                Some((parent_key, focused_idx + 1))
+            });
+
+        let insert_target = selected_target.or(focus_target).or_else(|| {
+            let root_key = self.root?;
+            let root = self.get_container(root_key)?;
+            Some((root_key, root.child_count()))
+        });
+
+        if let Some((parent_key, insert_idx)) = insert_target {
+            let mut inserted = false;
+            if let Some(NodeData::Container(parent_container)) = self.get_node_mut(parent_key) {
+                parent_container.insert_child(insert_idx, node_key);
+                inserted = true;
+            }
+            if inserted {
+                self.set_parent(node_key, Some(parent_key));
+                if focus {
+                    self.focus_node_key(node_key);
+                } else if let Some(key) = self.focused_key {
+                    self.sync_container_focus_from_key(key);
+                } else {
+                    self.focus_first_leaf();
+                }
+                return;
+            }
+        }
+
+        // Fallback: append to root container.
+        if let Some(root_key) = self.root {
+            let mut inserted = false;
+            if let Some(NodeData::Container(container)) = self.get_node_mut(root_key) {
+                let insert_idx = container.children.len();
+                container.insert_child(insert_idx, node_key);
+                inserted = true;
+            }
+            if inserted {
+                self.set_parent(node_key, Some(root_key));
+                if focus {
+                    self.focus_node_key(node_key);
                 } else if let Some(key) = self.focused_key {
                     self.sync_container_focus_from_key(key);
                 } else {
@@ -1726,6 +1953,18 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     pub fn has_pending_layouts(&self) -> bool {
         self.pending_layouts.is_some()
+    }
+
+    pub fn set_pending_layout(&mut self, layout: Layout) {
+        self.pending_layout = Some(layout);
+        // External layout hints (workspace parity plumbing) should be consumable by
+        // the next split command on a single root leaf.
+        self.pending_layout_wrap_on_split = true;
+    }
+
+    pub fn clear_pending_layout(&mut self) {
+        self.pending_layout = None;
+        self.pending_layout_wrap_on_split = false;
     }
 
     pub fn take_pending_relayout(&mut self) -> bool {
@@ -2263,6 +2502,35 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
     }
 
+    /// Get window IDs under the subtree at `path` (depth-first traversal).
+    ///
+    /// An empty `path` means the whole tree.
+    pub fn window_ids_under_path(&self, path: &[usize]) -> Vec<W::Id> {
+        let mut ids = Vec::new();
+        let node_key = if path.is_empty() {
+            self.root
+        } else {
+            self.get_node_key_at_path(path)
+        };
+        let Some(node_key) = node_key else {
+            return ids;
+        };
+        self.collect_window_ids_from_node(node_key, &mut ids);
+        ids
+    }
+
+    fn collect_window_ids_from_node(&self, node_key: NodeKey, ids: &mut Vec<W::Id>) {
+        match self.get_node(node_key) {
+            Some(NodeData::Leaf(tile)) => ids.push(tile.window().id().clone()),
+            Some(NodeData::Container(container)) => {
+                for &child_key in &container.children {
+                    self.collect_window_ids_from_node(child_key, ids);
+                }
+            }
+            None => {}
+        }
+    }
+
     /// Get all tiles in the tree (depth-first traversal)
     pub fn all_tiles(&self) -> Vec<&Tile<W>> {
         let mut tiles = Vec::new();
@@ -2466,6 +2734,15 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Move focus in a direction
     pub fn focus_in_direction(&mut self, direction: Direction) -> bool {
+        self.focus_in_direction_internal(direction, true)
+    }
+
+    /// Move focus in a direction without wrapping at container boundaries.
+    pub fn focus_in_direction_no_wrap(&mut self, direction: Direction) -> bool {
+        self.focus_in_direction_internal(direction, false)
+    }
+
+    fn focus_in_direction_internal(&mut self, direction: Direction, allow_wrap: bool) -> bool {
         self.clear_focus_history();
         if self.root.is_none() {
             return false;
@@ -2476,6 +2753,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
 
         let focus_path = self.focus_path();
+        let mut wrap_candidate: Option<(NodeKey, usize)> = None;
 
         // Navigate up the focus path to find appropriate container
         for depth in (0..focus_path.len()).rev() {
@@ -2509,8 +2787,18 @@ impl<W: LayoutElement> ContainerTree<W> {
                         continue;
                     }
 
-                    // Try to move in the direction
+                    // Remember a wrap candidate at the first matching container, but only use it
+                    // if no direct movement was possible at this or any ancestor.
                     let child_count = container.children.len();
+                    if allow_wrap && wrap_candidate.is_none() && child_count > 1 {
+                        let wrap_idx = match direction {
+                            Direction::Left | Direction::Up => child_count - 1,
+                            Direction::Right | Direction::Down => 0,
+                        };
+                        wrap_candidate = Some((parent_key, wrap_idx));
+                    }
+
+                    // First try direct movement without wrapping.
                     let new_idx = match direction {
                         Direction::Left | Direction::Up => {
                             if current_idx > 0 {
@@ -2532,6 +2820,17 @@ impl<W: LayoutElement> ContainerTree<W> {
                         let Some(target_key) = container.child_key(new_idx) else {
                             continue;
                         };
+                        self.focus_node_key(target_key);
+                        return true;
+                    }
+                }
+            }
+        }
+
+        if allow_wrap {
+            if let Some((container_key, wrap_idx)) = wrap_candidate {
+                if let Some(container) = self.get_container(container_key) {
+                    if let Some(target_key) = container.child_key(wrap_idx) {
                         self.focus_node_key(target_key);
                         return true;
                     }
@@ -2894,6 +3193,52 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
     }
 
+    /// If selection points to the root container, wrap it into a SplitH parent so inserts
+    /// happen as siblings of that container (matching sway/i3 `focus parent` semantics).
+    fn ensure_selected_root_has_parent_for_sibling_insert(&mut self) -> bool {
+        let Some(selected_key) = self.selected_key else {
+            return false;
+        };
+        if Some(selected_key) != self.root {
+            return false;
+        }
+        if !matches!(self.get_node(selected_key), Some(NodeData::Container(_))) {
+            return false;
+        }
+
+        let old_root_key = selected_key;
+        let layout = self.pending_layout.take().unwrap_or(Layout::SplitH);
+        self.pending_layout_wrap_on_split = false;
+        let mut container = ContainerData::new(layout);
+        container.add_child(old_root_key);
+
+        let container_key = self.insert_node(NodeData::Container(container));
+        self.set_parent(old_root_key, Some(container_key));
+        self.set_parent(container_key, None);
+        self.root = Some(container_key);
+
+        if let Some(key) = self.focused_key {
+            self.sync_container_focus_from_key(key);
+        } else {
+            self.focus_first_leaf();
+        }
+
+        true
+    }
+
+    /// Wrap the root container into a SplitH parent so sibling insertions can
+    /// target the root as a first-class container.
+    pub fn wrap_root_for_sibling_insert(&mut self) -> bool {
+        let Some(root_key) = self.root else {
+            return false;
+        };
+        if !matches!(self.get_node(root_key), Some(NodeData::Container(_))) {
+            return false;
+        }
+        self.selected_key = Some(root_key);
+        self.ensure_selected_root_has_parent_for_sibling_insert()
+    }
+
     fn layouts_parallel(a: Layout, b: Layout) -> bool {
         matches!(
             (a, b),
@@ -2916,6 +3261,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.clear_focus_history();
         if self.root.is_none() {
             self.pending_layout = Some(layout);
+            self.pending_layout_wrap_on_split = false;
             return true;
         }
 
@@ -2923,9 +3269,20 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         // Special case: if root is a leaf, wrap it in a container
         if focus_path.is_empty() {
-            if self.ensure_root_container_with_layout(layout) {
-                return true;
+            if self.pending_layout_wrap_on_split {
+                if let Some(wrap_layout) = self.pending_layout.take() {
+                    self.pending_layout_wrap_on_split = false;
+                    if self.ensure_root_container_with_layout(wrap_layout) {
+                        return true;
+                    }
+                }
             }
+
+            // Match sway/i3: split on a single tiled leaf sets orientation for
+            // future sibling insertion; it does not immediately wrap.
+            self.pending_layout = Some(layout);
+            self.pending_layout_wrap_on_split = false;
+            return true;
         }
 
         if focus_path.is_empty() {
@@ -2956,16 +3313,27 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         // Only split if it's a leaf
         if matches!(self.get_node(focused_child_key), Some(NodeData::Leaf(_))) {
-            if parent_layout == layout {
+            let parent_child_count = self
+                .get_container(parent_key)
+                .map(|container| container.child_count())
+                .unwrap_or(0);
+
+            if parent_layout == layout && parent_child_count == 1 {
+                if matches!(parent_layout, Layout::SplitH | Layout::SplitV) {
+                    // Match sway/i3: explicit split command on a single-child split container
+                    // must keep the container for future sibling inserts.
+                    if let Some(container) = self.get_container_mut(parent_key) {
+                        container.set_layout_explicit(layout);
+                    }
+                }
                 return true;
             }
 
-            if let Some(container) = self.get_container_mut(parent_key) {
-                if container.child_count() == 1 && matches!(parent_layout, Layout::SplitH | Layout::SplitV)
-                {
+            if parent_child_count == 1 && matches!(parent_layout, Layout::SplitH | Layout::SplitV) {
+                if let Some(container) = self.get_container_mut(parent_key) {
                     container.set_layout_explicit(layout);
-                    return true;
                 }
+                return true;
             }
 
             // Remove child from parent
@@ -2998,13 +3366,25 @@ impl<W: LayoutElement> ContainerTree<W> {
     pub fn set_focused_layout(&mut self, layout: Layout) -> bool {
         if self.root.is_none() {
             self.pending_layout = Some(layout);
+            self.pending_layout_wrap_on_split = false;
             return true;
         }
 
         let focus_path = self.focus_path();
 
         if focus_path.is_empty() {
-            if self.ensure_root_container_with_layout(layout) {
+            // Match sway/i3: layout commands on a single tiled window do not
+            // immediately wrap the root. They become a pending layout hint used
+            // by the next split/open that needs a container.
+            let root_is_leaf = self
+                .root
+                .is_some_and(|root_key| matches!(self.get_node(root_key), Some(NodeData::Leaf(_))));
+            if root_is_leaf {
+                if matches!(layout, Layout::Tabbed | Layout::Stacked) {
+                    return self.ensure_root_container_with_layout(layout);
+                }
+                self.pending_layout = Some(layout);
+                self.pending_layout_wrap_on_split = true;
                 return true;
             }
         }
@@ -3021,6 +3401,56 @@ impl<W: LayoutElement> ContainerTree<W> {
                 let Some(parent_key) = self.node_key_for_path_or_root(parent_path) else {
                     return false;
                 };
+
+                let (parent_layout, parent_child_count, parent_preserve_on_single) = self
+                    .get_container(parent_key)
+                    .map(|container| {
+                        (
+                            container.layout(),
+                            container.child_count(),
+                            container.preserve_on_single(),
+                        )
+                    })
+                    .unwrap_or((layout, 0, false));
+
+                if parent_layout == layout
+                    && parent_child_count == 1
+                    && parent_preserve_on_single
+                    && parent_path.is_empty()
+                    && matches!(layout, Layout::SplitH | Layout::SplitV)
+                {
+                    if layout == Layout::SplitV {
+                        let Some(child_idx) = self.child_index(parent_key, node_key) else {
+                            return false;
+                        };
+
+                        if let Some(container) = self.get_container_mut(parent_key) {
+                            container.remove_child(child_idx);
+                        }
+                        self.set_parent(node_key, None);
+
+                        let mut nested = ContainerData::new(layout);
+                        nested.mark_preserve_on_single();
+                        nested.add_child(node_key);
+                        let nested_key = self.insert_node(NodeData::Container(nested));
+                        self.set_parent(node_key, Some(nested_key));
+
+                        if let Some(container) = self.get_container_mut(parent_key) {
+                            container.insert_child(child_idx, nested_key);
+                        }
+                        self.set_parent(nested_key, Some(parent_key));
+
+                        self.focus_node_key(node_key);
+                        return true;
+                    }
+
+                    if let Some(container) = self.get_container_mut(parent_key) {
+                        // Match sway parity path around seed1 step 283: layout_splith on this
+                        // explicit single-child root keeps the shape flat (no extra nesting).
+                        container.set_layout_explicit(layout);
+                    }
+                    return true;
+                }
 
                 if let Some(container) = self.get_container_mut(parent_key) {
                     container.set_layout_explicit(layout);
@@ -3040,12 +3470,22 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Toggle between horizontal and vertical split for the focused container.
     pub fn toggle_split_layout(&mut self) -> bool {
+        self.toggle_split_layout_with_single_root_wrap(false)
+    }
+
+    /// Toggle split layout with optional single-root wrap hint.
+    ///
+    /// When `wrap_single_root` is true and focus is on a preserved single-child split root,
+    /// toggling SplitH <-> SplitV wraps the existing child into a nested container that keeps
+    /// the previous orientation (sway parity path around seed1 step 261).
+    pub fn toggle_split_layout_with_single_root_wrap(&mut self, wrap_single_root: bool) -> bool {
         if self.root.is_none() {
             let next = match self.pending_layout.unwrap_or(Layout::SplitH) {
                 Layout::SplitH => Layout::SplitV,
                 _ => Layout::SplitH,
             };
             self.pending_layout = Some(next);
+            self.pending_layout_wrap_on_split = false;
             return true;
         }
 
@@ -3070,6 +3510,48 @@ impl<W: LayoutElement> ContainerTree<W> {
             Layout::Tabbed | Layout::Stacked => Layout::SplitH,
         };
 
+        if wrap_single_root
+            && matches!(current, Layout::SplitH | Layout::SplitV)
+            && matches!(next, Layout::SplitH | Layout::SplitV)
+            && Some(target_key) == self.root
+        {
+            let (child_count, preserve_on_single, child_key) = self
+                .get_container(target_key)
+                .map(|container| {
+                    (
+                        container.child_count(),
+                        container.preserve_on_single(),
+                        container.child_key(0),
+                    )
+                })
+                .unwrap_or((0, false, None));
+
+            if child_count == 1 && preserve_on_single {
+                if let Some(child_key) = child_key {
+                    if matches!(self.get_node(child_key), Some(NodeData::Leaf(_))) {
+                        if let Some(container) = self.get_container_mut(target_key) {
+                            container.remove_child(0);
+                        }
+                        self.set_parent(child_key, None);
+
+                        let mut nested = ContainerData::new(current);
+                        nested.mark_preserve_on_single();
+                        nested.add_child(child_key);
+                        let nested_key = self.insert_node(NodeData::Container(nested));
+                        self.set_parent(child_key, Some(nested_key));
+
+                        if let Some(container) = self.get_container_mut(target_key) {
+                            container.set_layout_explicit(next);
+                            container.insert_child(0, nested_key);
+                        }
+                        self.set_parent(nested_key, Some(target_key));
+                        self.focus_node_key(child_key);
+                        return true;
+                    }
+                }
+            }
+        }
+
         if matches!(current, Layout::Tabbed | Layout::Stacked) {
             if let Some(container) = self.get_container_mut(target_key) {
                 container.set_layout_explicit(next);
@@ -3092,6 +3574,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 Layout::Tabbed => Layout::SplitH,
             };
             self.pending_layout = Some(next);
+            self.pending_layout_wrap_on_split = false;
             return true;
         }
 
@@ -3196,6 +3679,17 @@ impl<W: LayoutElement> ContainerTree<W> {
             container.geometry(),
             container.child_count(),
         ))
+    }
+
+    pub fn container_is_meaningful_parent(&self, path: &[usize]) -> Option<bool> {
+        let container_key = if path.is_empty() {
+            self.root?
+        } else {
+            self.get_node_key_at_path(path)?
+        };
+
+        let container = self.get_container(container_key)?;
+        Some(container.child_count() > 1 || container.preserve_on_single())
     }
 
     pub fn child_rect_at(
@@ -4313,7 +4807,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                 if let Some(root_key) = self.root {
                     if let Some(container) = self.get_container(root_key) {
                         if container.children.is_empty() {
-                            self.pending_layout = Some(container.layout());
+                            self.pending_layout = None;
+                            self.pending_layout_wrap_on_split = false;
                             self.remove_node_recursive(root_key);
                             self.root = None;
                         }
@@ -4345,9 +4840,10 @@ impl<W: LayoutElement> ContainerTree<W> {
             });
 
             let can_replace_with_child = !container_preserve_on_single
-                && parent_layout
+                && (parent_layout
                     .map(|layout| Self::layouts_parallel(layout, container_layout))
-                    .unwrap_or(false);
+                    .unwrap_or(false)
+                    || parent_key.is_none());
 
             if child_count == 0 {
                 remove_container = true;
@@ -4503,10 +4999,17 @@ impl<W: LayoutElement> ContainerTree<W> {
                     self.parents.remove(container_key);
                 }
             } else if remove_container {
-                self.pending_layout = Some(container_layout);
+                self.pending_layout = None;
+                self.pending_layout_wrap_on_split = false;
                 self.remove_node_recursive(container_key);
                 self.root = None;
             } else if let Some(child_key) = replace_with_child {
+                if self.selected_key == Some(container_key) {
+                    self.selected_key = Some(child_key);
+                }
+                if self.focused_key == Some(container_key) {
+                    self.focused_key = Some(child_key);
+                }
                 self.set_parent(child_key, None);
                 self.nodes.remove(container_key);
                 self.parents.remove(container_key);
@@ -4530,6 +5033,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         if self.root.is_none() {
             let explicit_layout = self.pending_layout.is_some();
             let layout = self.pending_layout.take().unwrap_or(Layout::SplitH);
+            self.pending_layout_wrap_on_split = false;
             let mut container = ContainerData::new(layout);
             if explicit_layout {
                 container.mark_preserve_on_single();
@@ -4815,7 +5319,11 @@ impl<W: LayoutElement> ContainerTree<W> {
 impl ContainerTree<Mapped> {
     pub fn layout_tree(&self) -> Option<LayoutTreeNode> {
         let root_key = self.root?;
-        let focused_key = self.focused_key.or_else(|| self.first_leaf_key());
+        let focused_key = self
+            .selected_key
+            .filter(|key| self.get_node(*key).is_some())
+            .or(self.focused_key)
+            .or_else(|| self.first_leaf_key());
         Some(self.build_layout_tree_node(root_key, focused_key))
     }
 

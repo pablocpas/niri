@@ -74,6 +74,109 @@ Scope notes:
 7. Keep extending long-run randomized invariants (tree cleanup and mixed-flow transactions) as behavior evolves.
 8. Revisit this matrix whenever behavior around floating/tree transactions changes.
 
+## Differential Harness (sway vs tiri)
+
+Use `scripts/sway_tiri_parity.py` to run the same scenario on both compositors and compare normalized state.
+
+What it compares:
+
+- Tiling tree structure and focused-path parity (strict).
+- Tiling/floating window counts and `focused_is_floating` summary (strict mode).
+
+What it does *not* compare yet:
+
+- Full floating container tree shape (tiri IPC currently exposes tiling tree only).
+
+Example workflow:
+
+```bash
+# 1) Generate reproducible random scenario.
+python3 scripts/sway_tiri_parity.py generate \
+  --seed 424242 --steps 300 --initial-windows 4 \
+  --output /tmp/parity-scenario.json
+
+# 2) Run against sway (requires running sway + swaymsg).
+python3 scripts/sway_tiri_parity.py run \
+  --target sway \
+  --scenario /tmp/parity-scenario.json \
+  --window-cmd "foot --app-id parity-test" \
+  --output /tmp/parity-sway.json
+
+# 3) Run against tiri (requires running tiri + tiri msg).
+python3 scripts/sway_tiri_parity.py run \
+  --target tiri \
+  --scenario /tmp/parity-scenario.json \
+  --window-cmd "foot --app-id parity-test" \
+  --output /tmp/parity-tiri.json
+
+# 4) Compare traces.
+python3 scripts/sway_tiri_parity.py compare \
+  --left /tmp/parity-sway.json \
+  --right /tmp/parity-tiri.json \
+  --mode strict
+```
+
+Batch campaign (many seeds):
+
+```bash
+python3 scripts/sway_tiri_parity.py campaign \
+  --start-seed 1 \
+  --count 100 \
+  --steps 300 \
+  --initial-windows 4 \
+  --window-cmd "foot --app-id parity-test" \
+  --output-dir /tmp/parity-campaign \
+  --mode strict
+
+# Inspect summary:
+cat /tmp/parity-campaign/summary.json
+```
+
+Fully automatic headless campaign (recommended):
+
+```bash
+python3 scripts/sway_tiri_parity.py campaign \
+  --start-seed 1 \
+  --count 100 \
+  --steps 300 \
+  --initial-windows 4 \
+  --window-cmd "foot --app-id parity-test" \
+  --output-dir /tmp/parity-campaign \
+  --auto-headless-sway \
+  --auto-headless-tiri \
+  --headless-outputs 1 \
+  --headless-output-width 1920 \
+  --headless-output-height 1080 \
+  --mode strict
+```
+
+The harness will:
+
+- spawn headless sway automatically,
+- spawn headless tiri automatically (using `tiri --headless ...`),
+- isolate both in dedicated runtime directories (no socket collisions),
+- wire both IPC sockets,
+- run the campaign,
+- and stop both compositors at the end.
+
+During random campaigns, some commands may be context-invalid in sway (for example layout changes while focused floating leaf). The harness treats those runtime context errors as no-op and continues, then compares resulting state.
+
+If you run outside one compositor session and the socket env vars are missing:
+
+- sway: set `SWAYSOCK` or pass `--sway-socket /path/to/sway.sock`
+- tiri: set `TIRI_SOCKET` or pass `--tiri-socket /path/to/tiri.sock`
+
+The harness now runs a preflight check and aborts early with a clear message if either IPC socket is unavailable.
+
+Important: on real hardware, two DRM compositors on different VTs are not reliably testable in parallel.
+If tiri is the active VT, sway can report "no outputs connected" (and vice versa).
+Using `--auto-headless-sway --auto-headless-tiri` avoids this DRM/VT contention.
+If you do not use headless mode, run in two phases:
+
+1. Run all sway traces while sway owns the active output.
+2. Run all tiri traces while tiri owns the active output.
+3. Compare traces afterward.
+
 ## Evidence Pointers
 
 - Action surface: `tiri-ipc/src/lib.rs`

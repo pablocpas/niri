@@ -2743,6 +2743,19 @@ impl<W: LayoutElement> Layout<W> {
         self.focus_with_output().map(|(win, _out)| win)
     }
 
+    pub fn close_window_ids_for_active_selection(&self) -> Vec<W::Id> {
+        if let Some(workspace) = self.active_workspace() {
+            let ids = workspace.close_window_ids_for_active_selection();
+            if !ids.is_empty() {
+                return ids;
+            }
+        }
+
+        self.focus()
+            .map(|window| vec![window.id().clone()])
+            .unwrap_or_default()
+    }
+
     pub fn focus_with_output(&self) -> Option<(&W, &Output)> {
         if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
             return Some((move_.tile.window(), &move_.output));
