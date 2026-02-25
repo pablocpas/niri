@@ -1810,6 +1810,41 @@ impl<W: LayoutElement> ContainerTree<W> {
         true
     }
 
+    /// Select parent container of the given window, if any.
+    pub fn select_parent_of_window(&mut self, window_id: &W::Id) -> bool {
+        let Some(path) = self.find_window(window_id) else {
+            return false;
+        };
+        if path.is_empty() {
+            return false;
+        }
+
+        let parent_path = &path[..path.len() - 1];
+        let parent_key = if parent_path.is_empty() {
+            self.root
+        } else {
+            self.get_node_key_at_path(parent_path)
+        };
+        let Some(parent_key) = parent_key else {
+            return false;
+        };
+
+        // Match sway's inactive-tiling handoff when floating a focused leaf from a
+        // single-child wrapper: that wrapper disappears immediately, so keep a
+        // stable surviving parent reference instead.
+        let selected_key = if self
+            .get_container(parent_key)
+            .is_some_and(|container| container.child_count() == 1)
+        {
+            self.parent_of(parent_key).unwrap_or(parent_key)
+        } else {
+            parent_key
+        };
+
+        self.selected_key = Some(selected_key);
+        true
+    }
+
     /// Focused tile (if any).
     pub fn focused_tile(&self) -> Option<&Tile<W>> {
         let key = self.focused_key.or_else(|| self.first_leaf_key())?;
@@ -4447,6 +4482,67 @@ impl<W: LayoutElement> ContainerTree<W> {
     ) -> Option<InsertParentInfo> {
         let path = self.find_window(window_id)?;
         self.insert_parent_info_for_path(&path)
+    }
+
+    /// Build insert metadata from the inactive tiling reference, matching sway's
+    /// floating->tiling behavior:
+    /// - leaf reference => insert as sibling after the leaf
+    /// - container reference => insert as child of that container
+    pub(super) fn insert_parent_info_for_selected_reference(&self) -> Option<InsertParentInfo> {
+        let key = self.selected_node_key()?;
+        let path = self.find_node_path(key)?;
+
+        match self.get_node(key)? {
+            NodeData::Container(container) => Some(InsertParentInfo {
+                parent_path: path,
+                insert_idx: container.child_count(),
+                layout: container.layout(),
+                child_percents: Vec::new(),
+            }),
+            NodeData::Leaf(_) => {
+                if path.is_empty() {
+                    return Some(InsertParentInfo {
+                        parent_path: Vec::new(),
+                        insert_idx: 1,
+                        layout: self.pending_layout.unwrap_or(Layout::SplitH),
+                        child_percents: Vec::new(),
+                    });
+                }
+
+                let parent_path = &path[..path.len() - 1];
+                let parent_key = if parent_path.is_empty() {
+                    self.root?
+                } else {
+                    self.get_node_key_at_path(parent_path)?
+                };
+                let parent = self.get_container(parent_key)?;
+
+                Some(InsertParentInfo {
+                    parent_path: parent_path.to_vec(),
+                    insert_idx: path[path.len() - 1] + 1,
+                    layout: parent.layout(),
+                    child_percents: Vec::new(),
+                })
+            }
+        }
+    }
+
+    pub(super) fn insert_parent_info_for_parent_of_selected_reference(
+        &self,
+    ) -> Option<InsertParentInfo> {
+        let key = self.selected_node_key()?;
+        let parent_key = self.parent_of(key)?;
+        let parent_path = self.find_node_path(parent_key)?;
+
+        match self.get_node(parent_key)? {
+            NodeData::Container(container) => Some(InsertParentInfo {
+                parent_path,
+                insert_idx: container.child_count(),
+                layout: container.layout(),
+                child_percents: Vec::new(),
+            }),
+            NodeData::Leaf(_) => None,
+        }
     }
 
     fn insert_parent_info_for_path(&self, path: &[usize]) -> Option<InsertParentInfo> {

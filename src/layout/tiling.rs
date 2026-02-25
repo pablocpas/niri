@@ -1508,6 +1508,17 @@ impl<W: LayoutElement> TilingSpace<W> {
         selected
     }
 
+    pub(super) fn select_parent_of_window(&mut self, window: &W::Id) -> bool {
+        self.tree.select_parent_of_window(window)
+    }
+
+    pub(super) fn insert_parent_info_for_parent_of_selected_reference(
+        &self,
+    ) -> Option<super::container::InsertParentInfo> {
+        self.tree
+            .insert_parent_info_for_parent_of_selected_reference()
+    }
+
     pub fn wrap_root_for_sibling_insert(&mut self) -> bool {
         let changed = self.tree.wrap_root_for_sibling_insert();
         if changed {
@@ -1536,17 +1547,6 @@ impl<W: LayoutElement> TilingSpace<W> {
     fn split_for_active_selection(&mut self, layout: Layout) -> bool {
         if self.tree.selected_is_container() {
             let path = self.tree.selected_path();
-            if path.is_empty() {
-                if let Some((_root_layout, _rect, child_count)) = self.tree.container_info(&[]) {
-                    if child_count > 1 {
-                        // Match sway behavior: split on a selected multi-child root container is
-                        // a no-op now, but updates the workspace-level split orientation that the
-                        // next sibling insertion should use.
-                        self.tree.set_pending_layout(layout);
-                        return false;
-                    }
-                }
-            }
             if let Some(container) = self.tree.container_at_path_mut(&path) {
                 container.set_layout_explicit(layout);
                 return true;
@@ -2399,6 +2399,12 @@ impl<W: LayoutElement> TilingSpace<W> {
         window: &W::Id,
     ) -> Option<super::container::InsertParentInfo> {
         self.tree.insert_parent_info_for_window(window)
+    }
+
+    pub(super) fn insert_parent_info_for_inactive_reference(
+        &self,
+    ) -> Option<super::container::InsertParentInfo> {
+        self.tree.insert_parent_info_for_selected_reference()
     }
 
     pub(super) fn replace_tile_at_path(
