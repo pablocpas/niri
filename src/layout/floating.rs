@@ -901,6 +901,13 @@ impl<W: LayoutElement> FloatingSpace<W> {
         true
     }
 
+    pub fn clear_selection_context(&mut self) {
+        for container in &mut self.containers {
+            container.wrapper_selected = false;
+            container.tree.clear_selection();
+        }
+    }
+
     pub fn add_tile(&mut self, tile: Tile<W>, activate: bool) {
         self.add_tile_at(0, tile, activate);
     }
@@ -2070,23 +2077,14 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
     fn split_for_active_selection(&mut self, idx: usize, layout: Layout) -> bool {
         if self.containers[idx].wrapper_selected {
-            if let Some(root) = self.containers[idx].tree.root_container_mut() {
-                root.set_layout_explicit(layout);
-                return true;
-            }
-
-            return self.containers[idx].tree.split_focused(layout);
+            return self.containers[idx]
+                .tree
+                .split_root_like_sway_floating(layout);
         }
 
-        if self.containers[idx].tree.selected_is_container() {
-            let path = self.containers[idx].tree.selected_path();
-            if let Some(container) = self.containers[idx].tree.container_at_path_mut(&path) {
-                container.set_layout_explicit(layout);
-                return true;
-            }
-        }
-
-        self.containers[idx].tree.split_focused(layout)
+        self.containers[idx]
+            .tree
+            .split_selected_or_focused_like_sway_floating(layout)
     }
 
     fn set_layout_for_active_selection(&mut self, idx: usize, layout: Layout) -> bool {

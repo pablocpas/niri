@@ -3470,6 +3470,58 @@ impl<W: LayoutElement> ContainerTree<W> {
         true
     }
 
+    fn wrap_root_node_with_layout(
+        &mut self,
+        layout: Layout,
+        preserve_selection_on_old_root: bool,
+    ) -> bool {
+        let Some(old_root_key) = self.root else {
+            return false;
+        };
+
+        let focus_key = self.focused_key.or_else(|| self.first_leaf_key());
+
+        let mut wrapper = ContainerData::new(layout);
+        wrapper.mark_preserve_on_single();
+        wrapper.add_child(old_root_key);
+
+        let wrapper_key = self.insert_node(NodeData::Container(wrapper));
+        self.set_parent(old_root_key, Some(wrapper_key));
+        self.set_parent(wrapper_key, None);
+        self.root = Some(wrapper_key);
+
+        if let Some(focus_key) = focus_key {
+            self.focus_node_key(focus_key);
+        } else {
+            self.focus_first_leaf();
+        }
+
+        if preserve_selection_on_old_root {
+            self.selected_key = Some(old_root_key);
+        }
+
+        true
+    }
+
+    fn split_selected_container_like_sway_floating(
+        &mut self,
+        selected_key: NodeKey,
+        layout: Layout,
+    ) -> bool {
+        if !matches!(self.get_node(selected_key), Some(NodeData::Container(_))) {
+            return false;
+        }
+
+        if Some(selected_key) == self.root {
+            // Floating trees model top-level containers directly, so splitting the
+            // selected root wraps that node (container_split semantics), rather
+            // than recording workspace-level pending layout intent.
+            return self.wrap_root_node_with_layout(layout, true);
+        }
+
+        self.split_selected_container_like_sway(selected_key, layout)
+    }
+
     /// Split command target with sway semantics:
     /// selected container (focus-parent) first, otherwise focused leaf.
     pub fn split_selected_or_focused_like_sway(&mut self, layout: Layout) -> bool {
@@ -3482,6 +3534,48 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
 
         self.split_focused(layout)
+    }
+
+    /// Split command target with sway semantics for floating trees:
+    /// selected container (focus-parent) first, otherwise focused leaf.
+    ///
+    /// The key difference from tiling is root treatment: floating roots are
+    /// first-class containers, not implicit workspace context.
+    pub fn split_selected_or_focused_like_sway_floating(&mut self, layout: Layout) -> bool {
+        self.clear_focus_history();
+
+        if let Some(selected_key) = self.selected_key {
+            if matches!(self.get_node(selected_key), Some(NodeData::Container(_))) {
+                return self.split_selected_container_like_sway_floating(selected_key, layout);
+            }
+        }
+
+        self.split_focused_like_sway_floating(layout)
+    }
+
+    /// Split focused node with sway floating semantics.
+    ///
+    /// Unlike tiling workspaces, splitting a single floating root leaf must
+    /// materialize a wrapper container immediately.
+    pub fn split_focused_like_sway_floating(&mut self, layout: Layout) -> bool {
+        self.clear_focus_history();
+
+        if self.root.is_none() {
+            return false;
+        }
+
+        if self.focus_path().is_empty() {
+            return self.wrap_root_node_with_layout(layout, false);
+        }
+
+        self.split_focused(layout)
+    }
+
+    /// Split the root container in a floating tree, preserving selected command
+    /// context on the original root node.
+    pub fn split_root_like_sway_floating(&mut self, layout: Layout) -> bool {
+        self.clear_focus_history();
+        self.wrap_root_node_with_layout(layout, true)
     }
 
     /// Split the focused container in a direction

@@ -2501,6 +2501,8 @@ impl<W: LayoutElement> Workspace<W> {
         self.pending_tiling_root_layout_hint = None;
         self.force_tiling_auto_open_while_floating = false;
         self.floating_workspace_context = false;
+        self.scrolling.clear_selection_context();
+        self.floating.clear_selection_context();
         if !self.floating_is_active.get() {
             self.remember_current_tiling_reference();
         }

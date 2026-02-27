@@ -1513,6 +1513,10 @@ impl<W: LayoutElement> TilingSpace<W> {
         selected
     }
 
+    pub fn clear_selection_context(&mut self) {
+        self.tree.clear_selection();
+    }
+
     pub(super) fn inactive_tiling_reference_for_parent_of_selected_reference(
         &self,
     ) -> Option<super::container::InactiveTilingReference> {
