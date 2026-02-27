@@ -856,6 +856,13 @@ impl State {
                 }
             }
             Action::FullscreenWindow => {
+                // Match sway command-context semantics: when focus-parent/container selection
+                // is active, fullscreen targets that container. tiri currently has window-only
+                // fullscreen, so keep this path as a no-op until container fullscreen is modeled.
+                if self.niri.layout.active_selection_is_container() {
+                    return;
+                }
+
                 let focus = self.niri.layout.focus().map(|m| m.window.clone());
                 if let Some(window) = focus {
                     self.niri.layout.toggle_fullscreen(&window);

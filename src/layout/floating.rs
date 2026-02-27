@@ -866,26 +866,6 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.selected_is_container_in(idx)
     }
 
-    pub(super) fn selected_container_window_count(&self, id: Option<&W::Id>) -> usize {
-        let Some(id) = id.or(self.active_window_id.as_ref()) else {
-            return 0;
-        };
-        let Some(idx) = self.idx_of(id) else {
-            return 0;
-        };
-
-        if self.containers[idx].wrapper_selected {
-            return self.containers[idx].tree.window_ids_under_path(&[]).len();
-        }
-
-        if self.containers[idx].tree.selected_is_container() {
-            let path = self.containers[idx].tree.selected_path();
-            return self.containers[idx].tree.window_ids_under_path(&path).len();
-        }
-
-        0
-    }
-
     pub(super) fn active_wrapper_selected(&self) -> bool {
         let Some(idx) = self.active_container_idx() else {
             return false;
@@ -1888,7 +1868,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 // No further parent in the container tree. Only expose wrapper selection
                 // if root is a meaningful container; otherwise let workspace fallback
                 // to tiling focus (sway behavior for redundant single-child wrappers).
-                if tree.container_is_meaningful_parent(&[]).unwrap_or(false) {
+                let root_child_count = tree.container_info(&[]).map(|(_, _, count)| count).unwrap_or(0);
+                let root_meaningful = tree.container_is_meaningful_parent(&[]).unwrap_or(false);
+                if root_meaningful && root_child_count > 1 {
                     container.wrapper_selected = true;
                     return true;
                 }
@@ -1898,8 +1880,26 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
             let path = tree.selected_path();
             let is_meaningful = tree.container_is_meaningful_parent(&path).unwrap_or(false);
+            let selected_child_count = tree
+                .container_info(&path)
+                .map(|(_, _, count)| count)
+                .unwrap_or(0);
             if is_meaningful {
                 let root_selected = path.is_empty();
+                let preserve_on_single = if root_selected {
+                    tree.root_container()
+                        .is_some_and(|container| container.preserve_on_single())
+                } else {
+                    false
+                };
+                if root_selected && selected_child_count <= 1 {
+                    // Keep explicitly requested single-child root wrappers selectable
+                    // (e.g. after split commands), but ignore implicit redundant wrappers.
+                    if !preserve_on_single {
+                        tree.clear_selection();
+                        return false;
+                    }
+                }
                 container.wrapper_selected = root_selected;
                 return true;
             }

@@ -2756,6 +2756,11 @@ impl<W: LayoutElement> Layout<W> {
             .unwrap_or_default()
     }
 
+    pub fn active_selection_is_container(&self) -> bool {
+        self.active_workspace()
+            .is_some_and(Workspace::active_selection_is_container)
+    }
+
     pub fn focus_with_output(&self) -> Option<(&W, &Output)> {
         if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
             return Some((move_.tile.window(), &move_.output));

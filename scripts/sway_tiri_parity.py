@@ -63,45 +63,6 @@ ACTION_MAP: dict[str, dict[str, Any]] = {
     "close_focused": {"sway": "kill", "tiri": ["close-window"]},
 }
 
-SCENARIO_PROFILES = ("random", "coverage")
-
-# Directed motifs that exercise container-selection + floating roundtrips and mixed focus paths.
-COVERAGE_PATTERNS: list[list[str]] = [
-    [
-        "split_h",
-        "open_window",
-        "open_window",
-        "focus_left",
-        "split_v",
-        "open_window",
-        "open_window",
-        "focus_parent",
-        "toggle_floating",
-        "toggle_floating",
-    ],
-    [
-        "split_h",
-        "open_window",
-        "focus_left",
-        "split_v",
-        "open_window",
-        "focus_parent",
-        "toggle_floating",
-        "focus_child",
-        "toggle_floating",
-    ],
-    [
-        "layout_tabbed",
-        "focus_parent",
-        "split_v",
-        "open_window",
-        "focus_parent",
-        "toggle_floating",
-        "focus_child",
-        "toggle_floating",
-    ],
-]
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="sway/tiri differential parity harness")
@@ -111,12 +72,6 @@ def parse_args() -> argparse.Namespace:
     gen.add_argument("--seed", type=int, required=True)
     gen.add_argument("--steps", type=int, default=200)
     gen.add_argument("--initial-windows", type=int, default=4)
-    gen.add_argument(
-        "--profile",
-        choices=SCENARIO_PROFILES,
-        default="random",
-        help="random: weighted random ops, coverage: random + directed motifs",
-    )
     gen.add_argument("--output", type=Path, required=True)
 
     run = sub.add_parser("run", help="Run a scenario against sway or tiri")
@@ -174,12 +129,6 @@ def parse_args() -> argparse.Namespace:
     campaign.add_argument("--count", type=int, default=50)
     campaign.add_argument("--steps", type=int, default=250)
     campaign.add_argument("--initial-windows", type=int, default=4)
-    campaign.add_argument(
-        "--profile",
-        choices=SCENARIO_PROFILES,
-        default="random",
-        help="random: weighted random ops, coverage: random + directed motifs",
-    )
     campaign.add_argument("--window-cmd", required=True, help="Shell command that opens one window")
     campaign.add_argument("--output-dir", type=Path, required=True)
     campaign.add_argument(
@@ -947,6 +896,58 @@ class Runner:
     def _tiri_env(self) -> dict[str, str] | None:
         return {"TIRI_SOCKET": self.tiri_socket} if self.tiri_socket else None
 
+    def _tiri_workspaces(self) -> list[dict[str, Any]]:
+        workspaces = run_cmd(
+            [self.tiri_cmd, "msg", "--json", "workspaces"],
+            expect_json=True,
+            env_updates=self._tiri_env(),
+        )
+        if not isinstance(workspaces, list):
+            raise RuntimeError("tiri: workspaces IPC did not return a list")
+        return workspaces
+
+    def _tiri_focused_workspace(self) -> dict[str, Any] | None:
+        return next((ws for ws in self._tiri_workspaces() if ws.get("is_focused")), None)
+
+    def _focus_workspace_tiri(self, name: str) -> None:
+        # Try direct focus first. This works if the named workspace already exists.
+        run_cmd(
+            [self.tiri_cmd, "msg", "action", "focus-workspace", name],
+            env_updates=self._tiri_env(),
+        )
+        focused = self._tiri_focused_workspace()
+        if focused is not None and focused.get("name") == name:
+            return
+
+        # Unlike sway, focusing a non-existing named workspace is a no-op in tiri.
+        # Create one by focusing a free transient numeric workspace, naming it, and
+        # then focusing by name.
+        names = {
+            str(ws.get("name"))
+            for ws in self._tiri_workspaces()
+            if ws.get("name") is not None
+        }
+        slot = next((str(i) for i in range(255, 0, -1) if str(i) not in names), None)
+        if slot is None:
+            raise RuntimeError("tiri: could not allocate a transient workspace slot")
+
+        run_cmd(
+            [self.tiri_cmd, "msg", "action", "focus-workspace", slot],
+            env_updates=self._tiri_env(),
+        )
+        run_cmd(
+            [self.tiri_cmd, "msg", "action", "set-workspace-name", name],
+            env_updates=self._tiri_env(),
+        )
+        run_cmd(
+            [self.tiri_cmd, "msg", "action", "focus-workspace", name],
+            env_updates=self._tiri_env(),
+        )
+
+        focused = self._tiri_focused_workspace()
+        if focused is None or focused.get("name") != name:
+            raise RuntimeError(f"tiri: failed to focus workspace '{name}'")
+
     def preflight(self) -> None:
         if self.target == "sway":
             try:
@@ -1035,10 +1036,7 @@ class Runner:
         if self.target == "sway":
             run_cmd([self.swaymsg_cmd, f"workspace {name}"], env_updates=self._sway_env())
             return
-        run_cmd(
-            [self.tiri_cmd, "msg", "action", "focus-workspace", name],
-            env_updates=self._tiri_env(),
-        )
+        self._focus_workspace_tiri(name)
 
     def wait_for_window_count_increase(self, before_count: int) -> dict[str, Any]:
         deadline = time.monotonic() + self.open_window_timeout
@@ -1079,60 +1077,29 @@ class Runner:
         return self.snapshot()
 
 
-def generate_scenario(
-    seed: int,
-    steps: int,
-    initial_windows: int,
-    profile: str = "random",
-) -> dict[str, Any]:
+def generate_scenario(seed: int, steps: int, initial_windows: int) -> dict[str, Any]:
     rng = random.Random(seed)
 
-    if profile not in SCENARIO_PROFILES:
-        raise RuntimeError(f"unsupported scenario profile: {profile}")
-
-    weighted_ops: list[tuple[str, int]]
-    if profile == "coverage":
-        weighted_ops = [
-            ("focus_left", 6),
-            ("focus_right", 6),
-            ("focus_up", 6),
-            ("focus_down", 6),
-            ("split_h", 6),
-            ("split_v", 6),
-            ("layout_splith", 3),
-            ("layout_splitv", 3),
-            ("layout_toggle_split", 4),
-            ("layout_tabbed", 3),
-            ("layout_stacked", 3),
-            ("focus_parent", 8),
-            ("focus_child", 8),
-            ("toggle_floating", 7),
-            ("toggle_focus_mode", 4),
-            ("toggle_fullscreen", 2),
-            ("close_focused", 3),
-            ("open_window", 9),
-        ]
-    else:
-        weighted_ops = [
-            ("focus_left", 6),
-            ("focus_right", 6),
-            ("focus_up", 6),
-            ("focus_down", 6),
-            ("split_h", 5),
-            ("split_v", 5),
-            ("layout_splith", 3),
-            ("layout_splitv", 3),
-            ("layout_toggle_split", 4),
-            ("layout_tabbed", 3),
-            ("layout_stacked", 3),
-            ("focus_parent", 6),
-            ("focus_child", 6),
-            ("toggle_floating", 4),
-            ("toggle_focus_mode", 4),
-            ("toggle_fullscreen", 2),
-            ("close_focused", 3),
-            ("open_window", 8),
-        ]
+    weighted_ops: list[tuple[str, int]] = [
+        ("focus_left", 6),
+        ("focus_right", 6),
+        ("focus_up", 6),
+        ("focus_down", 6),
+        ("split_h", 5),
+        ("split_v", 5),
+        ("layout_splith", 3),
+        ("layout_splitv", 3),
+        ("layout_toggle_split", 4),
+        ("layout_tabbed", 3),
+        ("layout_stacked", 3),
+        ("focus_parent", 6),
+        ("focus_child", 6),
+        ("toggle_floating", 4),
+        ("toggle_focus_mode", 4),
+        ("toggle_fullscreen", 2),
+        ("close_focused", 3),
+        ("open_window", 8),
+    ]
 
     bag: list[str] = []
     for op, weight in weighted_ops:
@@ -1140,41 +1107,25 @@ def generate_scenario(
 
     est_windows = max(initial_windows, 1)
     operations: list[dict[str, Any]] = []
-    pattern_interval = 32
-    while len(operations) < steps:
-        remaining = steps - len(operations)
-        inject_pattern = (
-            profile == "coverage"
-            and len(operations) > 0
-            and len(operations) % pattern_interval == 0
-            and remaining >= 4
-        )
-        sequence = (
-            list(rng.choice(COVERAGE_PATTERNS))[:remaining]
-            if inject_pattern
-            else [bag[rng.randrange(len(bag))]]
-        )
+    for _ in range(steps):
+        if est_windows <= 1:
+            op = "open_window"
+        else:
+            op = bag[rng.randrange(len(bag))]
 
-        for candidate in sequence:
-            op = candidate
-            if est_windows <= 1:
-                op = "open_window"
-            elif op == "close_focused" and est_windows <= 1:
-                op = "open_window"
+        if op == "close_focused" and est_windows <= 1:
+            op = "open_window"
 
-            if op == "open_window":
-                est_windows += 1
-            elif op == "close_focused":
-                est_windows = max(est_windows - 1, 0)
+        if op == "open_window":
+            est_windows += 1
+        elif op == "close_focused":
+            est_windows = max(est_windows - 1, 0)
 
-            operations.append({"op": op})
-            if len(operations) >= steps:
-                break
+        operations.append({"op": op})
 
     return {
         "version": 1,
         "seed": seed,
-        "profile": profile,
         "initial_windows": initial_windows,
         "operations": operations,
     }
@@ -1454,7 +1405,6 @@ def run_campaign(
     count: int,
     steps: int,
     initial_windows: int,
-    profile: str,
     window_cmd: str,
     output_dir: Path,
     mode: str,
@@ -1480,7 +1430,6 @@ def run_campaign(
             "count": count,
             "steps": steps,
             "initial_windows": initial_windows,
-            "profile": profile,
             "workspace_prefix": workspace_prefix,
             "sway_socket": sway_socket,
             "tiri_socket": tiri_socket,
@@ -1549,12 +1498,7 @@ def run_campaign(
             print(f"  ERROR: {msg}")
             break
 
-        scenario = generate_scenario(
-            seed=seed,
-            steps=steps,
-            initial_windows=initial_windows,
-            profile=profile,
-        )
+        scenario = generate_scenario(seed=seed, steps=steps, initial_windows=initial_windows)
         scenario_path = output_dir / f"seed-{seed}.scenario.json"
         sway_trace_path = output_dir / f"seed-{seed}.sway.trace.json"
         tiri_trace_path = output_dir / f"seed-{seed}.tiri.trace.json"
@@ -1666,16 +1610,11 @@ def main() -> int:
     args = parse_args()
 
     if args.cmd == "generate":
-        scenario = generate_scenario(
-            args.seed,
-            args.steps,
-            args.initial_windows,
-            profile=args.profile,
-        )
+        scenario = generate_scenario(args.seed, args.steps, args.initial_windows)
         args.output.write_text(json.dumps(scenario, indent=2) + "\n", encoding="utf-8")
         print(
             f"Wrote scenario to {args.output} "
-            f"(seed={args.seed}, steps={args.steps}, initial_windows={args.initial_windows}, profile={args.profile})"
+            f"(seed={args.seed}, steps={args.steps}, initial_windows={args.initial_windows})"
         )
         return 0
 
@@ -1739,7 +1678,6 @@ def main() -> int:
                 count=args.count,
                 steps=args.steps,
                 initial_windows=args.initial_windows,
-                profile=args.profile,
                 window_cmd=args.window_cmd,
                 output_dir=args.output_dir,
                 mode=args.mode,

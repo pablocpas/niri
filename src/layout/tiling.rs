@@ -819,6 +819,11 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.focus_path()
     }
 
+    #[cfg(test)]
+    pub fn selected_path(&self) -> Vec<usize> {
+        self.tree.selected_path()
+    }
+
     // Window management using ContainerTree
     pub fn add_window(
         &mut self,
@@ -1508,15 +1513,68 @@ impl<W: LayoutElement> TilingSpace<W> {
         selected
     }
 
-    pub(super) fn select_parent_of_window(&mut self, window: &W::Id) -> bool {
-        self.tree.select_parent_of_window(window)
+    pub(super) fn inactive_tiling_reference_for_parent_of_selected_reference(
+        &self,
+    ) -> Option<super::container::InactiveTilingReference> {
+        self.tree
+            .inactive_tiling_reference_for_parent_of_selected_reference()
     }
 
-    pub(super) fn insert_parent_info_for_parent_of_selected_reference(
+    pub(super) fn inactive_tiling_reference_for_selected_container(
         &self,
+    ) -> Option<super::container::InactiveTilingReference> {
+        self.tree.inactive_tiling_reference_for_selected_container()
+    }
+
+    pub(super) fn inactive_tiling_reference_for_selected_or_focused(
+        &self,
+    ) -> Option<super::container::InactiveTilingReference> {
+        self.tree
+            .inactive_tiling_reference_for_selected_or_focused()
+    }
+
+    pub(super) fn inactive_tiling_reference_for_parent_of_window(
+        &self,
+        window: &W::Id,
+    ) -> Option<super::container::InactiveTilingReference> {
+        self.tree.inactive_tiling_reference_for_parent_of_window(window)
+    }
+
+    pub(super) fn inactive_tiling_reference_chain_for_focused_reference(
+        &self,
+    ) -> Vec<super::container::InactiveTilingReference> {
+        self.tree
+            .inactive_tiling_reference_chain_for_focused_reference()
+    }
+
+    pub(super) fn insert_parent_info_from_inactive_tiling_reference(
+        &self,
+        reference: &super::container::InactiveTilingReference,
     ) -> Option<super::container::InsertParentInfo> {
         self.tree
-            .insert_parent_info_for_parent_of_selected_reference()
+            .insert_parent_info_from_inactive_tiling_reference(reference)
+    }
+
+    pub(super) fn insert_parent_info_from_inactive_tiling_reference_strict(
+        &self,
+        reference: &super::container::InactiveTilingReference,
+    ) -> Option<super::container::InsertParentInfo> {
+        self.tree
+            .insert_parent_info_from_inactive_tiling_reference_strict(reference)
+    }
+
+    pub(super) fn split_from_inactive_tiling_reference_like_sway(
+        &mut self,
+        reference: &super::container::InactiveTilingReference,
+        layout: Layout,
+    ) -> bool {
+        let changed = self
+            .tree
+            .split_from_inactive_tiling_reference_like_sway(reference, layout);
+        if changed {
+            self.tree.layout();
+        }
+        changed
     }
 
     pub fn wrap_root_for_sibling_insert(&mut self) -> bool {
@@ -1545,24 +1603,12 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     fn split_for_active_selection(&mut self, layout: Layout) -> bool {
-        if self.tree.selected_is_container() {
-            let path = self.tree.selected_path();
-            if let Some(container) = self.tree.container_at_path_mut(&path) {
-                container.set_layout_explicit(layout);
-                return true;
-            }
-        }
-
-        self.tree.split_focused(layout)
+        self.tree.split_selected_or_focused_like_sway(layout)
     }
 
     fn set_layout_for_active_selection(&mut self, layout: Layout) -> bool {
         if self.tree.selected_is_container() {
-            let path = self.tree.selected_path();
-            if let Some(container) = self.tree.container_at_path_mut(&path) {
-                container.set_layout_explicit(layout);
-                return true;
-            }
+            return self.tree.set_selected_container_layout_like_sway(layout);
         }
 
         self.tree.set_focused_layout(layout)
@@ -1577,10 +1623,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                     Layout::SplitV => Layout::SplitH,
                     Layout::Tabbed | Layout::Stacked => Layout::SplitH,
                 };
-                if let Some(container) = self.tree.container_at_path_mut(&path) {
-                    container.set_layout_explicit(next);
-                    return true;
-                }
+                return self.tree.set_selected_container_layout_like_sway(next);
             }
         }
 
@@ -1593,10 +1636,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             let path = self.tree.selected_path();
             if let Some((current, _, _)) = self.tree.container_info(&path) {
                 let next = Self::next_layout_all(current);
-                if let Some(container) = self.tree.container_at_path_mut(&path) {
-                    container.set_layout_explicit(next);
-                    return true;
-                }
+                return self.tree.set_selected_container_layout_like_sway(next);
             }
         }
 
@@ -1670,6 +1710,22 @@ impl<W: LayoutElement> TilingSpace<W> {
         if self.set_layout_for_active_selection(layout) {
             self.tree.layout();
         }
+    }
+
+    pub fn set_root_layout_mode(&mut self, layout: Layout) -> bool {
+        let changed = self.tree.set_root_container_layout(layout);
+        if changed {
+            self.tree.layout();
+        }
+        changed
+    }
+
+    pub fn collapse_redundant_root_single_child_split(&mut self) -> bool {
+        let changed = self.tree.collapse_redundant_root_single_child_split();
+        if changed {
+            self.tree.layout();
+        }
+        changed
     }
 
     /// Toggle between horizontal and vertical split for the focused container.
@@ -2325,6 +2381,14 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.set_pending_layout(layout);
     }
 
+    pub fn set_workspace_layout_hint(&mut self, layout: Layout) {
+        self.tree.set_workspace_layout_hint(layout);
+    }
+
+    pub fn focus_is_root_leaf(&self) -> bool {
+        self.tree.focus_path().is_empty()
+    }
+
     pub fn add_tile(
         &mut self,
         col_idx: Option<usize>,
@@ -2394,17 +2458,33 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.layout();
     }
 
+    pub fn add_subtree_as_workspace_tiling_fallback(&mut self, subtree: DetachedNode<W>, focus: bool) {
+        if self.tree.is_empty() {
+            self.tree.insert_subtree_with_focus(subtree, focus);
+        } else {
+            let index = self.tree.root_children_len();
+            self.tree.insert_subtree_at_root(index, subtree, focus);
+        }
+        self.sync_fullscreen_window();
+        self.tree.layout();
+    }
+
+    pub fn add_tile_as_workspace_tiling_fallback(&mut self, tile: Tile<W>, activate: bool) {
+        if self.tree.is_empty() {
+            self.tree.insert_window_with_focus(tile, activate);
+        } else {
+            let index = self.tree.root_children_len();
+            self.tree.insert_leaf_at(index, tile, activate);
+        }
+        self.sync_fullscreen_window();
+        self.tree.layout();
+    }
+
     pub(super) fn insert_parent_info_for_window(
         &self,
         window: &W::Id,
     ) -> Option<super::container::InsertParentInfo> {
         self.tree.insert_parent_info_for_window(window)
-    }
-
-    pub(super) fn insert_parent_info_for_inactive_reference(
-        &self,
-    ) -> Option<super::container::InsertParentInfo> {
-        self.tree.insert_parent_info_for_selected_reference()
     }
 
     pub(super) fn replace_tile_at_path(
@@ -2871,6 +2951,8 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn set_fullscreen(&mut self, window: &W::Id, is_fullscreen: bool) -> bool {
+        let selected_container = self.tree.selected_container_key();
+
         if is_fullscreen {
             if self
                 .fullscreen_window
@@ -2880,7 +2962,14 @@ impl<W: LayoutElement> TilingSpace<W> {
                 return false;
             }
 
-            if !self.tree.focus_window_by_id(window) {
+            let already_focused = self
+                .tree
+                .focused_window()
+                .is_some_and(|focused| focused.id() == window);
+            if selected_container.is_none()
+                && !already_focused
+                && !self.tree.focus_window_by_id(window)
+            {
                 return false;
             }
 
@@ -2893,6 +2982,9 @@ impl<W: LayoutElement> TilingSpace<W> {
 
             self.fullscreen_window = Some(window.clone());
             self.tree.layout();
+            if let Some(selected_key) = selected_container {
+                self.tree.set_selected_container_key(selected_key);
+            }
             true
         } else {
             let Some(path) = self.tree.find_window(window) else {
@@ -2926,6 +3018,9 @@ impl<W: LayoutElement> TilingSpace<W> {
 
             self.fullscreen_window = None;
             self.tree.layout();
+            if let Some(selected_key) = selected_container {
+                self.tree.set_selected_container_key(selected_key);
+            }
             true
         }
     }

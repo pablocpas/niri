@@ -137,6 +137,26 @@ pub(super) struct InsertParentInfo {
     pub child_percents: Vec<f64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum InactiveTilingReference {
+    Leaf { key: NodeKey, path_hint: Vec<usize> },
+    Container { key: NodeKey, path_hint: Vec<usize> },
+}
+
+impl InactiveTilingReference {
+    pub(super) fn node_key(&self) -> NodeKey {
+        match self {
+            InactiveTilingReference::Leaf { key, .. } => *key,
+            InactiveTilingReference::Container { key, .. } => *key,
+        }
+    }
+}
+
+enum ResolvedInactiveTilingReference {
+    Leaf { path: Vec<usize> },
+    Container { key: NodeKey, path: Vec<usize> },
+}
+
 #[derive(Debug)]
 struct LayoutData {
     leaf_layouts: Vec<LeafLayoutInfo>,
@@ -812,6 +832,13 @@ impl<W: LayoutElement> DetachedContainer<W> {
 // ============================================================================
 
 impl<W: LayoutElement> ContainerTree<W> {
+    /// Sway has no synthetic workspace-root container node in the tiling tree.
+    /// In tiri this node is an implementation detail and should be ignored in
+    /// inactive-tiling reference resolution.
+    fn is_synthetic_root_container_key(&self, key: NodeKey) -> bool {
+        self.root == Some(key) && matches!(self.get_node(key), Some(NodeData::Container(_)))
+    }
+
     /// Create a new empty container tree
     pub fn new(
         view_size: Size<f64, Logical>,
@@ -867,7 +894,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             });
         }
 
-        let focus_path = self.focus_path();
+        let focus_path = self.selected_path();
         let (parent_path, insert_idx) = if focus_path.is_empty() {
             (Vec::new(), None)
         } else {
@@ -1326,7 +1353,11 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         let node_key = self.insert_subtree(subtree);
 
-        if self.root.is_none() {
+        let tree_has_no_leaves = self.first_leaf_key().is_none();
+        if self.root.is_none() || tree_has_no_leaves {
+            if let Some(old_root) = self.root.take() {
+                self.remove_node_recursive(old_root);
+            }
             self.set_parent(node_key, None);
             self.root = Some(node_key);
             if focus {
@@ -1777,8 +1808,73 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.selected_key.is_some_and(|key| matches!(self.get_node(key), Some(NodeData::Container(_))))
     }
 
+    pub fn selected_container_key(&self) -> Option<NodeKey> {
+        let key = self.selected_key?;
+        matches!(self.get_node(key), Some(NodeData::Container(_))).then_some(key)
+    }
+
+    pub fn set_selected_container_key(&mut self, key: NodeKey) -> bool {
+        if matches!(self.get_node(key), Some(NodeData::Container(_))) {
+            self.selected_key = Some(key);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn clear_selection(&mut self) {
         self.selected_key = None;
+    }
+
+    /// Apply a layout command using sway-like command context semantics for
+    /// a selected container (`focus parent`):
+    /// - selected top-level container (synthetic root) resolves to workspace context;
+    /// - otherwise apply layout to the selected container parent.
+    pub fn set_selected_container_layout_like_sway(&mut self, layout: Layout) -> bool {
+        let Some(selected_key) = self.selected_container_key() else {
+            return false;
+        };
+
+        if Some(selected_key) == self.root {
+            // Match sway cmd_layout() with a top-level container in handler_context:
+            // after taking container->parent (NULL), command falls back to workspace path
+            // and wraps workspace children before applying the new layout.
+            let focus_key = self.focused_key.or_else(|| self.first_leaf_key());
+
+            let mut outer = ContainerData::new(layout);
+            outer.add_child(selected_key);
+            let outer_key = self.insert_node(NodeData::Container(outer));
+            self.set_parent(selected_key, Some(outer_key));
+            self.set_parent(outer_key, None);
+            self.root = Some(outer_key);
+
+            if let Some(focus_key) = focus_key {
+                self.focus_node_key(focus_key);
+            }
+            // Preserve command context on the originally selected top-level container.
+            self.selected_key = Some(selected_key);
+            return true;
+        }
+
+        let Some(parent_key) = self.parent_of(selected_key) else {
+            return false;
+        };
+        let Some(parent) = self.get_container_mut(parent_key) else {
+            return false;
+        };
+        parent.set_layout_explicit(layout);
+        true
+    }
+
+    pub fn set_root_container_layout(&mut self, layout: Layout) -> bool {
+        let Some(root_key) = self.root else {
+            return false;
+        };
+        let Some(root) = self.get_container_mut(root_key) else {
+            return false;
+        };
+        root.set_layout_explicit(layout);
+        true
     }
 
     pub fn select_parent(&mut self) -> bool {
@@ -1807,41 +1903,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             return false;
         };
         self.selected_key = Some(child_key);
-        true
-    }
-
-    /// Select parent container of the given window, if any.
-    pub fn select_parent_of_window(&mut self, window_id: &W::Id) -> bool {
-        let Some(path) = self.find_window(window_id) else {
-            return false;
-        };
-        if path.is_empty() {
-            return false;
-        }
-
-        let parent_path = &path[..path.len() - 1];
-        let parent_key = if parent_path.is_empty() {
-            self.root
-        } else {
-            self.get_node_key_at_path(parent_path)
-        };
-        let Some(parent_key) = parent_key else {
-            return false;
-        };
-
-        // Match sway's inactive-tiling handoff when floating a focused leaf from a
-        // single-child wrapper: that wrapper disappears immediately, so keep a
-        // stable surviving parent reference instead.
-        let selected_key = if self
-            .get_container(parent_key)
-            .is_some_and(|container| container.child_count() == 1)
-        {
-            self.parent_of(parent_key).unwrap_or(parent_key)
-        } else {
-            parent_key
-        };
-
-        self.selected_key = Some(selected_key);
         true
     }
 
@@ -1995,6 +2056,11 @@ impl<W: LayoutElement> ContainerTree<W> {
         // External layout hints (workspace parity plumbing) should be consumable by
         // the next split command on a single root leaf.
         self.pending_layout_wrap_on_split = true;
+    }
+
+    pub fn set_workspace_layout_hint(&mut self, layout: Layout) {
+        self.pending_layout = Some(layout);
+        self.pending_layout_wrap_on_split = false;
     }
 
     pub fn clear_pending_layout(&mut self) {
@@ -2787,7 +2853,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             self.sync_container_focus_from_key(key);
         }
 
-        let focus_path = self.focus_path();
+        let focus_path = self.selected_path();
         let mut wrap_candidate: Option<(NodeKey, usize)> = None;
 
         // Navigate up the focus path to find appropriate container
@@ -2825,7 +2891,11 @@ impl<W: LayoutElement> ContainerTree<W> {
                     // Remember a wrap candidate at the first matching container, but only use it
                     // if no direct movement was possible at this or any ancestor.
                     let child_count = container.children.len();
-                    if allow_wrap && wrap_candidate.is_none() && child_count > 1 {
+                    if allow_wrap
+                        && wrap_candidate.is_none()
+                        && child_count > 1
+                        && matches!(container.layout, Layout::SplitH | Layout::SplitV)
+                    {
                         let wrap_idx = match direction {
                             Direction::Left | Direction::Up => child_count - 1,
                             Direction::Right | Direction::Down => 0,
@@ -3274,6 +3344,48 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.ensure_selected_root_has_parent_for_sibling_insert()
     }
 
+    pub fn collapse_redundant_root_single_child_split(&mut self) -> bool {
+        let mut changed = false;
+
+        loop {
+            let Some(root_key) = self.root else {
+                break;
+            };
+            let Some(root_container) = self.get_container(root_key) else {
+                break;
+            };
+            if root_container.child_count() != 1 {
+                break;
+            }
+
+            let root_layout = root_container.layout();
+            if !matches!(root_layout, Layout::SplitH | Layout::SplitV) {
+                break;
+            }
+
+            let Some(child_key) = root_container.child_key(0) else {
+                break;
+            };
+            let Some(child_container) = self.get_container(child_key) else {
+                break;
+            };
+            if child_container.layout() != root_layout {
+                break;
+            }
+
+            self.set_parent(child_key, None);
+            self.root = Some(child_key);
+            if self.selected_key == Some(root_key) {
+                self.selected_key = Some(child_key);
+            }
+            self.nodes.remove(root_key);
+            self.parents.remove(root_key);
+            changed = true;
+        }
+
+        changed
+    }
+
     fn layouts_parallel(a: Layout, b: Layout) -> bool {
         matches!(
             (a, b),
@@ -3289,6 +3401,87 @@ impl<W: LayoutElement> ContainerTree<W> {
             (parent, child),
             (Layout::SplitH, Layout::SplitH) | (Layout::SplitV, Layout::SplitV)
         )
+    }
+
+    fn split_selected_container_like_sway(
+        &mut self,
+        selected_key: NodeKey,
+        layout: Layout,
+    ) -> bool {
+        if !matches!(self.get_node(selected_key), Some(NodeData::Container(_))) {
+            return false;
+        }
+
+        // The selected root container has an implicit workspace parent in sway.
+        // Without an explicit workspace node in this tree model, keep the split as
+        // a no-op while recording the orientation as pending workspace intent.
+        if Some(selected_key) == self.root {
+            self.pending_layout = Some(layout);
+            self.pending_layout_wrap_on_split = false;
+            return true;
+        }
+
+        let Some(parent_key) = self.parent_of(selected_key) else {
+            return false;
+        };
+
+        let (parent_layout, parent_child_count) = match self.get_container(parent_key) {
+            Some(container) => (container.layout(), container.child_count()),
+            None => return false,
+        };
+
+        if parent_child_count == 1 && matches!(parent_layout, Layout::SplitH | Layout::SplitV) {
+            if let Some(container) = self.get_container_mut(parent_key) {
+                // Match sway container_split(): singleton split parents only change orientation.
+                container.set_layout(layout);
+            }
+            return true;
+        }
+
+        let Some(child_idx) = self.child_index(parent_key, selected_key) else {
+            return false;
+        };
+
+        if let Some(parent) = self.get_container_mut(parent_key) {
+            parent.remove_child(child_idx);
+        }
+        self.set_parent(selected_key, None);
+
+        let mut wrapper = ContainerData::new(layout);
+        wrapper.mark_preserve_on_single();
+        wrapper.add_child(selected_key);
+        let wrapper_key = self.insert_node(NodeData::Container(wrapper));
+        self.set_parent(selected_key, Some(wrapper_key));
+
+        if let Some(parent) = self.get_container_mut(parent_key) {
+            parent.insert_child(child_idx, wrapper_key);
+        }
+        self.set_parent(wrapper_key, Some(parent_key));
+
+        // Keep command context on the originally selected container.
+        self.selected_key = Some(selected_key);
+        if let Some(focused_key) = self.focused_key {
+            self.sync_container_focus_from_key(focused_key);
+        } else if let Some(leaf_key) = self.leaf_under_key(selected_key) {
+            self.focused_key = Some(leaf_key);
+            self.sync_container_focus_from_key(leaf_key);
+        }
+
+        true
+    }
+
+    /// Split command target with sway semantics:
+    /// selected container (focus-parent) first, otherwise focused leaf.
+    pub fn split_selected_or_focused_like_sway(&mut self, layout: Layout) -> bool {
+        self.clear_focus_history();
+
+        if let Some(selected_key) = self.selected_key {
+            if matches!(self.get_node(selected_key), Some(NodeData::Container(_))) {
+                return self.split_selected_container_like_sway(selected_key, layout);
+            }
+        }
+
+        self.split_focused(layout)
     }
 
     /// Split the focused container in a direction
@@ -3312,12 +3505,15 @@ impl<W: LayoutElement> ContainerTree<W> {
                     }
                 }
             }
-
-            // Match sway/i3: split on a single tiled leaf sets orientation for
-            // future sibling insertion; it does not immediately wrap.
-            self.pending_layout = Some(layout);
-            self.pending_layout_wrap_on_split = false;
-            return true;
+            let current_layout = self.pending_layout.unwrap_or(Layout::SplitH);
+            if matches!(current_layout, Layout::SplitH | Layout::SplitV) {
+                // Match sway container_split() on a singleton under workspace H/V:
+                // update workspace orientation, don't materialize a wrapper yet.
+                self.pending_layout = Some(layout);
+                self.pending_layout_wrap_on_split = false;
+                return true;
+            }
+            return self.ensure_root_container_with_layout(layout);
         }
 
         if focus_path.is_empty() {
@@ -3585,6 +3781,30 @@ impl<W: LayoutElement> ContainerTree<W> {
                     }
                 }
             }
+        }
+
+        if matches!(current, Layout::Stacked)
+            && Some(target_key) == self.root
+            && focus_path.len() == 1
+        {
+            let Some(old_root_key) = self.root else {
+                return false;
+            };
+
+            let focus_key = self.focused_key.or_else(|| self.first_leaf_key());
+
+            let mut outer = ContainerData::new(next);
+            outer.add_child(old_root_key);
+
+            let outer_key = self.insert_node(NodeData::Container(outer));
+            self.set_parent(old_root_key, Some(outer_key));
+            self.set_parent(outer_key, None);
+            self.root = Some(outer_key);
+
+            if let Some(focus_key) = focus_key {
+                self.focus_node_key(focus_key);
+            }
+            return true;
         }
 
         if matches!(current, Layout::Tabbed | Layout::Stacked) {
@@ -4484,22 +4704,193 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.insert_parent_info_for_path(&path)
     }
 
-    /// Build insert metadata from the inactive tiling reference, matching sway's
-    /// floating->tiling behavior:
-    /// - leaf reference => insert as sibling after the leaf
-    /// - container reference => insert as child of that container
-    pub(super) fn insert_parent_info_for_selected_reference(&self) -> Option<InsertParentInfo> {
-        let key = self.selected_node_key()?;
-        let path = self.find_node_path(key)?;
-
+    fn inactive_tiling_reference_for_node_key(
+        &self,
+        key: NodeKey,
+    ) -> Option<InactiveTilingReference> {
+        let path_hint = self.find_node_path(key)?;
         match self.get_node(key)? {
-            NodeData::Container(container) => Some(InsertParentInfo {
-                parent_path: path,
-                insert_idx: container.child_count(),
-                layout: container.layout(),
-                child_percents: Vec::new(),
-            }),
-            NodeData::Leaf(_) => {
+            NodeData::Container(_) => (!self.is_synthetic_root_container_key(key))
+                .then_some(InactiveTilingReference::Container { key, path_hint }),
+            NodeData::Leaf(_) => Some(InactiveTilingReference::Leaf { key, path_hint }),
+        }
+    }
+
+    fn inactive_tiling_container_reference_for_key(
+        &self,
+        key: NodeKey,
+    ) -> Option<InactiveTilingReference> {
+        self.get_container(key)?;
+        if self.is_synthetic_root_container_key(key) {
+            return None;
+        }
+        let path_hint = self.find_node_path(key)?;
+        Some(InactiveTilingReference::Container { key, path_hint })
+    }
+
+    fn resolve_node_key_from_inactive_tiling_reference(
+        &self,
+        key: NodeKey,
+        path_hint: &[usize],
+    ) -> Option<NodeKey> {
+        if self.get_node(key).is_some() {
+            Some(key)
+        } else if path_hint.is_empty() {
+            self.root
+        } else {
+            self.get_node_key_at_path(path_hint)
+        }
+    }
+
+    fn resolve_inactive_tiling_reference(
+        &self,
+        reference: &InactiveTilingReference,
+    ) -> Option<ResolvedInactiveTilingReference> {
+        match reference {
+            InactiveTilingReference::Container { key, path_hint } => {
+                let key = self.resolve_node_key_from_inactive_tiling_reference(*key, path_hint)?;
+                self.get_container(key)?;
+                if self.is_synthetic_root_container_key(key) {
+                    return None;
+                }
+                let path = self.find_node_path(key)?;
+                Some(ResolvedInactiveTilingReference::Container { key, path })
+            }
+            InactiveTilingReference::Leaf { key, path_hint } => {
+                let key = self.resolve_node_key_from_inactive_tiling_reference(*key, path_hint)?;
+                if !matches!(self.get_node(key), Some(NodeData::Leaf(_))) {
+                    return None;
+                }
+                let path = self.find_node_path(key)?;
+                Some(ResolvedInactiveTilingReference::Leaf { path })
+            }
+        }
+    }
+
+    fn resolve_inactive_tiling_reference_strict_key(
+        &self,
+        reference: &InactiveTilingReference,
+    ) -> Option<ResolvedInactiveTilingReference> {
+        match reference {
+            InactiveTilingReference::Container { key, .. } => {
+                self.get_container(*key)?;
+                if self.is_synthetic_root_container_key(*key) {
+                    return None;
+                }
+                let path = self.find_node_path(*key)?;
+                Some(ResolvedInactiveTilingReference::Container { key: *key, path })
+            }
+            InactiveTilingReference::Leaf { key, .. } => {
+                if !matches!(self.get_node(*key), Some(NodeData::Leaf(_))) {
+                    return None;
+                }
+                let path = self.find_node_path(*key)?;
+                Some(ResolvedInactiveTilingReference::Leaf { path })
+            }
+        }
+    }
+
+    pub(super) fn inactive_tiling_reference_chain_for_focused_reference(
+        &self,
+    ) -> Vec<InactiveTilingReference> {
+        let mut chain = Vec::new();
+        // Match sway command-context semantics: when a container is selected
+        // (focus-parent), that selected node is the active reference source.
+        let Some(mut key) = self.selected_node_key().or_else(|| self.first_leaf_key()) else {
+            return chain;
+        };
+
+        if let Some(reference) = self.inactive_tiling_reference_for_node_key(key) {
+            chain.push(reference);
+        }
+
+        while let Some(parent_key) = self.parent_of(key) {
+            if let Some(reference) = self.inactive_tiling_container_reference_for_key(parent_key) {
+                chain.push(reference);
+            }
+            key = parent_key;
+        }
+
+        chain
+    }
+
+    pub(super) fn inactive_tiling_reference_for_selected_container(
+        &self,
+    ) -> Option<InactiveTilingReference> {
+        let key = self.selected_container_key()?;
+        self.inactive_tiling_container_reference_for_key(key)
+    }
+
+    pub(super) fn inactive_tiling_reference_for_selected_or_focused(
+        &self,
+    ) -> Option<InactiveTilingReference> {
+        let key = self.selected_node_key().or_else(|| self.first_leaf_key())?;
+        self.inactive_tiling_reference_for_node_key(key)
+    }
+
+    pub(super) fn inactive_tiling_reference_for_parent_of_selected_reference(
+        &self,
+    ) -> Option<InactiveTilingReference> {
+        let key = self.selected_node_key()?;
+        let parent_key = self.parent_of(key)?;
+        self.inactive_tiling_container_reference_for_key(parent_key)
+    }
+
+    pub(super) fn inactive_tiling_reference_for_parent_of_window(
+        &self,
+        window_id: &W::Id,
+    ) -> Option<InactiveTilingReference> {
+        let path = self.find_window(window_id)?;
+        let node_key = self.get_node_key_at_path(&path)?;
+        let parent_key = self.parent_of(node_key)?;
+        self.inactive_tiling_container_reference_for_key(parent_key)
+    }
+
+    fn resolve_container_key_from_inactive_tiling_reference(
+        &self,
+        reference: &InactiveTilingReference,
+    ) -> Option<NodeKey> {
+        match self.resolve_inactive_tiling_reference(reference)? {
+            ResolvedInactiveTilingReference::Container { key, .. } => Some(key),
+            ResolvedInactiveTilingReference::Leaf { .. } => None,
+        }
+    }
+
+    pub(super) fn split_from_inactive_tiling_reference_like_sway(
+        &mut self,
+        reference: &InactiveTilingReference,
+        layout: Layout,
+    ) -> bool {
+        let Some(container_key) = self.resolve_container_key_from_inactive_tiling_reference(reference)
+        else {
+            return false;
+        };
+
+        self.selected_key = Some(container_key);
+        self.split_selected_container_like_sway(container_key, layout)
+    }
+
+    /// Resolve an inactive tiling reference with sway semantics:
+    /// - container reference => insert as child of that container
+    /// - leaf reference => insert as sibling after that leaf
+    fn insert_parent_info_from_resolved_inactive_tiling_reference(
+        &self,
+        resolved: ResolvedInactiveTilingReference,
+    ) -> Option<InsertParentInfo> {
+        match resolved {
+            ResolvedInactiveTilingReference::Container {
+                key: container_key,
+                path,
+            } => {
+                let container = self.get_container(container_key)?;
+                Some(InsertParentInfo {
+                    parent_path: path,
+                    insert_idx: container.child_count(),
+                    layout: container.layout(),
+                    child_percents: Vec::new(),
+                })
+            }
+            ResolvedInactiveTilingReference::Leaf { path, .. } => {
                 if path.is_empty() {
                     return Some(InsertParentInfo {
                         parent_path: Vec::new(),
@@ -4509,17 +4900,17 @@ impl<W: LayoutElement> ContainerTree<W> {
                     });
                 }
 
-                let parent_path = &path[..path.len() - 1];
+                let parent_path = path[..path.len() - 1].to_vec();
                 let parent_key = if parent_path.is_empty() {
                     self.root?
                 } else {
-                    self.get_node_key_at_path(parent_path)?
+                    self.get_node_key_at_path(&parent_path)?
                 };
                 let parent = self.get_container(parent_key)?;
-
+                let leaf_idx = *path.last().unwrap();
                 Some(InsertParentInfo {
-                    parent_path: parent_path.to_vec(),
-                    insert_idx: path[path.len() - 1] + 1,
+                    parent_path,
+                    insert_idx: (leaf_idx + 1).min(parent.child_count()),
                     layout: parent.layout(),
                     child_percents: Vec::new(),
                 })
@@ -4527,22 +4918,20 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
     }
 
-    pub(super) fn insert_parent_info_for_parent_of_selected_reference(
+    pub(super) fn insert_parent_info_from_inactive_tiling_reference(
         &self,
+        reference: &InactiveTilingReference,
     ) -> Option<InsertParentInfo> {
-        let key = self.selected_node_key()?;
-        let parent_key = self.parent_of(key)?;
-        let parent_path = self.find_node_path(parent_key)?;
+        let resolved = self.resolve_inactive_tiling_reference(reference)?;
+        self.insert_parent_info_from_resolved_inactive_tiling_reference(resolved)
+    }
 
-        match self.get_node(parent_key)? {
-            NodeData::Container(container) => Some(InsertParentInfo {
-                parent_path,
-                insert_idx: container.child_count(),
-                layout: container.layout(),
-                child_percents: Vec::new(),
-            }),
-            NodeData::Leaf(_) => None,
-        }
+    pub(super) fn insert_parent_info_from_inactive_tiling_reference_strict(
+        &self,
+        reference: &InactiveTilingReference,
+    ) -> Option<InsertParentInfo> {
+        let resolved = self.resolve_inactive_tiling_reference_strict_key(reference)?;
+        self.insert_parent_info_from_resolved_inactive_tiling_reference(resolved)
     }
 
     fn insert_parent_info_for_path(&self, path: &[usize]) -> Option<InsertParentInfo> {
@@ -5415,11 +5804,9 @@ impl<W: LayoutElement> ContainerTree<W> {
 impl ContainerTree<Mapped> {
     pub fn layout_tree(&self) -> Option<LayoutTreeNode> {
         let root_key = self.root?;
-        let focused_key = self
-            .selected_key
-            .filter(|key| self.get_node(*key).is_some())
-            .or(self.focused_key)
-            .or_else(|| self.first_leaf_key());
+        // Match sway IPC semantics: reported focus in the tree stays on the focused leaf,
+        // even when a container is selected via focus-parent command context.
+        let focused_key = self.focused_key.or_else(|| self.first_leaf_key());
         Some(self.build_layout_tree_node(root_key, focused_key))
     }
 
