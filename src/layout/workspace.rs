@@ -56,31 +56,12 @@ pub struct Workspace<W: LayoutElement> {
     /// Whether the floating layout is active instead of the scrolling layout.
     floating_is_active: FloatingActive,
 
-    /// One-shot sway parity hook:
-    /// after `focus_parent` no-op in floating on a redundant single-child wrapper,
-    /// the next split command should prepare tiling root sibling insertion.
-    pending_tiling_root_wrap_on_split: bool,
-
-    /// One-shot layout hint for the tiling-root wrap fallback used after
-    /// floating `focus_parent` no-op parity paths.
-    pending_tiling_root_layout_hint: Option<Layout>,
-
-    /// When floating focus remains active while tiling becomes empty, force the next
-    /// auto-open window to recreate tiling (sway-like command-context behavior).
-    force_tiling_auto_open_while_floating: bool,
-
-    /// Workspace-scope command context while floating is active and tiling is empty.
-    ///
-    /// This mirrors sway command-target semantics (`handler_context` can be workspace-scoped)
-    /// without changing the compositor's focused window.
+    /// Match sway command-context where focus can be on workspace while the seat is
+    /// still on floating mode (no active floating container target).
     floating_workspace_context: bool,
 
     /// seat->focus_stack equivalent for tiling restore targets (MRU at index 0).
     inactive_tiling_focus_stack: Vec<InactiveTilingReference>,
-
-    /// One-shot command-context fallback (sway-like container focus) used when
-    /// selected visual focus is lost by asynchronous window state updates.
-    pending_tiling_command_reference: Option<InactiveTilingReference>,
 
     /// The original output of this workspace.
     ///
@@ -215,9 +196,15 @@ enum FloatingActive {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommandContext {
+    Tiling,
+    Floating,
+    Workspace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InactiveTilingRestoreSource {
     Stack,
-    PendingCommand,
     Current,
 }
 
@@ -327,12 +314,8 @@ impl<W: LayoutElement> Workspace<W> {
             scrolling,
             floating,
             floating_is_active: FloatingActive::No,
-            pending_tiling_root_wrap_on_split: false,
-            pending_tiling_root_layout_hint: None,
-            force_tiling_auto_open_while_floating: false,
             floating_workspace_context: false,
             inactive_tiling_focus_stack: Vec::new(),
-            pending_tiling_command_reference: None,
             original_output,
             scale,
             transform: output.current_transform(),
@@ -398,12 +381,8 @@ impl<W: LayoutElement> Workspace<W> {
             scrolling,
             floating,
             floating_is_active: FloatingActive::No,
-            pending_tiling_root_wrap_on_split: false,
-            pending_tiling_root_layout_hint: None,
-            force_tiling_auto_open_while_floating: false,
             floating_workspace_context: false,
             inactive_tiling_focus_stack: Vec::new(),
-            pending_tiling_command_reference: None,
             output: None,
             scale,
             transform: Transform::Normal,
@@ -584,6 +563,30 @@ impl<W: LayoutElement> Workspace<W> {
         })
     }
 
+    fn command_context(&self) -> CommandContext {
+        // Match sway semantics: no floating command context exists when there are
+        // no floating containers in the workspace.
+        if self.floating.is_empty() {
+            return CommandContext::Tiling;
+        }
+
+        if !self.floating_is_active.get() {
+            return CommandContext::Tiling;
+        }
+
+        // Match sway handler-context semantics: command routing may remain on a
+        // selected tiling container even while focus mode is floating.
+        if self.scrolling.selected_is_container() {
+            return CommandContext::Tiling;
+        }
+
+        if self.floating_workspace_context {
+            return CommandContext::Workspace;
+        }
+
+        CommandContext::Floating
+    }
+
     pub fn current_output(&self) -> Option<&Output> {
         self.output.as_ref()
     }
@@ -606,30 +609,19 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn active_selection_is_container(&self) -> bool {
         if self.floating_is_active.get() {
-            if self.floating.active_wrapper_selected() || self.floating.selected_is_container(None)
-            {
-                return true;
-            }
-
-            // Match sway command context semantics: focus-parent selection in tiling
-            // remains a valid container target even if floating focus mode is active.
-            return self.scrolling.selected_is_container();
+            return self.floating.active_wrapper_selected()
+                || self.floating.selected_is_container(None);
         }
 
         self.scrolling.selected_is_container()
     }
 
     pub fn close_window_ids_for_active_selection(&self) -> Vec<W::Id> {
-        if self.floating_is_active.get() {
-            // In this sway-parity state (`force_tiling_auto_open_while_floating`) commands are
-            // evaluated at workspace scope rather than per-window.
-            if self.force_tiling_auto_open_while_floating
-                && !self.scrolling.is_empty()
-                && !self.floating.is_empty()
-            {
-                return self.windows().map(|window| window.id().clone()).collect();
-            }
+        if self.command_context() == CommandContext::Workspace {
+            return self.windows().map(|window| window.id().clone()).collect();
+        }
 
+        if self.floating_is_active.get() {
             // Sway kill semantics: when floating wrapper selection is active, command targets the
             // workspace container and closes every window in it.
             if self.floating.active_wrapper_selected() {
@@ -777,13 +769,14 @@ impl<W: LayoutElement> Workspace<W> {
     ) {
         self.enter_output_for_window(tile.window());
         let floating_active = self.floating_is_active.get();
+        let workspace_command_context = self.command_context() == CommandContext::Workspace;
 
         match target {
             WorkspaceAddWindowTarget::Auto => {
                 // Match sway: if the active floating container was explicitly split/grouped,
                 // the next normal window should join that floating container.
                 let grouped_floating = floating_active
-                    && !self.force_tiling_auto_open_while_floating
+                    && !workspace_command_context
                     && !self.scrolling.is_empty()
                     && self.floating.active_container_allows_splits();
                 let wants_floating = is_floating || grouped_floating;
@@ -793,12 +786,18 @@ impl<W: LayoutElement> Workspace<W> {
                 }
                 tile.restore_to_floating = wants_floating;
 
-                // Match sway: auto-opened tiling windows keep floating focus only when tiling
-                // already has content; if tiling is empty and a new tiling window appears, focus
-                // transitions back to tiling.
-                let keep_floating_focus =
-                    floating_active && !wants_floating && !self.scrolling.is_empty();
+                let keep_floating_focus = floating_active
+                    && !wants_floating
+                    && (!self.scrolling.is_empty() || workspace_command_context);
+                // Match sway: when a floating container is selected (focus-parent context),
+                // opening a new floating window inserts into that container without stealing
+                // selection/focus from the container command target.
+                let keep_floating_container_selection = floating_active
+                    && wants_floating
+                    && self.floating.selected_is_container(None);
                 let activate = if keep_floating_focus {
+                    false
+                } else if keep_floating_container_selection {
                     false
                 } else if !wants_floating && has_tiling_fullscreen {
                     // Match sway: while a tiling window is fullscreen, newly opened tiling windows
@@ -829,8 +828,12 @@ impl<W: LayoutElement> Workspace<W> {
                     self.scrolling
                         .add_tile(None, tile, activate, width, is_full_width, None);
 
+
                     if activate
-                        || (floating_active && scrolling_was_empty && !wants_floating)
+                        || (floating_active
+                            && scrolling_was_empty
+                            && !wants_floating
+                            && !workspace_command_context)
                     {
                         self.floating_is_active = FloatingActive::No;
                     }
@@ -979,9 +982,8 @@ impl<W: LayoutElement> Workspace<W> {
 
         if debug_restore {
             eprintln!(
-                "restore_target: stack={:?} pending_command_ref={:?}",
+                "restore_target: stack={:?}",
                 self.inactive_tiling_focus_stack,
-                self.pending_tiling_command_reference,
             );
         }
 
@@ -1005,20 +1007,6 @@ impl<W: LayoutElement> Workspace<W> {
             self.inactive_tiling_focus_stack.remove(idx);
         }
 
-        // When the inactive stack has become stale, prefer explicit command-context
-        // reference captured from tiling selection/focus-parent semantics.
-        if let Some(reference) = self.pending_tiling_command_reference.clone() {
-            let info = self
-                .scrolling
-                .insert_parent_info_from_inactive_tiling_reference(&reference);
-            if debug_restore {
-                eprintln!("restore_target: from_pending={reference:?} info={info:?}");
-            }
-            if info.is_some() {
-                return info.map(|info| (info, InactiveTilingRestoreSource::PendingCommand));
-            }
-        }
-
         // Fallback only when the inactive stack has no valid tiling references.
         if let Some(reference) = self
             .scrolling
@@ -1039,27 +1027,6 @@ impl<W: LayoutElement> Workspace<W> {
         None
     }
 
-    fn inactive_tiling_split_container_target(&mut self) -> Option<InactiveTilingReference> {
-        let mut idx = 0;
-        while idx < self.inactive_tiling_focus_stack.len() {
-            let reference = self.inactive_tiling_focus_stack[idx].clone();
-            let valid = self
-                .scrolling
-                .insert_parent_info_from_inactive_tiling_reference_strict(&reference)
-                .is_some();
-            if !valid {
-                self.inactive_tiling_focus_stack.remove(idx);
-                continue;
-            }
-
-            if matches!(reference, InactiveTilingReference::Container { .. }) {
-                return Some(reference);
-            }
-            idx += 1;
-        }
-        None
-    }
-
     fn remember_current_tiling_reference(&mut self) {
         let chain = self
             .scrolling
@@ -1069,13 +1036,16 @@ impl<W: LayoutElement> Workspace<W> {
         }
     }
 
+    fn remember_current_tiling_focused_leaf_reference(&mut self) {
+        let chain = self
+            .scrolling
+            .inactive_tiling_reference_chain_for_focused_leaf();
+        for reference in chain.into_iter().rev() {
+            self.remember_inactive_tiling_reference(reference);
+        }
+    }
+
     fn sync_tiling_focus_context_from_scrolling(&mut self) {
-        self.pending_tiling_command_reference = if self.scrolling.selected_is_container() {
-            self.scrolling
-                .inactive_tiling_reference_for_selected_container()
-        } else {
-            None
-        };
         self.remember_current_tiling_reference();
     }
 
@@ -1347,9 +1317,6 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn focus_left(&mut self) -> bool {
         if self.floating_is_active.get() {
-            if self.floating_workspace_context {
-                return false;
-            }
             self.floating.focus_left()
         } else {
             let moved = self.scrolling.focus_left();
@@ -1360,9 +1327,6 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn focus_right(&mut self) -> bool {
         if self.floating_is_active.get() {
-            if self.floating_workspace_context {
-                return false;
-            }
             self.floating.focus_right()
         } else {
             let moved = self.scrolling.focus_right();
@@ -1419,9 +1383,6 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn focus_down(&mut self) -> bool {
         if self.floating_is_active.get() {
-            if self.floating_workspace_context {
-                return false;
-            }
             self.floating.focus_down()
         } else {
             let moved = self.scrolling.focus_down();
@@ -1432,9 +1393,6 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn focus_up(&mut self) -> bool {
         if self.floating_is_active.get() {
-            if self.floating_workspace_context {
-                return false;
-            }
             self.floating.focus_up()
         } else {
             let moved = self.scrolling.focus_up();
@@ -1512,7 +1470,6 @@ impl<W: LayoutElement> Workspace<W> {
     pub fn focus_window_by_id(&mut self, id: &W::Id) -> bool {
         if self.floating.has_window(id) {
             if self.floating.focus_window_by_id(id) {
-                self.floating_workspace_context = false;
                 self.floating_is_active = FloatingActive::Yes;
                 return true;
             }
@@ -1749,287 +1706,101 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn focus_parent(&mut self) {
-        if self.floating_is_active.get() {
-            if self.force_tiling_auto_open_while_floating && !self.scrolling.is_empty() {
-                self.pending_tiling_root_wrap_on_split = false;
-                self.pending_tiling_root_layout_hint = None;
-                self.pending_tiling_command_reference = None;
-                self.floating_workspace_context = false;
-                self.scrolling.focus_parent();
-                self.floating_is_active = FloatingActive::No;
-                self.sync_tiling_focus_context_from_scrolling();
-                return;
+        match self.command_context() {
+            CommandContext::Floating => {
+                // Match sway: when floating focus reaches above the floating container,
+                // command context moves to workspace while floating mode remains active.
+                self.floating_workspace_context = !self.floating.focus_parent();
             }
-            if self.scrolling.is_empty() {
-                let _ = self.floating.focus_parent();
-                self.floating_workspace_context = true;
-                self.pending_tiling_root_wrap_on_split = false;
-                self.pending_tiling_command_reference = None;
-                return;
-            }
-            if self.floating.is_empty() && !self.scrolling.is_empty() {
-                self.pending_tiling_root_wrap_on_split = false;
-                self.pending_tiling_root_layout_hint = None;
+            CommandContext::Tiling => {
                 self.scrolling.focus_parent();
                 self.sync_tiling_focus_context_from_scrolling();
-                return;
             }
-
-            let moved = self.floating.focus_parent();
-            self.pending_tiling_root_wrap_on_split =
-                !moved && !self.floating.active_container_allows_splits();
-            self.pending_tiling_command_reference = None;
-        } else {
-            self.floating_workspace_context = false;
-            self.pending_tiling_root_wrap_on_split = false;
-            self.pending_tiling_root_layout_hint = None;
-            self.scrolling.focus_parent();
-            self.sync_tiling_focus_context_from_scrolling();
+            CommandContext::Workspace => {}
         }
     }
 
     pub fn focus_child(&mut self) {
-        if self.floating_is_active.get() {
-            if self.floating_workspace_context {
-                return;
-            }
-            if self.floating.is_empty() && !self.scrolling.is_empty() {
-                self.scrolling.focus_child();
-                self.sync_tiling_focus_context_from_scrolling();
-            } else {
+        match self.command_context() {
+            CommandContext::Floating => {
                 self.floating.focus_child();
             }
-        } else {
-            self.scrolling.focus_child();
-            self.sync_tiling_focus_context_from_scrolling();
+            CommandContext::Tiling => {
+                self.scrolling.focus_child();
+                self.sync_tiling_focus_context_from_scrolling();
+            }
+            // Sway focus_child from workspace context may no-op when no active
+            // tiling child can be resolved.
+            CommandContext::Workspace => {}
         }
     }
 
     pub fn split_horizontal(&mut self) {
-        if self.floating_is_active.get() {
-            if self.force_tiling_auto_open_while_floating && !self.scrolling.is_empty() {
-                self.pending_tiling_root_wrap_on_split = false;
-                self.pending_tiling_root_layout_hint = None;
-                if !self.scrolling.selected_is_container() {
-                    if let Some(reference) = self.pending_tiling_command_reference.clone() {
-                        if self
-                            .scrolling
-                            .split_from_inactive_tiling_reference_like_sway(
-                                &reference,
-                                Layout::SplitH,
-                            )
-                        {
-                            self.pending_tiling_command_reference = None;
-                            return;
-                        }
-                    }
-                    if let Some(reference) = self.inactive_tiling_split_container_target() {
-                        if self
-                            .scrolling
-                            .split_from_inactive_tiling_reference_like_sway(
-                                &reference,
-                                Layout::SplitH,
-                            )
-                        {
-                            self.pending_tiling_command_reference = None;
-                            return;
-                        }
-                    }
-                }
-                self.pending_tiling_command_reference = None;
-                self.scrolling.split_horizontal();
-                return;
+        match self.command_context() {
+            // Sway: cmd_split works in both floating and tiling.
+            CommandContext::Workspace => self.scrolling.split_workspace_horizontal(),
+            CommandContext::Tiling => self.scrolling.split_horizontal(),
+            CommandContext::Floating => {
+                self.floating_workspace_context = false;
+                self.floating.split_horizontal();
             }
-            if self.pending_tiling_root_wrap_on_split
-                && !self.floating.active_container_allows_splits()
-            {
-                let wrap_layout = self
-                    .pending_tiling_root_layout_hint
-                    .take()
-                    .or_else(|| {
-                        self.floating
-                            .active_selection_layout_hint()
-                            .filter(|layout| matches!(layout, Layout::Tabbed | Layout::Stacked))
-                    });
-                if let Some(layout) = wrap_layout {
-                    self.scrolling.set_pending_layout_hint(layout);
-                }
-                if self.scrolling.wrap_root_for_sibling_insert() {
-                    // Match sway/i3 parity path: keep split fallback sticky across consecutive
-                    // split commands while floating focus remains active on this wrapper chain.
-                    self.pending_tiling_root_wrap_on_split = true;
-                    self.pending_tiling_root_layout_hint = Some(Layout::SplitH);
-                    return;
-                }
-            }
-            self.pending_tiling_root_wrap_on_split = false;
-            self.pending_tiling_root_layout_hint = None;
-            self.floating.split_horizontal();
-        } else {
-            self.pending_tiling_root_wrap_on_split = false;
-            self.pending_tiling_root_layout_hint = None;
-            self.pending_tiling_command_reference = None;
-            self.scrolling.split_horizontal();
         }
     }
 
     pub fn split_vertical(&mut self) {
-        if self.floating_is_active.get() {
-            if self.force_tiling_auto_open_while_floating && !self.scrolling.is_empty() {
-                self.pending_tiling_root_wrap_on_split = false;
-                self.pending_tiling_root_layout_hint = None;
-                if !self.scrolling.selected_is_container() {
-                    if let Some(reference) = self.pending_tiling_command_reference.clone() {
-                        if self
-                            .scrolling
-                            .split_from_inactive_tiling_reference_like_sway(
-                                &reference,
-                                Layout::SplitV,
-                            )
-                        {
-                            self.pending_tiling_command_reference = None;
-                            return;
-                        }
-                    }
-                    if let Some(reference) = self.inactive_tiling_split_container_target() {
-                        if self
-                            .scrolling
-                            .split_from_inactive_tiling_reference_like_sway(
-                                &reference,
-                                Layout::SplitV,
-                            )
-                        {
-                            self.pending_tiling_command_reference = None;
-                            return;
-                        }
-                    }
-                }
-                self.pending_tiling_command_reference = None;
-                self.scrolling.split_vertical();
-                return;
+        match self.command_context() {
+            // Sway: cmd_split works in both floating and tiling.
+            CommandContext::Workspace => self.scrolling.split_workspace_vertical(),
+            CommandContext::Tiling => self.scrolling.split_vertical(),
+            CommandContext::Floating => {
+                self.floating_workspace_context = false;
+                self.floating.split_vertical();
             }
-            if self.pending_tiling_root_wrap_on_split
-                && !self.floating.active_container_allows_splits()
-            {
-                let wrap_layout = self
-                    .pending_tiling_root_layout_hint
-                    .take()
-                    .or_else(|| {
-                        self.floating
-                            .active_selection_layout_hint()
-                            .filter(|layout| matches!(layout, Layout::Tabbed | Layout::Stacked))
-                    });
-                if let Some(layout) = wrap_layout {
-                    self.scrolling.set_pending_layout_hint(layout);
-                }
-                if self.scrolling.wrap_root_for_sibling_insert() {
-                    // Match sway/i3 parity path: keep split fallback sticky across consecutive
-                    // split commands while floating focus remains active on this wrapper chain.
-                    self.pending_tiling_root_wrap_on_split = true;
-                    self.pending_tiling_root_layout_hint = Some(Layout::SplitV);
-                    return;
-                }
-            }
-            self.pending_tiling_root_wrap_on_split = false;
-            self.pending_tiling_root_layout_hint = None;
-            self.floating.split_vertical();
-        } else {
-            self.pending_tiling_root_wrap_on_split = false;
-            self.pending_tiling_root_layout_hint = None;
-            self.pending_tiling_command_reference = None;
-            self.scrolling.split_vertical();
         }
     }
 
     pub fn set_layout_mode(&mut self, layout: Layout) {
-        if self.floating_is_active.get() {
-            if self.force_tiling_auto_open_while_floating && !self.scrolling.is_empty() {
-                // Match sway command-context behavior while floating focus stays active and
-                // auto-open recreated tiling: layout commands continue to target tiling.
-                self.pending_tiling_root_wrap_on_split = false;
-                self.pending_tiling_root_layout_hint = None;
-                self.pending_tiling_command_reference = None;
-                if !self.scrolling.set_root_layout_mode(layout) {
-                    self.scrolling.set_layout_mode(layout);
+        match self.command_context() {
+            CommandContext::Workspace => {
+                if self.scrolling.is_empty() {
+                    self.scrolling.set_workspace_layout_hint(layout);
                 }
-                return;
             }
-            if !self.force_tiling_auto_open_while_floating
-                && self.scrolling.tiles().count() == 1
-                && self.scrolling.focus_is_root_leaf()
-                && self.pending_tiling_root_layout_hint.is_some()
-            {
-                // Match sway parity around seed2 step52: repeated layout commands in floating
-                // context keep affecting the single recreated tiling leaf path rather than
-                // rewriting the active floating subtree.
-                self.pending_tiling_root_wrap_on_split = false;
-                self.pending_tiling_command_reference = None;
-                self.scrolling.set_layout_mode(layout);
-                self.pending_tiling_root_layout_hint = Some(layout);
-                return;
-            }
-            // Match sway: layout commands from floating context do not directly rewrite the
-            // floating tree shape; command target is resolved via tiling command context.
-            self.pending_tiling_root_layout_hint = Some(layout);
-        } else {
-            let from_floating_layout_context = self.pending_tiling_root_layout_hint.is_some();
-            let single_tiling_leaf_before = self.scrolling.tiles().count() == 1;
-            let has_floating = !self.floating.is_empty();
-            self.pending_tiling_root_layout_hint = None;
-            self.scrolling.set_layout_mode(layout);
-            if from_floating_layout_context
-                && single_tiling_leaf_before
-                && has_floating
-                && matches!(layout, Layout::Tabbed | Layout::Stacked)
-            {
-                // Match sway parity around seed2 step51: after recreating a single tiling leaf
-                // from floating context, a layout command wraps tiling but command focus stays on
-                // floating.
-                self.floating_is_active = FloatingActive::Yes;
-                self.pending_tiling_root_layout_hint = Some(layout);
+            CommandContext::Tiling => self.scrolling.set_layout_mode(layout),
+            CommandContext::Floating => {
+                self.floating_workspace_context = false;
+                self.floating.set_layout_mode(layout);
             }
         }
     }
 
     pub fn toggle_split_layout(&mut self) {
-        if self.floating_is_active.get() {
-            self.floating.toggle_split_layout();
-            let current = self
-                .pending_tiling_root_layout_hint
-                .or_else(|| self.floating.active_selection_layout_hint())
-                .unwrap_or(Layout::SplitH);
-            let next = match current {
-                Layout::SplitH => Layout::SplitV,
-                Layout::SplitV => Layout::SplitH,
-                Layout::Tabbed => Layout::Stacked,
-                Layout::Stacked => Layout::Tabbed,
-            };
-            self.pending_tiling_root_layout_hint = Some(next);
-        } else {
-            self.pending_tiling_root_layout_hint = None;
-            let wrap_single_root = !self.floating.is_empty();
-            self.scrolling
-                .toggle_split_layout_with_single_root_wrap_hint(wrap_single_root);
+        match self.command_context() {
+            CommandContext::Workspace => {
+                if self.scrolling.is_empty() {
+                    self.scrolling.toggle_workspace_split_layout();
+                }
+            }
+            CommandContext::Tiling => self.scrolling.toggle_split_layout(),
+            CommandContext::Floating => {
+                self.floating_workspace_context = false;
+                self.floating.toggle_split_layout();
+            }
         }
     }
 
     pub fn toggle_layout_all(&mut self) {
-        if self.floating_is_active.get() {
-            self.floating.toggle_layout_all();
-            let current = self
-                .pending_tiling_root_layout_hint
-                .or_else(|| self.floating.active_selection_layout_hint())
-                .unwrap_or(Layout::SplitH);
-            let next = match current {
-                Layout::SplitH => Layout::SplitV,
-                Layout::SplitV => Layout::Stacked,
-                Layout::Stacked => Layout::Tabbed,
-                Layout::Tabbed => Layout::SplitH,
-            };
-            self.pending_tiling_root_layout_hint = Some(next);
-        } else {
-            self.pending_tiling_root_layout_hint = None;
-            self.scrolling.toggle_layout_all();
+        match self.command_context() {
+            CommandContext::Workspace => {
+                if self.scrolling.is_empty() {
+                    self.scrolling.toggle_workspace_layout_all();
+                }
+            }
+            CommandContext::Tiling => self.scrolling.toggle_layout_all(),
+            CommandContext::Floating => {
+                self.floating_workspace_context = false;
+                self.floating.toggle_layout_all();
+            }
         }
     }
 
@@ -2176,34 +1947,29 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn toggle_window_floating(&mut self, id: Option<&W::Id>) {
-        if id.is_none() && self.floating_is_active.get() && self.floating_workspace_context {
-            let single_floating_scope =
-                self.scrolling.is_empty() && self.floating.tiles().count() == 1;
-            if !single_floating_scope {
+        let mut command_context = self.command_context();
+
+        if id.is_none() && command_context == CommandContext::Workspace {
+            // Match sway workspace-context toggle behavior:
+            // - if tiling is empty, no target exists (no-op);
+            // - otherwise operate on tiling root container.
+            if self.scrolling.is_empty() {
                 return;
             }
+            if self.scrolling.select_root_container() {
+                command_context = CommandContext::Tiling;
+            }
         }
-        let force_tiling_scope = id.is_none()
-            && self.floating_is_active.get()
-            && self.force_tiling_auto_open_while_floating
-            && !self.scrolling.is_empty();
-        let pre_toggle_restore_layout_hint = self
-            .pending_tiling_root_layout_hint
-            .or_else(|| self.floating.active_selection_layout_hint());
-        self.pending_tiling_root_wrap_on_split = false;
-        self.pending_tiling_root_layout_hint = None;
-        self.force_tiling_auto_open_while_floating = false;
-        self.floating_workspace_context = false;
+
         let explicit_window = id.is_some();
-        let active_id = if force_tiling_scope {
-            self.scrolling
-                .active_window()
-                .map(|win| win.id().clone())
-                .or_else(|| self.active_window().map(|win| win.id().clone()))
-        } else {
-            self.active_window().map(|win| win.id().clone())
-        };
+        let active_id = self.active_window().map(|win| win.id().clone());
         let target_is_active = id.is_none_or(|id| Some(id) == active_id.as_ref());
+        let preserve_selection_path_on_unfloat =
+            if !explicit_window && target_is_active && command_context == CommandContext::Floating {
+                self.floating.active_command_container_path()
+            } else {
+                None
+            };
         let Some(id) = id.cloned().or(active_id) else {
             return;
         };
@@ -2216,7 +1982,11 @@ impl<W: LayoutElement> Workspace<W> {
         // Match sway: if a tiling container is selected (focus-parent semantics),
         // floating toggle targets that selected container even if floating focus mode
         // is currently active.
-        if !explicit_window && target_is_active && self.scrolling.selected_is_container() {
+        if !explicit_window
+            && target_is_active
+            && command_context == CommandContext::Tiling
+            && self.scrolling.selected_is_container()
+        {
             let old_parent_ref = self
                 .scrolling
                 .inactive_tiling_reference_for_parent_of_selected_reference();
@@ -2242,45 +2012,23 @@ impl<W: LayoutElement> Workspace<W> {
                         self.floating.select_wrapper_for_window(focus_id);
                     }
                     self.floating_is_active = FloatingActive::Yes;
-                }
-                if self.scrolling.is_empty() {
-                    // Match sway: when this toggle drains tiling completely, the next auto-open
-                    // should recreate tiling even if floating focus remains active.
-                    self.force_tiling_auto_open_while_floating = true;
-                    self.scrolling.clear_pending_layout_hint();
+                    self.floating_workspace_context = false;
                 }
             }
             return;
         }
 
         if self.floating.has_window(&id) {
+            // Floating → Tiling: sway's container_set_floating(false) inserts directly
+            // using the inactive tiling reference. No tree collapse/normalization.
             if !explicit_window {
-                let restore_wrapper_selected = target_is_active && self.floating.active_wrapper_selected();
-                if let Some((mut subtree, origin, _rect)) = self.floating.take_container_subtree(&id)
+                if let Some((subtree, origin, _rect)) = self.floating.take_container_subtree(&id)
                 {
                     let scrolling_was_empty = self.scrolling.is_empty();
-                    if subtree.single_child_root_chain_has_non_split_layout() {
-                        subtree = subtree.collapse_single_child_root_chain();
-                    }
-                    if scrolling_was_empty && tiling_restore_target.is_none() {
-                        let keep_single_split_wrapper = matches!(
-                            pre_toggle_restore_layout_hint,
-                            Some(Layout::SplitH | Layout::SplitV)
-                        );
-                        if keep_single_split_wrapper {
-                            subtree = subtree.collapse_implicit_single_child_split_root();
-                        } else {
-                            subtree = subtree.collapse_single_child_root_chain();
-                        }
-                    }
-                    subtree = subtree.collapse_redundant_single_child_split_root();
-                    // Prefer sway-like inactive focus target. If the only available target is
-                    // current-focus fallback (non-stack), use preserved floating origin first to
-                    // keep subtree structural placement stable.
-                    let restore_info = if scrolling_was_empty && tiling_restore_target.is_none() {
-                        // Match sway workspace_add_tiling() fallback: when tiled is empty there
-                        // is no inactive reference, so reattach at workspace level (ignore
-                        // floating-origin parent hints).
+                    // Match sway container_set_floating(false): when tiling is empty, do not
+                    // restore against inactive references/origin; insert directly as workspace
+                    // tiling root.
+                    let restore_info = if scrolling_was_empty {
                         None
                     } else {
                         match tiling_restore_target.as_ref() {
@@ -2292,33 +2040,24 @@ impl<W: LayoutElement> Workspace<W> {
                         }
                     };
                     if let Some(info) = restore_info {
-                        // Match sway's seat_get_focus_inactive_tiling() restore target:
-                        // leaf reference => sibling after it; container reference => child.
                         self.scrolling
                             .insert_subtree_with_parent_info(info, subtree, target_is_active);
                     } else {
-                        // Match sway's `workspace_add_tiling()` fallback when there is no
-                        // inactive tiling reference: append at workspace tiling level.
                         self.scrolling
                             .add_subtree_as_workspace_tiling_fallback(subtree, target_is_active);
                     }
 
                     if target_is_active {
-                        self.scrolling.collapse_redundant_root_single_child_split();
-                        if scrolling_was_empty && self.scrolling.focus_is_root_leaf() {
-                            if let Some(layout) = pre_toggle_restore_layout_hint {
-                                self.scrolling.set_workspace_layout_hint(layout);
-                            }
-                        }
                         if scrolling_was_empty {
                             let _ = self.scrolling.activate_window(&id);
-                        }
-                        if restore_wrapper_selected {
-                            // Preserve sway command context when restoring a wrapper-selected
-                            // floating container back to tiling: keep parent selection active.
-                            self.scrolling.focus_parent();
+                            if let Some(path) = preserve_selection_path_on_unfloat.as_ref() {
+                                let _ = self.scrolling.select_container_path(path);
+                            }
                         }
                         self.floating_is_active = FloatingActive::No;
+                        if self.floating.is_empty() {
+                            self.floating_workspace_context = false;
+                        }
                         self.sync_tiling_focus_context_from_scrolling();
                     }
                     return;
@@ -2332,39 +2071,41 @@ impl<W: LayoutElement> Workspace<W> {
             .map(|(_, pos, _)| pos);
 
         if self.floating.has_window(&id) {
+            // Single window floating → tiling
             let removed = self.floating.remove_tile(&id);
             let mut tile = removed.tile;
             tile.set_scratchpad(false);
-            if let Some((info, _)) = tiling_restore_target.as_ref() {
-                // Use subtree insertion to share the same leaf/container reference semantics.
+            if !self.scrolling.is_empty() {
+                if let Some((info, _)) = tiling_restore_target.as_ref() {
                 self.scrolling.insert_subtree_with_parent_info(
                     info,
                     DetachedNode::Leaf(tile),
                     target_is_active,
                 );
+                } else {
+                    self.scrolling
+                        .add_tile_as_workspace_tiling_fallback(tile, target_is_active);
+                }
             } else {
-                // Match sway's `workspace_add_tiling()` fallback when there is no
-                // inactive tiling reference: append at workspace tiling level.
                 self.scrolling
                     .add_tile_as_workspace_tiling_fallback(tile, target_is_active);
             }
             if target_is_active {
-                self.scrolling.collapse_redundant_root_single_child_split();
-                if self.scrolling.focus_is_root_leaf() {
-                    if let Some(layout) = pre_toggle_restore_layout_hint {
-                        self.scrolling.set_workspace_layout_hint(layout);
-                    }
-                }
                 self.floating_is_active = FloatingActive::No;
+                if self.floating.is_empty() {
+                    self.floating_workspace_context = false;
+                }
                 self.sync_tiling_focus_context_from_scrolling();
             }
         } else {
+            // Tiling → Floating
             let old_parent_ref = if target_is_active {
                 self.scrolling
                     .inactive_tiling_reference_for_parent_of_window(&id)
             } else {
                 None
             };
+            let mut remembered_old_parent_ref = false;
             let mut removed = self.scrolling.remove_tile(&id, Transaction::new());
             if target_is_active {
                 if let Some(reference) = old_parent_ref {
@@ -2374,18 +2115,16 @@ impl<W: LayoutElement> Workspace<W> {
                     .is_some()
                     {
                         self.remember_inactive_tiling_reference(reference);
+                        remembered_old_parent_ref = true;
                     }
                 }
             }
             removed.tile.stop_move_animations();
             removed.tile.pending_maximized = false;
 
-            // Center the window and set a default size, similar to scratchpad behavior.
             let stored_or_default = self.floating.stored_or_default_tile_pos(&removed.tile);
             if stored_or_default.is_none() {
-                // Always center floating windows when first made floating.
                 removed.tile.floating_pos = None;
-
                 self.assign_default_floating_size_if_missing(&mut removed.tile, true);
             }
 
@@ -2393,17 +2132,14 @@ impl<W: LayoutElement> Workspace<W> {
                 .add_tile_with_restore_hint(removed.tile, target_is_active);
             if target_is_active {
                 self.floating_is_active = FloatingActive::Yes;
-            }
-            if self.scrolling.is_empty() {
-                if force_tiling_scope {
-                    self.force_tiling_auto_open_while_floating = true;
+                self.floating_workspace_context = false;
+                if !remembered_old_parent_ref && !self.scrolling.is_empty() {
+                    self.remember_current_tiling_focused_leaf_reference();
                 }
-                self.scrolling.clear_pending_layout_hint();
             }
         }
 
-        // The tile might not be in the layout data yet if there are pending transactions.
-        // In that case, skip the animation since we can't determine the new position.
+        // Animate position transition if possible.
         if let (Some(render_pos), Some((tile, new_render_pos))) = (
             render_pos,
             self.tiles_with_render_positions_mut(false)
@@ -2483,29 +2219,18 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn switch_focus_floating_tiling(&mut self) {
-        if self.floating_is_active.get() && self.force_tiling_auto_open_while_floating {
-            // Match sway parity scope: while we keep floating focus active and auto-open is
-            // forced to recreate tiling, focus mode toggles are effectively no-op.
-            return;
-        }
-
         if self.floating.is_empty() {
-            // If floating is empty, keep focus on scrolling.
             return;
         } else if self.scrolling.is_empty() {
-            // If floating isn't empty but scrolling is, keep focus on floating.
             return;
         }
 
-        self.pending_tiling_root_wrap_on_split = false;
-        self.pending_tiling_root_layout_hint = None;
-        self.force_tiling_auto_open_while_floating = false;
-        self.floating_workspace_context = false;
         self.scrolling.clear_selection_context();
         self.floating.clear_selection_context();
         if !self.floating_is_active.get() {
             self.remember_current_tiling_reference();
         }
+        self.floating_workspace_context = false;
         self.floating_is_active = if self.floating_is_active.get() {
             FloatingActive::No
         } else {
@@ -3003,21 +2728,11 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     #[cfg(test)]
-    pub fn force_tiling_auto_open_while_floating(&self) -> bool {
-        self.force_tiling_auto_open_while_floating
-    }
-
-    #[cfg(test)]
     pub fn debug_inactive_tiling_focus_stack(&self) -> Vec<String> {
         self.inactive_tiling_focus_stack
             .iter()
             .map(|reference| format!("{reference:?}"))
             .collect()
-    }
-
-    #[cfg(test)]
-    pub fn debug_pending_tiling_root_layout_hint(&self) -> Option<Layout> {
-        self.pending_tiling_root_layout_hint
     }
 
     #[cfg(test)]
@@ -3028,6 +2743,25 @@ impl<W: LayoutElement> Workspace<W> {
     #[cfg(test)]
     pub fn debug_active_floating_container_allows_splits(&self) -> bool {
         self.floating.active_container_allows_splits()
+    }
+
+    #[cfg(test)]
+    pub fn debug_active_floating_command_container_path(&self) -> Option<Vec<usize>> {
+        self.floating.active_command_container_path()
+    }
+
+    #[cfg(test)]
+    pub fn debug_command_context(&self) -> &'static str {
+        match self.command_context() {
+            CommandContext::Workspace => "workspace",
+            CommandContext::Tiling => "tiling",
+            CommandContext::Floating => "floating",
+        }
+    }
+
+    #[cfg(test)]
+    pub fn debug_floating_workspace_context(&self) -> bool {
+        self.floating_workspace_context
     }
 
     #[cfg(test)]
@@ -3113,7 +2847,11 @@ impl<W: LayoutElement> Workspace<W> {
 
 impl Workspace<crate::window::Mapped> {
     pub(crate) fn layout_tree(&self) -> Option<LayoutTreeNode> {
-        self.scrolling.layout_tree()
+        if self.floating_is_active.get() {
+            self.scrolling.layout_tree_unfocused()
+        } else {
+            self.scrolling.layout_tree()
+        }
     }
 }
 

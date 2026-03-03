@@ -819,9 +819,12 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.focus_path()
     }
 
-    #[cfg(test)]
     pub fn selected_path(&self) -> Vec<usize> {
         self.tree.selected_path()
+    }
+
+    pub fn select_container_path(&mut self, path: &[usize]) -> bool {
+        self.tree.select_container_at_path(path)
     }
 
     // Window management using ContainerTree
@@ -1517,17 +1520,15 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.clear_selection();
     }
 
+    pub fn select_root_container(&mut self) -> bool {
+        self.tree.select_root_container()
+    }
+
     pub(super) fn inactive_tiling_reference_for_parent_of_selected_reference(
         &self,
     ) -> Option<super::container::InactiveTilingReference> {
         self.tree
             .inactive_tiling_reference_for_parent_of_selected_reference()
-    }
-
-    pub(super) fn inactive_tiling_reference_for_selected_container(
-        &self,
-    ) -> Option<super::container::InactiveTilingReference> {
-        self.tree.inactive_tiling_reference_for_selected_container()
     }
 
     pub(super) fn inactive_tiling_reference_for_selected_or_focused(
@@ -1551,6 +1552,12 @@ impl<W: LayoutElement> TilingSpace<W> {
             .inactive_tiling_reference_chain_for_focused_reference()
     }
 
+    pub(super) fn inactive_tiling_reference_chain_for_focused_leaf(
+        &self,
+    ) -> Vec<super::container::InactiveTilingReference> {
+        self.tree.inactive_tiling_reference_chain_for_focused_leaf()
+    }
+
     pub(super) fn insert_parent_info_from_inactive_tiling_reference(
         &self,
         reference: &super::container::InactiveTilingReference,
@@ -1565,20 +1572,6 @@ impl<W: LayoutElement> TilingSpace<W> {
     ) -> Option<super::container::InsertParentInfo> {
         self.tree
             .insert_parent_info_from_inactive_tiling_reference_strict(reference)
-    }
-
-    pub(super) fn split_from_inactive_tiling_reference_like_sway(
-        &mut self,
-        reference: &super::container::InactiveTilingReference,
-        layout: Layout,
-    ) -> bool {
-        let changed = self
-            .tree
-            .split_from_inactive_tiling_reference_like_sway(reference, layout);
-        if changed {
-            self.tree.layout();
-        }
-        changed
     }
 
     pub fn wrap_root_for_sibling_insert(&mut self) -> bool {
@@ -1618,7 +1611,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.set_focused_layout(layout)
     }
 
-    fn toggle_split_for_active_selection(&mut self, wrap_single_root: bool) -> bool {
+    fn toggle_split_for_active_selection(&mut self) -> bool {
         if self.tree.selected_is_container() {
             let path = self.tree.selected_path();
             if let Some((current, _, _)) = self.tree.container_info(&path) {
@@ -1631,8 +1624,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             }
         }
 
-        self.tree
-            .toggle_split_layout_with_single_root_wrap(wrap_single_root)
+        self.tree.toggle_split_layout()
     }
 
     fn toggle_layout_all_for_active_selection(&mut self) -> bool {
@@ -1709,9 +1701,50 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
+    /// Split workspace root like sway `workspace_split()`.
+    pub fn split_workspace_horizontal(&mut self) {
+        self.split_workspace(Layout::SplitV);
+    }
+
+    /// Split workspace root like sway `workspace_split()`.
+    pub fn split_workspace_vertical(&mut self) {
+        self.split_workspace(Layout::SplitH);
+    }
+
+    fn split_workspace(&mut self, layout: Layout) {
+        if self.tree.is_empty() {
+            self.tree.set_workspace_layout_hint(layout);
+            return;
+        }
+
+        self.tree.set_workspace_layout_hint(layout);
+        if self.tree.wrap_root_for_sibling_insert() {
+            self.tree.layout();
+            return;
+        }
+
+        if self.tree.split_focused(layout) {
+            self.tree.layout();
+        }
+    }
+
     /// Set layout mode for focused container
     pub fn set_layout_mode(&mut self, layout: Layout) {
         if self.set_layout_for_active_selection(layout) {
+            self.tree.layout();
+        }
+    }
+
+    /// Set workspace-level layout target (root container) like sway workspace path.
+    pub fn set_workspace_layout_mode(&mut self, layout: Layout) {
+        if self.tree.is_empty() {
+            self.tree.set_workspace_layout_hint(layout);
+            return;
+        }
+
+        let changed =
+            self.tree.set_root_container_layout(layout) || self.tree.set_focused_layout(layout);
+        if changed {
             self.tree.layout();
         }
     }
@@ -1734,16 +1767,28 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     /// Toggle between horizontal and vertical split for the focused container.
     pub fn toggle_split_layout(&mut self) {
-        if self.toggle_split_for_active_selection(false) {
+        if self.toggle_split_for_active_selection() {
             self.tree.layout();
         }
     }
 
-    /// Toggle split layout with optional single-root wrap hint.
-    pub fn toggle_split_layout_with_single_root_wrap_hint(&mut self, wrap_single_root: bool) {
-        if self.toggle_split_for_active_selection(wrap_single_root) {
-            self.tree.layout();
+    pub fn toggle_workspace_split_layout(&mut self) {
+        let next = self
+            .tree
+            .container_info(&[])
+            .map(|(layout, _, _)| match layout {
+                Layout::SplitH => Layout::SplitV,
+                Layout::SplitV => Layout::SplitH,
+                Layout::Tabbed | Layout::Stacked => Layout::SplitH,
+            });
+        if let Some(next) = next {
+            if self.tree.set_root_container_layout(next) {
+                self.tree.layout();
+            }
+            return;
         }
+
+        self.toggle_split_layout();
     }
 
     /// Cycle focused container layout in sway-style order.
@@ -1751,6 +1796,21 @@ impl<W: LayoutElement> TilingSpace<W> {
         if self.toggle_layout_all_for_active_selection() {
             self.tree.layout();
         }
+    }
+
+    pub fn toggle_workspace_layout_all(&mut self) {
+        let next = self
+            .tree
+            .container_info(&[])
+            .map(|(layout, _, _)| Self::next_layout_all(layout));
+        if let Some(next) = next {
+            if self.tree.set_root_container_layout(next) {
+                self.tree.layout();
+            }
+            return;
+        }
+
+        self.toggle_layout_all();
     }
 
     /// Set the width of the currently focused root-level column
@@ -3253,6 +3313,10 @@ impl<W: LayoutElement> TilingSpace<W> {
 impl TilingSpace<crate::window::Mapped> {
     pub(crate) fn layout_tree(&self) -> Option<LayoutTreeNode> {
         self.tree.layout_tree()
+    }
+
+    pub(crate) fn layout_tree_unfocused(&self) -> Option<LayoutTreeNode> {
+        self.tree.layout_tree_unfocused()
     }
 }
 

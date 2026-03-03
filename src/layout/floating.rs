@@ -873,6 +873,17 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.containers[idx].wrapper_selected
     }
 
+    pub(super) fn active_command_container_path(&self) -> Option<Vec<usize>> {
+        let idx = self.active_container_idx()?;
+        if self.containers[idx].wrapper_selected {
+            return Some(Vec::new());
+        }
+        if self.containers[idx].tree.selected_is_container() {
+            return Some(self.containers[idx].tree.selected_path());
+        }
+        None
+    }
+
     pub(super) fn close_window_ids_for_active_selection(&self) -> Vec<W::Id> {
         let Some(idx) = self.active_container_idx() else {
             return Vec::new();
@@ -899,6 +910,19 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.containers[idx].tree.clear_selection();
         self.containers[idx].wrapper_selected = true;
         true
+    }
+
+    pub(super) fn select_container_path_for_window(&mut self, id: &W::Id, path: &[usize]) -> bool {
+        let Some(idx) = self.idx_of(id) else {
+            return false;
+        };
+        self.containers[idx].tree.clear_selection();
+        self.containers[idx].wrapper_selected = false;
+        if path.is_empty() {
+            self.containers[idx].wrapper_selected = true;
+            return true;
+        }
+        self.containers[idx].tree.select_container_at_path(path)
     }
 
     pub fn clear_selection_context(&mut self) {
@@ -1161,7 +1185,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             self.scale,
             self.container_tree_options(&self.options),
         );
-        tree.insert_subtree_at_root(0, subtree, activate);
+        tree.insert_subtree_with_focus(subtree, activate);
         if let Some(id) = focus {
             tree.focus_window_by_id(id);
         }
@@ -1230,10 +1254,8 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let rect = Rectangle::new(container.data.logical_pos, container.data.size);
         let origin = container.origin.take();
         let (subtree, _insert_info) = container.tree.take_subtree_at_path(&[])?;
-        let subtree = subtree
-            .collapse_implicit_single_child_split_root()
-            .collapse_redundant_single_child_split_root()
-            .normalize_root_focus_for_tiling_restore();
+        // Sway's container_set_floating(false) does NOT collapse/normalize the tree.
+        // Insert directly using the inactive tiling reference.
 
         if let Some(active) = &self.active_window_id {
             if !self.contains(active) {
@@ -1771,7 +1793,14 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let Some(idx) = self.active_container_idx() else {
             return false;
         };
-        if self.containers[idx].tree.focus_in_direction(direction) {
+        let moved = if self.selected_is_container_in(idx) {
+            self.containers[idx]
+                .tree
+                .focus_in_direction_no_wrap(direction)
+        } else {
+            self.containers[idx].tree.focus_in_direction(direction)
+        };
+        if moved {
             if let Some(win) = self.containers[idx].tree.focused_window() {
                 self.active_window_id = Some(win.id().clone());
             }
@@ -1950,11 +1979,6 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.containers[idx].tree.focused_layout()
     }
 
-    pub(super) fn active_selection_layout_hint(&self) -> Option<Layout> {
-        let idx = self.active_container_idx()?;
-        self.active_selection_layout(idx)
-    }
-
     fn has_implicit_single_leaf_root(&self, idx: usize) -> bool {
         if self.containers[idx].wrapper_selected || self.containers[idx].tree.selected_is_container() {
             return false;
@@ -2089,17 +2113,21 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
     fn set_layout_for_active_selection(&mut self, idx: usize, layout: Layout) -> bool {
         if self.containers[idx].wrapper_selected {
-            if let Some(root) = self.containers[idx].tree.root_container_mut() {
-                root.set_layout_explicit(layout);
-                return true;
-            }
-
-            return self.containers[idx].tree.set_focused_layout(layout);
+            // Match sway cmd_layout: top-level floating containers are not layout targets.
+            return false;
         }
 
         if self.containers[idx].tree.selected_is_container() {
             let path = self.containers[idx].tree.selected_path();
-            if let Some(container) = self.containers[idx].tree.container_at_path_mut(&path) {
+            if path.is_empty() {
+                // Match sway cmd_layout: root floating container has no parent target.
+                return false;
+            }
+            let parent_path = &path[..path.len() - 1];
+            if let Some(container) = self.containers[idx]
+                .tree
+                .container_at_path_mut(parent_path)
+            {
                 container.set_layout_explicit(layout);
                 return true;
             }
@@ -2115,9 +2143,10 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
     fn toggle_split_for_active_selection(&mut self, idx: usize) -> bool {
         let target_path = if self.containers[idx].wrapper_selected {
-            Some(Vec::new())
+            None
         } else if self.containers[idx].tree.selected_is_container() {
-            Some(self.containers[idx].tree.selected_path())
+            let path = self.containers[idx].tree.selected_path();
+            (!path.is_empty()).then(|| path[..path.len() - 1].to_vec())
         } else {
             None
         };
@@ -2146,9 +2175,10 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
     fn toggle_layout_all_for_active_selection(&mut self, idx: usize) -> bool {
         let target_path = if self.containers[idx].wrapper_selected {
-            Some(Vec::new())
+            None
         } else if self.containers[idx].tree.selected_is_container() {
-            Some(self.containers[idx].tree.selected_path())
+            let path = self.containers[idx].tree.selected_path();
+            (!path.is_empty()).then(|| path[..path.len() - 1].to_vec())
         } else {
             None
         };

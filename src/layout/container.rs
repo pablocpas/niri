@@ -1822,8 +1822,32 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
     }
 
+    pub fn select_container_at_path(&mut self, path: &[usize]) -> bool {
+        let Some(key) = self.node_key_for_path_or_root(path) else {
+            return false;
+        };
+        if matches!(self.get_node(key), Some(NodeData::Container(_))) {
+            self.selected_key = Some(key);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn clear_selection(&mut self) {
         self.selected_key = None;
+    }
+
+    pub fn select_root_container(&mut self) -> bool {
+        let Some(root_key) = self.root else {
+            return false;
+        };
+        if matches!(self.get_node(root_key), Some(NodeData::Container(_))) {
+            self.selected_key = Some(root_key);
+            true
+        } else {
+            false
+        }
     }
 
     /// Apply a layout command using sway-like command context semantics for
@@ -3413,8 +3437,9 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
 
         // The selected root container has an implicit workspace parent in sway.
-        // Without an explicit workspace node in this tree model, keep the split as
-        // a no-op while recording the orientation as pending workspace intent.
+        // Match sway cmd_split() with selected root container in tiling context:
+        // command resolves through the implicit workspace parent and should not
+        // introduce a visible extra wrapper in the tiling tree model.
         if Some(selected_key) == self.root {
             self.pending_layout = Some(layout);
             self.pending_layout_wrap_on_split = false;
@@ -3589,24 +3614,9 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         let focus_path = self.focus_path();
 
-        // Special case: if root is a leaf, wrap it in a container
+        // Special case: if root is a leaf, wrap it in a container.
+        // Sway's container_split() always materializes the wrapper immediately.
         if focus_path.is_empty() {
-            if self.pending_layout_wrap_on_split {
-                if let Some(wrap_layout) = self.pending_layout.take() {
-                    self.pending_layout_wrap_on_split = false;
-                    if self.ensure_root_container_with_layout(wrap_layout) {
-                        return true;
-                    }
-                }
-            }
-            let current_layout = self.pending_layout.unwrap_or(Layout::SplitH);
-            if matches!(current_layout, Layout::SplitH | Layout::SplitV) {
-                // Match sway container_split() on a singleton under workspace H/V:
-                // update workspace orientation, don't materialize a wrapper yet.
-                self.pending_layout = Some(layout);
-                self.pending_layout_wrap_on_split = false;
-                return true;
-            }
             return self.ensure_root_container_with_layout(layout);
         }
 
@@ -3698,19 +3708,13 @@ impl<W: LayoutElement> ContainerTree<W> {
         let focus_path = self.focus_path();
 
         if focus_path.is_empty() {
-            // Match sway/i3: layout commands on a single tiled window do not
-            // immediately wrap the root. They become a pending layout hint used
-            // by the next split/open that needs a container.
+            // Root is a leaf — always wrap immediately with the requested layout.
+            // Sway's cmd_layout always materializes the container.
             let root_is_leaf = self
                 .root
                 .is_some_and(|root_key| matches!(self.get_node(root_key), Some(NodeData::Leaf(_))));
             if root_is_leaf {
-                if matches!(layout, Layout::Tabbed | Layout::Stacked) {
-                    return self.ensure_root_container_with_layout(layout);
-                }
-                self.pending_layout = Some(layout);
-                self.pending_layout_wrap_on_split = true;
-                return true;
+                return self.ensure_root_container_with_layout(layout);
             }
         }
 
@@ -3795,15 +3799,6 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Toggle between horizontal and vertical split for the focused container.
     pub fn toggle_split_layout(&mut self) -> bool {
-        self.toggle_split_layout_with_single_root_wrap(false)
-    }
-
-    /// Toggle split layout with optional single-root wrap hint.
-    ///
-    /// When `wrap_single_root` is true and focus is on a preserved single-child split root,
-    /// toggling SplitH <-> SplitV wraps the existing child into a nested container that keeps
-    /// the previous orientation (sway parity path around seed1 step 261).
-    pub fn toggle_split_layout_with_single_root_wrap(&mut self, wrap_single_root: bool) -> bool {
         if self.root.is_none() {
             let next = match self.pending_layout.unwrap_or(Layout::SplitH) {
                 Layout::SplitH => Layout::SplitV,
@@ -3834,48 +3829,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             Layout::SplitV => Layout::SplitH,
             Layout::Tabbed | Layout::Stacked => Layout::SplitH,
         };
-
-        if wrap_single_root
-            && matches!(current, Layout::SplitH | Layout::SplitV)
-            && matches!(next, Layout::SplitH | Layout::SplitV)
-            && Some(target_key) == self.root
-        {
-            let (child_count, preserve_on_single, child_key) = self
-                .get_container(target_key)
-                .map(|container| {
-                    (
-                        container.child_count(),
-                        container.preserve_on_single(),
-                        container.child_key(0),
-                    )
-                })
-                .unwrap_or((0, false, None));
-
-            if child_count == 1 && preserve_on_single {
-                if let Some(child_key) = child_key {
-                    if matches!(self.get_node(child_key), Some(NodeData::Leaf(_))) {
-                        if let Some(container) = self.get_container_mut(target_key) {
-                            container.remove_child(0);
-                        }
-                        self.set_parent(child_key, None);
-
-                        let mut nested = ContainerData::new(current);
-                        nested.mark_preserve_on_single();
-                        nested.add_child(child_key);
-                        let nested_key = self.insert_node(NodeData::Container(nested));
-                        self.set_parent(child_key, Some(nested_key));
-
-                        if let Some(container) = self.get_container_mut(target_key) {
-                            container.set_layout_explicit(next);
-                            container.insert_child(0, nested_key);
-                        }
-                        self.set_parent(nested_key, Some(target_key));
-                        self.focus_node_key(child_key);
-                        return true;
-                    }
-                }
-            }
-        }
 
         if matches!(current, Layout::Stacked)
             && Some(target_key) == self.root
@@ -4908,18 +4861,33 @@ impl<W: LayoutElement> ContainerTree<W> {
         chain
     }
 
-    pub(super) fn inactive_tiling_reference_for_selected_container(
-        &self,
-    ) -> Option<InactiveTilingReference> {
-        let key = self.selected_container_key()?;
-        self.inactive_tiling_container_reference_for_key(key)
-    }
-
     pub(super) fn inactive_tiling_reference_for_selected_or_focused(
         &self,
     ) -> Option<InactiveTilingReference> {
         let key = self.selected_node_key().or_else(|| self.first_leaf_key())?;
         self.inactive_tiling_reference_for_node_key(key)
+    }
+
+    pub(super) fn inactive_tiling_reference_chain_for_focused_leaf(
+        &self,
+    ) -> Vec<InactiveTilingReference> {
+        let mut chain = Vec::new();
+        let Some(mut key) = self.focused_key.or_else(|| self.first_leaf_key()) else {
+            return chain;
+        };
+
+        if let Some(reference) = self.inactive_tiling_reference_for_node_key(key) {
+            chain.push(reference);
+        }
+
+        while let Some(parent_key) = self.parent_of(key) {
+            if let Some(reference) = self.inactive_tiling_container_reference_for_key(parent_key) {
+                chain.push(reference);
+            }
+            key = parent_key;
+        }
+
+        chain
     }
 
     pub(super) fn inactive_tiling_reference_for_parent_of_selected_reference(
@@ -4938,30 +4906,6 @@ impl<W: LayoutElement> ContainerTree<W> {
         let node_key = self.get_node_key_at_path(&path)?;
         let parent_key = self.parent_of(node_key)?;
         self.inactive_tiling_container_reference_for_key(parent_key)
-    }
-
-    fn resolve_container_key_from_inactive_tiling_reference(
-        &self,
-        reference: &InactiveTilingReference,
-    ) -> Option<NodeKey> {
-        match self.resolve_inactive_tiling_reference(reference)? {
-            ResolvedInactiveTilingReference::Container { key, .. } => Some(key),
-            ResolvedInactiveTilingReference::Leaf { .. } => None,
-        }
-    }
-
-    pub(super) fn split_from_inactive_tiling_reference_like_sway(
-        &mut self,
-        reference: &InactiveTilingReference,
-        layout: Layout,
-    ) -> bool {
-        let Some(container_key) = self.resolve_container_key_from_inactive_tiling_reference(reference)
-        else {
-            return false;
-        };
-
-        self.selected_key = Some(container_key);
-        self.split_selected_container_like_sway(container_key, layout)
     }
 
     /// Resolve an inactive tiling reference with sway semantics:
@@ -5902,6 +5846,11 @@ impl ContainerTree<Mapped> {
         // even when a container is selected via focus-parent command context.
         let focused_key = self.focused_key.or_else(|| self.first_leaf_key());
         Some(self.build_layout_tree_node(root_key, focused_key))
+    }
+
+    pub fn layout_tree_unfocused(&self) -> Option<LayoutTreeNode> {
+        let root_key = self.root?;
+        Some(self.build_layout_tree_node(root_key, None))
     }
 
     fn build_layout_tree_node(
