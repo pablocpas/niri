@@ -1049,6 +1049,48 @@ impl<W: LayoutElement> Workspace<W> {
         self.remember_current_tiling_reference();
     }
 
+    pub(super) fn seat_focus_tiling_chain(
+        &self,
+    ) -> Vec<super::container::InactiveTilingReference> {
+        self.scrolling
+            .inactive_tiling_reference_chain_for_focused_reference()
+    }
+
+    pub(super) fn has_tiling_reference(
+        &self,
+        reference: &super::container::InactiveTilingReference,
+        strict: bool,
+    ) -> bool {
+        self.scrolling.has_inactive_tiling_reference(reference, strict)
+    }
+
+    pub(super) fn focus_tiling_reference(
+        &mut self,
+        reference: &super::container::InactiveTilingReference,
+        strict: bool,
+    ) -> bool {
+        let focused = self
+            .scrolling
+            .focus_inactive_tiling_reference(reference, strict);
+        if focused {
+            self.floating_is_active = FloatingActive::No;
+            self.sync_tiling_focus_context_from_scrolling();
+        }
+        focused
+    }
+
+    pub(super) fn focus_floating_window(&mut self, id: &W::Id, raise: bool) -> bool {
+        let focused = if raise {
+            self.floating.activate_window(id)
+        } else {
+            self.floating.activate_window_without_raising(id)
+        };
+        if focused {
+            self.floating_is_active = FloatingActive::Yes;
+        }
+        focused
+    }
+
     pub(super) fn scrolling_replace_tile_at_path(
         &mut self,
         path: &[usize],
@@ -1325,11 +1367,31 @@ impl<W: LayoutElement> Workspace<W> {
         }
     }
 
+    pub fn focus_left_no_wrap(&mut self) -> bool {
+        if self.floating_is_active.get() {
+            self.floating.focus_left()
+        } else {
+            let moved = self.scrolling.focus_left_no_wrap();
+            self.sync_tiling_focus_context_from_scrolling();
+            moved
+        }
+    }
+
     pub fn focus_right(&mut self) -> bool {
         if self.floating_is_active.get() {
             self.floating.focus_right()
         } else {
             let moved = self.scrolling.focus_right();
+            self.sync_tiling_focus_context_from_scrolling();
+            moved
+        }
+    }
+
+    pub fn focus_right_no_wrap(&mut self) -> bool {
+        if self.floating_is_active.get() {
+            self.floating.focus_right()
+        } else {
+            let moved = self.scrolling.focus_right_no_wrap();
             self.sync_tiling_focus_context_from_scrolling();
             moved
         }
@@ -1464,6 +1526,26 @@ impl<W: LayoutElement> Workspace<W> {
     pub fn focus_window_up_or_bottom(&mut self) {
         if !self.focus_up() {
             self.focus_window_bottom();
+        }
+    }
+
+    pub fn focus_up_no_wrap(&mut self) -> bool {
+        if self.floating_is_active.get() {
+            self.floating.focus_up()
+        } else {
+            let moved = self.scrolling.focus_up_no_wrap();
+            self.sync_tiling_focus_context_from_scrolling();
+            moved
+        }
+    }
+
+    pub fn focus_down_no_wrap(&mut self) -> bool {
+        if self.floating_is_active.get() {
+            self.floating.focus_down()
+        } else {
+            let moved = self.scrolling.focus_down_no_wrap();
+            self.sync_tiling_focus_context_from_scrolling();
+            moved
         }
     }
 
@@ -2239,6 +2321,12 @@ impl<W: LayoutElement> Workspace<W> {
         if !self.floating_is_active.get() {
             self.sync_tiling_focus_context_from_scrolling();
         }
+    }
+
+    pub fn clear_selection_context(&mut self) {
+        self.scrolling.clear_selection_context();
+        self.floating.clear_selection_context();
+        self.floating_workspace_context = false;
     }
 
     pub fn move_floating_window(

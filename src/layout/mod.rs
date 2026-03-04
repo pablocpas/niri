@@ -57,6 +57,7 @@ use self::container::InsertParentInfo;
 pub use self::container::Layout as ContainerLayout;
 pub use self::monitor::MonitorRenderElement;
 use self::monitor::{Monitor, WorkspaceSwitch};
+use self::seat_focus::{SeatFocusNode, SeatFocusStack};
 use self::workspace::{OutputId, Workspace};
 use crate::animation::{Animation, Clock};
 use crate::input::swipe_tracker::SwipeTracker;
@@ -86,6 +87,7 @@ pub mod opening_window;
 pub mod shadow;
 pub mod tab_indicator;
 pub mod tab_bar;
+mod seat_focus;
 pub mod tile;
 pub mod tiling;
 pub mod workspace;
@@ -345,6 +347,8 @@ pub struct Layout<W: LayoutElement> {
     /// The workspace id does not necessarily point to a valid workspace. If it doesn't, then it is
     /// simply ignored.
     last_active_workspace_id: HashMap<String, WorkspaceId>,
+    /// MRU focus stack with sway-like seat semantics (single seat runtime).
+    seat_focus: SeatFocusStack<W::Id>,
     /// Ongoing interactive move.
     interactive_move: Option<InteractiveMoveState<W>>,
     /// Ongoing drag-and-drop operation.
@@ -750,6 +754,7 @@ impl<W: LayoutElement> Layout<W> {
             monitor_set: MonitorSet::NoOutputs { workspaces: vec![] },
             is_active: true,
             last_active_workspace_id: HashMap::new(),
+            seat_focus: SeatFocusStack::new(),
             interactive_move: None,
             dnd: None,
             clock,
@@ -776,6 +781,7 @@ impl<W: LayoutElement> Layout<W> {
             monitor_set: MonitorSet::NoOutputs { workspaces },
             is_active: true,
             last_active_workspace_id: HashMap::new(),
+            seat_focus: SeatFocusStack::new(),
             interactive_move: None,
             dnd: None,
             clock,
@@ -892,7 +898,8 @@ impl<W: LayoutElement> Layout<W> {
                     active_monitor_idx: 0,
                 }
             }
-        }
+        };
+        self.seat_focus_after_mutation();
     }
 
     pub fn remove_output(&mut self, output: &Output) {
@@ -950,7 +957,8 @@ impl<W: LayoutElement> Layout<W> {
             MonitorSet::NoOutputs { .. } => {
                 panic!("tried to remove output when there were already none")
             }
-        }
+        };
+        self.seat_focus_after_mutation();
     }
 
     pub fn add_column_by_idx(
@@ -1788,40 +1796,51 @@ impl<W: LayoutElement> Layout<W> {
             return;
         }
 
-        let MonitorSet::Normal {
-            monitors,
-            active_monitor_idx,
-            ..
-        } = &mut self.monitor_set
-        else {
-            return;
-        };
-
-        for (monitor_idx, mon) in monitors.iter_mut().enumerate() {
-            if mon.activate_sticky_window(window, true) {
-                *active_monitor_idx = monitor_idx;
+        let mut changed_focus = false;
+        {
+            let MonitorSet::Normal {
+                monitors,
+                active_monitor_idx,
+                ..
+            } = &mut self.monitor_set
+            else {
                 return;
+            };
+
+            for (monitor_idx, mon) in monitors.iter_mut().enumerate() {
+                if mon.activate_sticky_window(window, true) {
+                    *active_monitor_idx = monitor_idx;
+                    changed_focus = true;
+                    break;
+                }
+            }
+
+            if !changed_focus {
+                'outer: for (monitor_idx, mon) in monitors.iter_mut().enumerate() {
+                    for (workspace_idx, ws) in mon.workspaces.iter_mut().enumerate() {
+                        if ws.activate_window(window) {
+                            mon.clear_sticky_focus();
+                            *active_monitor_idx = monitor_idx;
+
+                            // If currently in the middle of a vertical swipe between the target workspace
+                            // and some other, don't switch the workspace.
+                            match &mon.workspace_switch {
+                                Some(WorkspaceSwitch::Gesture(gesture))
+                                    if gesture.current_idx.floor() == workspace_idx as f64
+                                        || gesture.current_idx.ceil() == workspace_idx as f64 => {}
+                                _ => mon.switch_workspace(workspace_idx),
+                            }
+
+                            changed_focus = true;
+                            break 'outer;
+                        }
+                    }
+                }
             }
         }
 
-        for (monitor_idx, mon) in monitors.iter_mut().enumerate() {
-            for (workspace_idx, ws) in mon.workspaces.iter_mut().enumerate() {
-                if ws.activate_window(window) {
-                    mon.clear_sticky_focus();
-                    *active_monitor_idx = monitor_idx;
-
-                    // If currently in the middle of a vertical swipe between the target workspace
-                    // and some other, don't switch the workspace.
-                    match &mon.workspace_switch {
-                        Some(WorkspaceSwitch::Gesture(gesture))
-                            if gesture.current_idx.floor() == workspace_idx as f64
-                                || gesture.current_idx.ceil() == workspace_idx as f64 => {}
-                        _ => mon.switch_workspace(workspace_idx),
-                    }
-
-                    return;
-                }
-            }
+        if changed_focus {
+            self.seat_focus_record_active_chain();
         }
     }
 
@@ -1835,40 +1854,51 @@ impl<W: LayoutElement> Layout<W> {
             return;
         }
 
-        let MonitorSet::Normal {
-            monitors,
-            active_monitor_idx,
-            ..
-        } = &mut self.monitor_set
-        else {
-            return;
-        };
-
-        for (monitor_idx, mon) in monitors.iter_mut().enumerate() {
-            if mon.activate_sticky_window(window, false) {
-                *active_monitor_idx = monitor_idx;
+        let mut changed_focus = false;
+        {
+            let MonitorSet::Normal {
+                monitors,
+                active_monitor_idx,
+                ..
+            } = &mut self.monitor_set
+            else {
                 return;
+            };
+
+            for (monitor_idx, mon) in monitors.iter_mut().enumerate() {
+                if mon.activate_sticky_window(window, false) {
+                    *active_monitor_idx = monitor_idx;
+                    changed_focus = true;
+                    break;
+                }
+            }
+
+            if !changed_focus {
+                'outer: for (monitor_idx, mon) in monitors.iter_mut().enumerate() {
+                    for (workspace_idx, ws) in mon.workspaces.iter_mut().enumerate() {
+                        if ws.activate_window_without_raising(window) {
+                            mon.clear_sticky_focus();
+                            *active_monitor_idx = monitor_idx;
+
+                            // If currently in the middle of a vertical swipe between the target workspace
+                            // and some other, don't switch the workspace.
+                            match &mon.workspace_switch {
+                                Some(WorkspaceSwitch::Gesture(gesture))
+                                    if gesture.current_idx.floor() == workspace_idx as f64
+                                        || gesture.current_idx.ceil() == workspace_idx as f64 => {}
+                                _ => mon.switch_workspace(workspace_idx),
+                            }
+
+                            changed_focus = true;
+                            break 'outer;
+                        }
+                    }
+                }
             }
         }
 
-        for (monitor_idx, mon) in monitors.iter_mut().enumerate() {
-            for (workspace_idx, ws) in mon.workspaces.iter_mut().enumerate() {
-                if ws.activate_window_without_raising(window) {
-                    mon.clear_sticky_focus();
-                    *active_monitor_idx = monitor_idx;
-
-                    // If currently in the middle of a vertical swipe between the target workspace
-                    // and some other, don't switch the workspace.
-                    match &mon.workspace_switch {
-                        Some(WorkspaceSwitch::Gesture(gesture))
-                            if gesture.current_idx.floor() == workspace_idx as f64
-                                || gesture.current_idx.ceil() == workspace_idx as f64 => {}
-                        _ => mon.switch_workspace(workspace_idx),
-                    }
-
-                    return;
-                }
-            }
+        if changed_focus {
+            self.seat_focus_record_active_chain();
         }
     }
 
@@ -2095,6 +2125,277 @@ impl<W: LayoutElement> Layout<W> {
         self.monitors_mut().find(|mon| &mon.output == output)
     }
 
+    fn find_workspace_location_by_id(&self, id: WorkspaceId) -> Option<(usize, usize)> {
+        match &self.monitor_set {
+            MonitorSet::Normal { monitors, .. } => monitors.iter().enumerate().find_map(
+                |(monitor_idx, mon)| {
+                    mon.workspaces
+                        .iter()
+                        .enumerate()
+                        .find(|(_, ws)| ws.id() == id)
+                        .map(|(workspace_idx, _)| (monitor_idx, workspace_idx))
+                },
+            ),
+            MonitorSet::NoOutputs { .. } => None,
+        }
+    }
+
+    fn seat_focus_record_active_chain(&mut self) {
+        if !self.seat_focus.has_layout_focus() {
+            return;
+        }
+
+        let chain = match &self.monitor_set {
+            MonitorSet::Normal {
+                monitors,
+                active_monitor_idx,
+                ..
+            } => {
+                let mon = &monitors[*active_monitor_idx];
+                let ws = mon.active_workspace_ref();
+                let ws_id = ws.id();
+                let output_name = mon.output.name();
+
+                let mut chain = vec![SeatFocusNode::Workspace {
+                    workspace_id: ws_id,
+                    output_name: Some(output_name.clone()),
+                }];
+
+                if mon.sticky_is_active() {
+                    if let Some(window_id) = mon.sticky_active_window_id() {
+                        chain.push(SeatFocusNode::Sticky {
+                            output_name,
+                            window_id: window_id.clone(),
+                        });
+                    }
+                    chain
+                } else if ws.floating_is_active() {
+                    if let Some(win) = ws.active_window() {
+                        chain.push(SeatFocusNode::Floating {
+                            workspace_id: ws_id,
+                            window_id: win.id().clone(),
+                        });
+                    }
+                    chain
+                } else {
+                    for reference in ws.seat_focus_tiling_chain() {
+                        chain.push(SeatFocusNode::Tiling {
+                            workspace_id: ws_id,
+                            reference,
+                        });
+                    }
+                    chain
+                }
+            }
+            MonitorSet::NoOutputs { workspaces } => {
+                let Some(ws) = workspaces.first() else {
+                    return;
+                };
+                let ws_id = ws.id();
+
+                let mut chain = vec![SeatFocusNode::Workspace {
+                    workspace_id: ws_id,
+                    output_name: None,
+                }];
+                if ws.floating_is_active() {
+                    if let Some(win) = ws.active_window() {
+                        chain.push(SeatFocusNode::Floating {
+                            workspace_id: ws_id,
+                            window_id: win.id().clone(),
+                        });
+                    }
+                } else {
+                    for reference in ws.seat_focus_tiling_chain() {
+                        chain.push(SeatFocusNode::Tiling {
+                            workspace_id: ws_id,
+                            reference,
+                        });
+                    }
+                }
+                chain
+            }
+        };
+
+        if !chain.is_empty() {
+            self.seat_focus.set_has_layout_focus(true);
+            self.seat_focus.set_focus_chain(chain);
+        }
+    }
+
+    fn seat_focus_node_valid(&self, node: &SeatFocusNode<W::Id>) -> bool {
+        match node {
+            SeatFocusNode::Workspace { workspace_id, .. } => {
+                self.find_workspace_by_id(*workspace_id).is_some()
+            }
+            SeatFocusNode::Tiling {
+                workspace_id,
+                reference,
+            } => self
+                .find_workspace_by_id(*workspace_id)
+                .is_some_and(|(_, ws)| ws.has_tiling_reference(reference, false)),
+            SeatFocusNode::Floating {
+                workspace_id,
+                window_id,
+            } => self
+                .find_workspace_by_id(*workspace_id)
+                .is_some_and(|(_, ws)| ws.has_window(window_id) && ws.is_floating(window_id)),
+            SeatFocusNode::Sticky {
+                output_name,
+                window_id,
+            } => self
+                .monitors()
+                .any(|mon| mon.output.name() == *output_name && mon.has_sticky_window(window_id)),
+        }
+    }
+
+    fn seat_focus_after_mutation(&mut self) {
+        let mut snapshot = self.seat_focus.snapshot();
+        snapshot.retain(|node| self.seat_focus_node_valid(node));
+        self.seat_focus.replace_from_snapshot(snapshot);
+        self.seat_focus_record_active_chain();
+    }
+
+    fn seat_focus_restore_workspace(&mut self, workspace_id: WorkspaceId) {
+        let Some(candidate) = self.seat_focus.focus_inactive_workspace(workspace_id) else {
+            return;
+        };
+
+        let mut restored = false;
+        match &candidate {
+            SeatFocusNode::Workspace { .. } => {
+                restored = true;
+            }
+            SeatFocusNode::Tiling {
+                workspace_id,
+                reference,
+            } => {
+                let reference = self
+                    .seat_focus
+                    .focus_inactive_tiling(*workspace_id)
+                    .unwrap_or_else(|| reference.clone());
+                if let Some((monitor_idx, workspace_idx)) =
+                    self.find_workspace_location_by_id(*workspace_id)
+                {
+                    if let MonitorSet::Normal { monitors, .. } = &mut self.monitor_set {
+                        let ws = &mut monitors[monitor_idx].workspaces[workspace_idx];
+                        restored = ws.focus_tiling_reference(&reference, true)
+                            || ws.focus_tiling_reference(&reference, false);
+                    }
+                }
+            }
+            SeatFocusNode::Floating {
+                workspace_id,
+                window_id,
+            } => {
+                let window_id = self
+                    .seat_focus
+                    .focus_inactive_floating(*workspace_id)
+                    .unwrap_or_else(|| window_id.clone());
+                if let Some((monitor_idx, workspace_idx)) =
+                    self.find_workspace_location_by_id(*workspace_id)
+                {
+                    if let MonitorSet::Normal { monitors, .. } = &mut self.monitor_set {
+                        let ws = &mut monitors[monitor_idx].workspaces[workspace_idx];
+                        restored = ws.focus_floating_window(&window_id, false);
+                    }
+                }
+            }
+            SeatFocusNode::Sticky {
+                output_name,
+                window_id,
+            } => {
+                if let MonitorSet::Normal {
+                    monitors,
+                    active_monitor_idx,
+                    ..
+                } = &mut self.monitor_set
+                {
+                    if let Some(monitor_idx) =
+                        monitors.iter().position(|mon| mon.output.name() == *output_name)
+                    {
+                        restored = monitors[monitor_idx].activate_sticky_window(window_id, false);
+                        if restored {
+                            *active_monitor_idx = monitor_idx;
+                        }
+                    }
+                }
+            }
+        }
+
+        if restored {
+            self.seat_focus.set_raw_focus(candidate);
+        }
+    }
+
+    fn seat_focus_restore_output(&mut self, output: &Output) {
+        let output_name = output.name();
+        let Some(candidate) = self.seat_focus.focus_inactive_output(&output_name) else {
+            return;
+        };
+        let candidate_workspace_location = match candidate {
+            SeatFocusNode::Workspace { workspace_id, .. }
+            | SeatFocusNode::Tiling { workspace_id, .. }
+            | SeatFocusNode::Floating { workspace_id, .. } => {
+                self.find_workspace_location_by_id(workspace_id)
+                    .map(|(_, workspace_idx)| (workspace_id, workspace_idx))
+            }
+            SeatFocusNode::Sticky { .. } => None,
+        };
+
+        let mut target_workspace = None;
+        let mut restored_sticky = false;
+        if let MonitorSet::Normal {
+            monitors,
+            active_monitor_idx,
+            ..
+        } = &mut self.monitor_set
+        {
+            let Some(target_monitor_idx) = monitors.iter().position(|mon| mon.output == *output) else {
+                return;
+            };
+
+            match &candidate {
+                SeatFocusNode::Sticky { window_id, .. } => {
+                    restored_sticky =
+                        monitors[target_monitor_idx].activate_sticky_window(window_id, false);
+                    if restored_sticky {
+                        *active_monitor_idx = target_monitor_idx;
+                    }
+                }
+                SeatFocusNode::Workspace { workspace_id, .. }
+                | SeatFocusNode::Tiling { workspace_id, .. }
+                | SeatFocusNode::Floating { workspace_id, .. } => {
+                    if let Some((candidate_workspace_id, workspace_idx)) = candidate_workspace_location
+                    {
+                        if *workspace_id == candidate_workspace_id {
+                            *active_monitor_idx = target_monitor_idx;
+                            monitors[target_monitor_idx].switch_workspace(workspace_idx);
+                            target_workspace = Some(candidate_workspace_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(workspace_id) = target_workspace {
+            self.seat_focus_restore_workspace(workspace_id);
+            self.seat_focus.set_raw_focus(candidate);
+        } else if restored_sticky {
+            self.seat_focus.set_raw_focus(candidate);
+        }
+    }
+
+    pub fn set_seat_layout_focus(&mut self, has_layout_focus: bool) {
+        self.seat_focus.set_has_layout_focus(has_layout_focus);
+        if has_layout_focus {
+            self.seat_focus_record_active_chain();
+        }
+    }
+
+    pub fn refresh_seat_focus(&mut self) {
+        self.seat_focus_after_mutation();
+    }
+
     pub fn monitor_for_workspace(&self, workspace_name: &str) -> Option<&Monitor<W>> {
         self.monitors().find(|monitor| {
             monitor.workspaces.iter().any(|ws| {
@@ -2258,6 +2559,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_left();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_right(&mut self) {
@@ -2266,6 +2568,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_right();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_column_first(&mut self) {
@@ -2274,6 +2577,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_column_first();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_column_last(&mut self) {
@@ -2282,6 +2586,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_column_last();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_column_right_or_first(&mut self) {
@@ -2290,6 +2595,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_column_right_or_first();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_column_left_or_last(&mut self) {
@@ -2298,6 +2604,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_column_left_or_last();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_column(&mut self, index: usize) {
@@ -2306,53 +2613,74 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_column(index);
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_window_up_or_output(&mut self, output: &Output) -> bool {
         self.clear_sticky_focus_for_output(output);
         if let Some(workspace) = self.active_workspace_mut() {
-            if workspace.focus_up() {
+            if workspace.focus_up_no_wrap() {
+                self.seat_focus_record_active_chain();
                 return false;
             }
         }
 
         self.focus_output(output);
+        if let Some(workspace) = self.active_workspace_mut() {
+            workspace.clear_selection_context();
+        }
+        self.seat_focus_record_active_chain();
         true
     }
 
     pub fn focus_window_down_or_output(&mut self, output: &Output) -> bool {
         self.clear_sticky_focus_for_output(output);
         if let Some(workspace) = self.active_workspace_mut() {
-            if workspace.focus_down() {
+            if workspace.focus_down_no_wrap() {
+                self.seat_focus_record_active_chain();
                 return false;
             }
         }
 
         self.focus_output(output);
+        if let Some(workspace) = self.active_workspace_mut() {
+            workspace.clear_selection_context();
+        }
+        self.seat_focus_record_active_chain();
         true
     }
 
     pub fn focus_column_left_or_output(&mut self, output: &Output) -> bool {
         self.clear_sticky_focus_for_output(output);
         if let Some(workspace) = self.active_workspace_mut() {
-            if workspace.focus_left() {
+            if workspace.focus_left_no_wrap() {
+                self.seat_focus_record_active_chain();
                 return false;
             }
         }
 
         self.focus_output(output);
+        if let Some(workspace) = self.active_workspace_mut() {
+            workspace.clear_selection_context();
+        }
+        self.seat_focus_record_active_chain();
         true
     }
 
     pub fn focus_column_right_or_output(&mut self, output: &Output) -> bool {
         self.clear_sticky_focus_for_output(output);
         if let Some(workspace) = self.active_workspace_mut() {
-            if workspace.focus_right() {
+            if workspace.focus_right_no_wrap() {
+                self.seat_focus_record_active_chain();
                 return false;
             }
         }
 
         self.focus_output(output);
+        if let Some(workspace) = self.active_workspace_mut() {
+            workspace.clear_selection_context();
+        }
+        self.seat_focus_record_active_chain();
         true
     }
 
@@ -2362,6 +2690,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_window_in_column(index);
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_down(&mut self) {
@@ -2370,6 +2699,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_down();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_up(&mut self) {
@@ -2378,6 +2708,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_up();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_down_or_left(&mut self) {
@@ -2386,6 +2717,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_down_or_left();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_down_or_right(&mut self) {
@@ -2394,6 +2726,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_down_or_right();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_up_or_left(&mut self) {
@@ -2402,6 +2735,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_up_or_left();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_up_or_right(&mut self) {
@@ -2410,6 +2744,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_up_or_right();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_window_or_workspace_down(&mut self) {
@@ -2418,6 +2753,10 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.focus_window_or_workspace_down();
+        if let Some(workspace) = self.active_workspace() {
+            self.seat_focus_restore_workspace(workspace.id());
+            self.seat_focus_record_active_chain();
+        }
     }
 
     pub fn focus_window_or_workspace_up(&mut self) {
@@ -2426,6 +2765,10 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.focus_window_or_workspace_up();
+        if let Some(workspace) = self.active_workspace() {
+            self.seat_focus_restore_workspace(workspace.id());
+            self.seat_focus_record_active_chain();
+        }
     }
 
     pub fn focus_window_top(&mut self) {
@@ -2434,6 +2777,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_window_top();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_window_bottom(&mut self) {
@@ -2442,6 +2786,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_window_bottom();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_window_down_or_top(&mut self) {
@@ -2450,6 +2795,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_window_down_or_top();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_window_up_or_bottom(&mut self) {
@@ -2458,6 +2804,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_window_up_or_bottom();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn move_to_workspace_up(&mut self, focus: bool) {
@@ -2465,6 +2812,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.move_to_workspace_up(focus);
+        self.seat_focus_after_mutation();
     }
 
     pub fn move_to_workspace_down(&mut self, focus: bool) {
@@ -2472,6 +2820,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.move_to_workspace_down(focus);
+        self.seat_focus_after_mutation();
     }
 
     pub fn move_to_workspace(
@@ -2506,6 +2855,7 @@ impl<W: LayoutElement> Layout<W> {
             monitor
         };
         monitor.move_to_workspace(window, idx, activate);
+        self.seat_focus_after_mutation();
     }
 
     pub fn move_column_to_workspace_up(&mut self, activate: bool) {
@@ -2513,6 +2863,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.move_column_to_workspace_up(activate);
+        self.seat_focus_after_mutation();
     }
 
     pub fn move_column_to_workspace_down(&mut self, activate: bool) {
@@ -2520,6 +2871,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.move_column_to_workspace_down(activate);
+        self.seat_focus_after_mutation();
     }
 
     pub fn move_column_to_workspace(&mut self, idx: usize, activate: bool) {
@@ -2527,6 +2879,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.move_column_to_workspace(idx, activate);
+        self.seat_focus_after_mutation();
     }
 
     pub fn move_column_to_workspace_by_id(
@@ -2559,6 +2912,10 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.switch_workspace_up();
+        if let Some(workspace) = self.active_workspace() {
+            self.seat_focus_restore_workspace(workspace.id());
+            self.seat_focus_record_active_chain();
+        }
     }
 
     pub fn switch_workspace_down(&mut self) {
@@ -2566,6 +2923,10 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.switch_workspace_down();
+        if let Some(workspace) = self.active_workspace() {
+            self.seat_focus_restore_workspace(workspace.id());
+            self.seat_focus_record_active_chain();
+        }
     }
 
     pub fn switch_workspace(&mut self, idx: usize) {
@@ -2573,6 +2934,10 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.switch_workspace(idx);
+        if let Some(workspace) = self.active_workspace() {
+            self.seat_focus_restore_workspace(workspace.id());
+            self.seat_focus_record_active_chain();
+        }
     }
 
     pub fn switch_workspace_auto_back_and_forth(&mut self, idx: usize) {
@@ -2580,6 +2945,10 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.switch_workspace_auto_back_and_forth(idx);
+        if let Some(workspace) = self.active_workspace() {
+            self.seat_focus_restore_workspace(workspace.id());
+            self.seat_focus_record_active_chain();
+        }
     }
 
     pub fn switch_workspace_previous(&mut self) {
@@ -2587,6 +2956,10 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         monitor.switch_workspace_previous();
+        if let Some(workspace) = self.active_workspace() {
+            self.seat_focus_restore_workspace(workspace.id());
+            self.seat_focus_record_active_chain();
+        }
     }
 
     pub fn focus_workspace_by_id(
@@ -2611,17 +2984,22 @@ impl<W: LayoutElement> Layout<W> {
                 return None;
             };
             monitor.switch_workspace(idx);
+            self.seat_focus_restore_workspace(workspace_id);
         } else if auto_back_and_forth {
             let Some(monitor) = self.active_monitor() else {
                 return None;
             };
             monitor.switch_workspace_auto_back_and_forth(idx);
+            self.seat_focus_restore_workspace(workspace_id);
         } else {
             let Some(monitor) = self.active_monitor() else {
                 return None;
             };
             monitor.switch_workspace(idx);
+            self.seat_focus_restore_workspace(workspace_id);
         }
+
+        self.seat_focus_record_active_chain();
 
         Some(output)
     }
@@ -3566,6 +3944,7 @@ impl<W: LayoutElement> Layout<W> {
         self.clear_sticky_focus();
         if let Some(workspace) = self.active_workspace_mut() {
             workspace.focus_parent();
+            self.seat_focus_record_active_chain();
         }
     }
 
@@ -3573,6 +3952,7 @@ impl<W: LayoutElement> Layout<W> {
         self.clear_sticky_focus();
         if let Some(workspace) = self.active_workspace_mut() {
             workspace.focus_child();
+            self.seat_focus_record_active_chain();
         }
     }
 
@@ -3729,6 +4109,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.toggle_window_floating(window);
+        self.seat_focus_after_mutation();
     }
 
     pub fn toggle_window_sticky(&mut self, window: Option<&W::Id>) {
@@ -3787,6 +4168,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.set_window_floating(window, floating);
+        self.seat_focus_after_mutation();
     }
 
     pub fn focus_floating(&mut self) {
@@ -3795,6 +4177,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_floating();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn focus_tiling(&mut self) {
@@ -3803,6 +4186,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.focus_tiling();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn switch_focus_floating_tiling(&mut self) {
@@ -3811,6 +4195,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
         workspace.switch_focus_floating_tiling();
+        self.seat_focus_record_active_chain();
     }
 
     pub fn move_window_to_scratchpad(&mut self, window: Option<&W::Id>) {
@@ -3996,19 +4381,25 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn focus_output(&mut self, output: &Output) {
+        let target_monitor_idx = match &self.monitor_set {
+            MonitorSet::Normal { monitors, .. } => {
+                monitors.iter().position(|mon| &mon.output == output)
+            }
+            MonitorSet::NoOutputs { .. } => None,
+        };
+        let Some(target_monitor_idx) = target_monitor_idx else {
+            return;
+        };
+
         if let MonitorSet::Normal {
-            monitors,
-            active_monitor_idx,
-            ..
+            active_monitor_idx, ..
         } = &mut self.monitor_set
         {
-            for (idx, mon) in monitors.iter().enumerate() {
-                if &mon.output == output {
-                    *active_monitor_idx = idx;
-                    return;
-                }
-            }
+            *active_monitor_idx = target_monitor_idx;
         }
+
+        self.seat_focus_restore_output(output);
+        self.seat_focus_record_active_chain();
     }
 
     pub fn move_to_output(
@@ -4169,6 +4560,7 @@ impl<W: LayoutElement> Layout<W> {
                 monitors[mon_idx].clean_up_workspaces();
             }
         }
+        self.seat_focus_after_mutation();
     }
 
     pub fn move_column_to_output(
@@ -4205,6 +4597,7 @@ impl<W: LayoutElement> Layout<W> {
                 .min(monitors[new_idx].workspaces.len() - 1);
             self.add_column_by_idx(new_idx, workspace_idx, column, activate);
         }
+        self.seat_focus_after_mutation();
     }
 
     pub fn move_workspace_to_output(&mut self, output: &Output) -> bool {

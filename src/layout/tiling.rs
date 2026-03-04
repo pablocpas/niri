@@ -1445,7 +1445,11 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
-    fn focus_in_direction_with_fullscreen_scope(&mut self, direction: Direction) -> bool {
+    fn focus_in_direction_with_fullscreen_scope(
+        &mut self,
+        direction: Direction,
+        allow_wrap: bool,
+    ) -> bool {
         // Match sway: with active fullscreen in tiling, directional focus can move inside the
         // fullscreen subtree, but must not escape to another root sibling.
         let fullscreen_scope = self.fullscreen_window.as_ref().map(|id| {
@@ -1461,7 +1465,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             return false;
         }
 
-        let focused = if fullscreen_scope.is_some() {
+        let focused = if fullscreen_scope.is_some() || !allow_wrap {
             self.tree.focus_in_direction_no_wrap(direction)
         } else {
             self.tree.focus_in_direction(direction)
@@ -1484,19 +1488,35 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn focus_left(&mut self) -> bool {
-        self.focus_in_direction_with_fullscreen_scope(Direction::Left)
+        self.focus_in_direction_with_fullscreen_scope(Direction::Left, true)
+    }
+
+    pub fn focus_left_no_wrap(&mut self) -> bool {
+        self.focus_in_direction_with_fullscreen_scope(Direction::Left, false)
     }
 
     pub fn focus_right(&mut self) -> bool {
-        self.focus_in_direction_with_fullscreen_scope(Direction::Right)
+        self.focus_in_direction_with_fullscreen_scope(Direction::Right, true)
+    }
+
+    pub fn focus_right_no_wrap(&mut self) -> bool {
+        self.focus_in_direction_with_fullscreen_scope(Direction::Right, false)
     }
 
     pub fn focus_down(&mut self) -> bool {
-        self.focus_in_direction_with_fullscreen_scope(Direction::Down)
+        self.focus_in_direction_with_fullscreen_scope(Direction::Down, true)
+    }
+
+    pub fn focus_down_no_wrap(&mut self) -> bool {
+        self.focus_in_direction_with_fullscreen_scope(Direction::Down, false)
     }
 
     pub fn focus_up(&mut self) -> bool {
-        self.focus_in_direction_with_fullscreen_scope(Direction::Up)
+        self.focus_in_direction_with_fullscreen_scope(Direction::Up, true)
+    }
+
+    pub fn focus_up_no_wrap(&mut self) -> bool {
+        self.focus_in_direction_with_fullscreen_scope(Direction::Up, false)
     }
 
     pub fn focus_parent(&mut self) -> bool {
@@ -1572,6 +1592,22 @@ impl<W: LayoutElement> TilingSpace<W> {
     ) -> Option<super::container::InsertParentInfo> {
         self.tree
             .insert_parent_info_from_inactive_tiling_reference_strict(reference)
+    }
+
+    pub(super) fn has_inactive_tiling_reference(
+        &self,
+        reference: &super::container::InactiveTilingReference,
+        strict: bool,
+    ) -> bool {
+        self.tree.has_inactive_tiling_reference(reference, strict)
+    }
+
+    pub(super) fn focus_inactive_tiling_reference(
+        &mut self,
+        reference: &super::container::InactiveTilingReference,
+        strict: bool,
+    ) -> bool {
+        self.tree.focus_inactive_tiling_reference(reference, strict)
     }
 
     pub fn wrap_root_for_sibling_insert(&mut self) -> bool {

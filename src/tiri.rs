@@ -1110,6 +1110,8 @@ impl State {
     }
 
     pub fn update_keyboard_focus(&mut self) {
+        self.niri.layout.refresh_seat_focus();
+
         // Clean up on-demand layer surface focus if necessary.
         if let Some(surface) = &self.niri.layer_shell_on_demand_focus {
             // Still alive and has on-demand interactivity.
@@ -1243,6 +1245,9 @@ impl State {
         } else {
             KeyboardFocus::Layout { surface: None }
         };
+
+        let layout_has_focus = matches!(&focus, KeyboardFocus::Layout { .. });
+        self.niri.layout.set_seat_layout_focus(layout_has_focus);
 
         let keyboard = self.niri.seat.get_keyboard().unwrap();
         if self.niri.keyboard_focus != focus {

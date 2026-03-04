@@ -912,19 +912,6 @@ impl<W: LayoutElement> FloatingSpace<W> {
         true
     }
 
-    pub(super) fn select_container_path_for_window(&mut self, id: &W::Id, path: &[usize]) -> bool {
-        let Some(idx) = self.idx_of(id) else {
-            return false;
-        };
-        self.containers[idx].tree.clear_selection();
-        self.containers[idx].wrapper_selected = false;
-        if path.is_empty() {
-            self.containers[idx].wrapper_selected = true;
-            return true;
-        }
-        self.containers[idx].tree.select_container_at_path(path)
-    }
-
     pub fn clear_selection_context(&mut self) {
         for container in &mut self.containers {
             container.wrapper_selected = false;

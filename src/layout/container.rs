@@ -4972,6 +4972,48 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.insert_parent_info_from_resolved_inactive_tiling_reference(resolved)
     }
 
+    pub(super) fn has_inactive_tiling_reference(
+        &self,
+        reference: &InactiveTilingReference,
+        strict: bool,
+    ) -> bool {
+        if strict {
+            self.resolve_inactive_tiling_reference_strict_key(reference)
+                .is_some()
+        } else {
+            self.resolve_inactive_tiling_reference(reference).is_some()
+        }
+    }
+
+    pub(super) fn focus_inactive_tiling_reference(
+        &mut self,
+        reference: &InactiveTilingReference,
+        strict: bool,
+    ) -> bool {
+        let resolved = if strict {
+            self.resolve_inactive_tiling_reference_strict_key(reference)
+        } else {
+            self.resolve_inactive_tiling_reference(reference)
+        };
+        let Some(resolved) = resolved else {
+            return false;
+        };
+
+        let key = match resolved {
+            ResolvedInactiveTilingReference::Container { key, .. } => key,
+            ResolvedInactiveTilingReference::Leaf { path } => {
+                let Some(key) = self.get_node_key_at_path(&path) else {
+                    return false;
+                };
+                key
+            }
+        };
+
+        self.focus_node_key(key);
+        self.layout();
+        true
+    }
+
     fn insert_parent_info_for_path(&self, path: &[usize]) -> Option<InsertParentInfo> {
         if path.is_empty() {
             return None;
