@@ -1776,11 +1776,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
         }
     }
 
-    fn focus_within_active_container(&mut self, direction: Direction) -> bool {
+    fn focus_within_active_container(&mut self, direction: Direction, allow_wrap: bool) -> bool {
         let Some(idx) = self.active_container_idx() else {
             return false;
         };
-        let moved = if self.selected_is_container_in(idx) {
+        let moved = if self.selected_is_container_in(idx) || !allow_wrap {
             self.containers[idx]
                 .tree
                 .focus_in_direction_no_wrap(direction)
@@ -1798,7 +1798,14 @@ impl<W: LayoutElement> FloatingSpace<W> {
     }
 
     pub fn focus_left(&mut self) -> bool {
-        if self.focus_within_active_container(Direction::Left) {
+        if self.focus_within_active_container(Direction::Left, true) {
+            return true;
+        }
+        self.focus_directional(|focus, other| focus.x - other.x)
+    }
+
+    pub fn focus_left_no_wrap(&mut self) -> bool {
+        if self.focus_within_active_container(Direction::Left, false) {
             return true;
         }
         self.focus_directional(|focus, other| focus.x - other.x)
@@ -1816,21 +1823,42 @@ impl<W: LayoutElement> FloatingSpace<W> {
     }
 
     pub fn focus_right(&mut self) -> bool {
-        if self.focus_within_active_container(Direction::Right) {
+        if self.focus_within_active_container(Direction::Right, true) {
+            return true;
+        }
+        self.focus_directional(|focus, other| other.x - focus.x)
+    }
+
+    pub fn focus_right_no_wrap(&mut self) -> bool {
+        if self.focus_within_active_container(Direction::Right, false) {
             return true;
         }
         self.focus_directional(|focus, other| other.x - focus.x)
     }
 
     pub fn focus_up(&mut self) -> bool {
-        if self.focus_within_active_container(Direction::Up) {
+        if self.focus_within_active_container(Direction::Up, true) {
+            return true;
+        }
+        self.focus_directional(|focus, other| focus.y - other.y)
+    }
+
+    pub fn focus_up_no_wrap(&mut self) -> bool {
+        if self.focus_within_active_container(Direction::Up, false) {
             return true;
         }
         self.focus_directional(|focus, other| focus.y - other.y)
     }
 
     pub fn focus_down(&mut self) -> bool {
-        if self.focus_within_active_container(Direction::Down) {
+        if self.focus_within_active_container(Direction::Down, true) {
+            return true;
+        }
+        self.focus_directional(|focus, other| other.y - focus.y)
+    }
+
+    pub fn focus_down_no_wrap(&mut self) -> bool {
+        if self.focus_within_active_container(Direction::Down, false) {
             return true;
         }
         self.focus_directional(|focus, other| other.y - focus.y)

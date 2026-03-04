@@ -3139,11 +3139,24 @@ impl<W: LayoutElement> ContainerTree<W> {
             return false;
         }
 
-        if let Some(key) = self.focused_key {
+        // Match sway command context: when focus-parent selected a container,
+        // move commands operate on that selected container.
+        let selected_move = self
+            .selected_container_key()
+            .and_then(|key| self.find_node_path(key).map(|path| (key, path)));
+        let preserve_selected_container = selected_move.is_some();
+
+        if let Some(key) = selected_move
+            .as_ref()
+            .map(|(key, _)| *key)
+            .or(self.focused_key)
+        {
             self.sync_container_focus_from_key(key);
         }
 
-        let mut move_path = self.focus_path();
+        let mut move_path = selected_move
+            .map(|(_, path)| path)
+            .unwrap_or_else(|| self.focus_path());
         if move_path.is_empty() {
             return false;
         }
@@ -3238,7 +3251,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 }
                 let grandparent_path = &node_parent_path[..node_parent_path.len() - 1];
                 let parent_idx = *node_parent_path.last().unwrap();
-                return self.move_node_to_grandparent(
+                let moved = self.move_node_to_grandparent(
                     node_key,
                     node_parent_path,
                     node_idx,
@@ -3246,6 +3259,10 @@ impl<W: LayoutElement> ContainerTree<W> {
                     parent_idx,
                     direction,
                 );
+                if moved && preserve_selected_container {
+                    self.selected_key = Some(node_key);
+                }
+                return moved;
             };
 
             let target_key = match self.get_container(parent_key).and_then(|c| c.child_key(target_idx)) {
@@ -3258,7 +3275,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     let should_enter = target_container.layout() != parent_layout
                         || target_container.preserve_on_single();
                     if should_enter {
-                        return self.move_node_into_container(
+                        let moved = self.move_node_into_container(
                             node_key,
                             node_parent_path,
                             node_idx,
@@ -3266,6 +3283,10 @@ impl<W: LayoutElement> ContainerTree<W> {
                             direction,
                             target_container.focused_child_index().unwrap_or(0),
                         );
+                        if moved && preserve_selected_container {
+                            self.selected_key = Some(node_key);
+                        }
+                        return moved;
                     }
                 }
             }
@@ -3276,6 +3297,9 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
 
             self.focus_node_key(node_key);
+            if preserve_selected_container {
+                self.selected_key = Some(node_key);
+            }
             return true;
         }
 
@@ -3286,14 +3310,18 @@ impl<W: LayoutElement> ContainerTree<W> {
         let grandparent_path = &node_parent_path[..node_parent_path.len() - 1];
         let parent_idx = *node_parent_path.last().unwrap();
 
-        self.move_node_to_grandparent(
+        let moved = self.move_node_to_grandparent(
             node_key,
             node_parent_path,
             node_idx,
             grandparent_path,
             parent_idx,
             direction,
-        )
+        );
+        if moved && preserve_selected_container {
+            self.selected_key = Some(node_key);
+        }
+        moved
     }
 
     fn ensure_root_container_with_layout(&mut self, layout: Layout) -> bool {

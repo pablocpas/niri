@@ -1540,6 +1540,12 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.clear_selection();
     }
 
+    pub(super) fn root_layout_and_child_count(&self) -> Option<(Layout, usize)> {
+        self.tree
+            .container_info(&[])
+            .map(|(layout, _rect, child_count)| (layout, child_count))
+    }
+
     pub fn select_root_container(&mut self) -> bool {
         self.tree.select_root_container()
     }

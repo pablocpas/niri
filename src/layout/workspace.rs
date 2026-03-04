@@ -1369,7 +1369,7 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn focus_left_no_wrap(&mut self) -> bool {
         if self.floating_is_active.get() {
-            self.floating.focus_left()
+            self.floating.focus_left_no_wrap()
         } else {
             let moved = self.scrolling.focus_left_no_wrap();
             self.sync_tiling_focus_context_from_scrolling();
@@ -1389,7 +1389,7 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn focus_right_no_wrap(&mut self) -> bool {
         if self.floating_is_active.get() {
-            self.floating.focus_right()
+            self.floating.focus_right_no_wrap()
         } else {
             let moved = self.scrolling.focus_right_no_wrap();
             self.sync_tiling_focus_context_from_scrolling();
@@ -1531,7 +1531,7 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn focus_up_no_wrap(&mut self) -> bool {
         if self.floating_is_active.get() {
-            self.floating.focus_up()
+            self.floating.focus_up_no_wrap()
         } else {
             let moved = self.scrolling.focus_up_no_wrap();
             self.sync_tiling_focus_context_from_scrolling();
@@ -1541,12 +1541,70 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn focus_down_no_wrap(&mut self) -> bool {
         if self.floating_is_active.get() {
-            self.floating.focus_down()
+            self.floating.focus_down_no_wrap()
         } else {
             let moved = self.scrolling.focus_down_no_wrap();
             self.sync_tiling_focus_context_from_scrolling();
             moved
         }
+    }
+
+    pub(super) fn focus_entry_from_output_direction(&mut self, direction: Direction) -> bool {
+        if self.scrolling.has_fullscreen_window() {
+            // Match sway get_node_in_output_direction(): fullscreen workspace target resolves to
+            // the inactive focus under the fullscreen subtree. Keep tiling active as-is.
+            self.floating_is_active = FloatingActive::No;
+            self.sync_tiling_focus_context_from_scrolling();
+            return true;
+        }
+
+        let Some((root_layout, child_count)) = self.scrolling.root_layout_and_child_count() else {
+            return false;
+        };
+        if child_count == 0 {
+            return false;
+        }
+
+        let use_edge = match direction {
+            Direction::Left | Direction::Right => {
+                matches!(root_layout, Layout::SplitH | Layout::Tabbed)
+            }
+            Direction::Up | Direction::Down => {
+                matches!(root_layout, Layout::SplitV | Layout::Stacked)
+            }
+        };
+        if !use_edge {
+            // Match sway get_node_in_output_direction():
+            // for non-parallel workspace layout, caller should use seat-level inactive tiling.
+            return false;
+        }
+
+        match direction {
+            Direction::Left | Direction::Up => self.scrolling.focus_column_last(),
+            Direction::Right | Direction::Down => self.scrolling.focus_column_first(),
+        }
+        self.floating_is_active = FloatingActive::No;
+        self.sync_tiling_focus_context_from_scrolling();
+        true
+    }
+
+    pub(super) fn has_tiling_windows(&self) -> bool {
+        !self.scrolling.is_empty()
+    }
+
+    pub(super) fn focus_workspace_node_like_sway(&mut self) {
+        self.scrolling.clear_selection_context();
+        self.floating.clear_selection_context();
+        if self.floating.is_empty() {
+            self.floating_is_active = FloatingActive::No;
+            self.floating_workspace_context = false;
+            return;
+        }
+
+        // Match sway return &ws->node in get_node_in_output_direction():
+        // workspace becomes command context while floating mode stays active.
+        self.floating_is_active = FloatingActive::Yes;
+        self.floating_workspace_context = true;
     }
 
     pub fn focus_window_by_id(&mut self, id: &W::Id) -> bool {
