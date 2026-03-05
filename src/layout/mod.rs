@@ -2465,61 +2465,89 @@ impl<W: LayoutElement> Layout<W> {
         workspace.move_right();
     }
 
-    pub fn move_column_left(&mut self) {
+    pub fn move_container_left(&mut self) {
         let Some(workspace) = self.active_workspace_mut() else {
             return;
         };
-        workspace.move_column_left();
+        workspace.move_container_left();
+    }
+
+    pub fn move_column_left(&mut self) {
+        self.move_container_left();
+    }
+
+    pub fn move_container_right(&mut self) {
+        let Some(workspace) = self.active_workspace_mut() else {
+            return;
+        };
+        workspace.move_container_right();
     }
 
     pub fn move_column_right(&mut self) {
+        self.move_container_right();
+    }
+
+    pub fn move_container_to_first(&mut self) {
         let Some(workspace) = self.active_workspace_mut() else {
             return;
         };
-        workspace.move_column_right();
+        workspace.move_container_to_first();
     }
 
     pub fn move_column_to_first(&mut self) {
+        self.move_container_to_first();
+    }
+
+    pub fn move_container_to_last(&mut self) {
         let Some(workspace) = self.active_workspace_mut() else {
             return;
         };
-        workspace.move_column_to_first();
+        workspace.move_container_to_last();
     }
 
     pub fn move_column_to_last(&mut self) {
-        let Some(workspace) = self.active_workspace_mut() else {
-            return;
-        };
-        workspace.move_column_to_last();
+        self.move_container_to_last();
     }
 
-    pub fn move_column_left_or_to_output(&mut self, output: &Output) -> bool {
+    pub fn move_container_left_or_to_output(&mut self, output: &Output) -> bool {
         if let Some(workspace) = self.active_workspace_mut() {
-            if workspace.move_column_left() {
+            if workspace.move_container_left() {
                 return false;
             }
         }
 
-        self.move_column_to_output(output, None, true);
+        self.move_container_to_output(output, None, true);
+        true
+    }
+
+    pub fn move_column_left_or_to_output(&mut self, output: &Output) -> bool {
+        self.move_container_left_or_to_output(output)
+    }
+
+    pub fn move_container_right_or_to_output(&mut self, output: &Output) -> bool {
+        if let Some(workspace) = self.active_workspace_mut() {
+            if workspace.move_container_right() {
+                return false;
+            }
+        }
+
+        self.move_container_to_output(output, None, true);
         true
     }
 
     pub fn move_column_right_or_to_output(&mut self, output: &Output) -> bool {
-        if let Some(workspace) = self.active_workspace_mut() {
-            if workspace.move_column_right() {
-                return false;
-            }
-        }
-
-        self.move_column_to_output(output, None, true);
-        true
+        self.move_container_right_or_to_output(output)
     }
 
-    pub fn move_column_to_index(&mut self, index: usize) {
+    pub fn move_container_to_index(&mut self, index: usize) {
         let Some(workspace) = self.active_workspace_mut() else {
             return;
         };
-        workspace.move_column_to_index(index);
+        workspace.move_container_to_index(index);
+    }
+
+    pub fn move_column_to_index(&mut self, index: usize) {
+        self.move_container_to_index(index);
     }
 
     pub fn move_down(&mut self) {
@@ -2887,7 +2915,7 @@ impl<W: LayoutElement> Layout<W> {
         self.seat_focus_after_mutation();
     }
 
-    pub fn move_column_to_workspace_up(&mut self, activate: bool) {
+    pub fn move_container_to_workspace_up(&mut self, activate: bool) {
         let Some(monitor) = self.active_monitor() else {
             return;
         };
@@ -2895,7 +2923,11 @@ impl<W: LayoutElement> Layout<W> {
         self.seat_focus_after_mutation();
     }
 
-    pub fn move_column_to_workspace_down(&mut self, activate: bool) {
+    pub fn move_column_to_workspace_up(&mut self, activate: bool) {
+        self.move_container_to_workspace_up(activate);
+    }
+
+    pub fn move_container_to_workspace_down(&mut self, activate: bool) {
         let Some(monitor) = self.active_monitor() else {
             return;
         };
@@ -2903,7 +2935,11 @@ impl<W: LayoutElement> Layout<W> {
         self.seat_focus_after_mutation();
     }
 
-    pub fn move_column_to_workspace(&mut self, idx: usize, activate: bool) {
+    pub fn move_column_to_workspace_down(&mut self, activate: bool) {
+        self.move_container_to_workspace_down(activate);
+    }
+
+    pub fn move_container_to_workspace(&mut self, idx: usize, activate: bool) {
         let Some(monitor) = self.active_monitor() else {
             return;
         };
@@ -2911,7 +2947,11 @@ impl<W: LayoutElement> Layout<W> {
         self.seat_focus_after_mutation();
     }
 
-    pub fn move_column_to_workspace_by_id(
+    pub fn move_column_to_workspace(&mut self, idx: usize, activate: bool) {
+        self.move_container_to_workspace(idx, activate);
+    }
+
+    pub fn move_container_to_workspace_by_id(
         &mut self,
         workspace_id: WorkspaceId,
         focus: bool,
@@ -2928,12 +2968,20 @@ impl<W: LayoutElement> Layout<W> {
         }
 
         if let Some(target_output) = output.as_ref() {
-            self.move_column_to_output(target_output, Some(idx), focus);
+            self.move_container_to_output(target_output, Some(idx), focus);
         } else {
-            self.move_column_to_workspace(idx, focus);
+            self.move_container_to_workspace(idx, focus);
         }
 
         Some(output)
+    }
+
+    pub fn move_column_to_workspace_by_id(
+        &mut self,
+        workspace_id: WorkspaceId,
+        focus: bool,
+    ) -> Option<Option<Output>> {
+        self.move_container_to_workspace_by_id(workspace_id, focus)
     }
 
     pub fn switch_workspace_up(&mut self) {
@@ -3066,18 +3114,26 @@ impl<W: LayoutElement> Layout<W> {
         Some(output)
     }
 
-    pub fn consume_into_column(&mut self) {
+    pub fn consume_into_container(&mut self) {
         let Some(workspace) = self.active_workspace_mut() else {
             return;
         };
-        workspace.consume_into_column();
+        workspace.consume_into_container();
+    }
+
+    pub fn consume_into_column(&mut self) {
+        self.consume_into_container();
+    }
+
+    pub fn expel_from_container(&mut self) {
+        let Some(workspace) = self.active_workspace_mut() else {
+            return;
+        };
+        workspace.expel_from_container();
     }
 
     pub fn expel_from_column(&mut self) {
-        let Some(workspace) = self.active_workspace_mut() else {
-            return;
-        };
-        workspace.expel_from_column();
+        self.expel_from_container();
     }
 
     pub fn swap_window_in_direction(&mut self, direction: ScrollDirection) {
@@ -3166,6 +3222,11 @@ impl<W: LayoutElement> Layout<W> {
     pub fn active_selection_is_container(&self) -> bool {
         self.active_workspace()
             .is_some_and(Workspace::active_selection_is_container)
+    }
+
+    pub fn active_command_has_window_target(&self) -> bool {
+        self.active_workspace()
+            .is_some_and(Workspace::active_command_has_window_target)
     }
 
     pub fn focus_with_output(&self) -> Option<(&W, &Output)> {
@@ -4659,7 +4720,7 @@ impl<W: LayoutElement> Layout<W> {
         self.seat_focus_after_mutation();
     }
 
-    pub fn move_column_to_output(
+    pub fn move_container_to_output(
         &mut self,
         output: &Output,
         target_ws_idx: Option<usize>,
@@ -4694,6 +4755,15 @@ impl<W: LayoutElement> Layout<W> {
             self.add_column_by_idx(new_idx, workspace_idx, column, activate);
         }
         self.seat_focus_after_mutation();
+    }
+
+    pub fn move_column_to_output(
+        &mut self,
+        output: &Output,
+        target_ws_idx: Option<usize>,
+        activate: bool,
+    ) {
+        self.move_container_to_output(output, target_ws_idx, activate);
     }
 
     pub fn move_workspace_to_output(&mut self, output: &Output) -> bool {

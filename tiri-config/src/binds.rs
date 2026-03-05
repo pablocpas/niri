@@ -206,6 +206,13 @@ pub enum Action {
     MoveColumnLeftOrToMonitorLeft,
     MoveColumnRightOrToMonitorRight,
     MoveColumnToIndex(#[knuffel(argument)] usize),
+    MoveContainerLeft,
+    MoveContainerRight,
+    MoveContainerToFirst,
+    MoveContainerToLast,
+    MoveContainerLeftOrToMonitorLeft,
+    MoveContainerRightOrToMonitorRight,
+    MoveContainerToIndex(#[knuffel(argument)] usize),
     MoveWindowDown,
     MoveWindowUp,
     MoveWindowDownOrToWorkspaceDown,
@@ -218,6 +225,8 @@ pub enum Action {
     ConsumeOrExpelWindowRightById(u64),
     ConsumeWindowIntoColumn,
     ExpelWindowFromColumn,
+    ConsumeWindowIntoContainer,
+    ExpelWindowFromContainer,
     SwapWindowLeft,
     SwapWindowRight,
     ToggleColumnTabbedDisplay,
@@ -250,6 +259,12 @@ pub enum Action {
     MoveColumnToWorkspaceDown(#[knuffel(property(name = "focus"), default = true)] bool),
     MoveColumnToWorkspaceUp(#[knuffel(property(name = "focus"), default = true)] bool),
     MoveColumnToWorkspace(
+        #[knuffel(argument)] WorkspaceReference,
+        #[knuffel(property(name = "focus"), default = true)] bool,
+    ),
+    MoveContainerToWorkspaceDown(#[knuffel(property(name = "focus"), default = true)] bool),
+    MoveContainerToWorkspaceUp(#[knuffel(property(name = "focus"), default = true)] bool),
+    MoveContainerToWorkspace(
         #[knuffel(argument)] WorkspaceReference,
         #[knuffel(property(name = "focus"), default = true)] bool,
     ),
@@ -302,6 +317,13 @@ pub enum Action {
     MoveColumnToMonitorPrevious,
     MoveColumnToMonitorNext,
     MoveColumnToMonitor(#[knuffel(argument)] String),
+    MoveContainerToMonitorLeft,
+    MoveContainerToMonitorRight,
+    MoveContainerToMonitorDown,
+    MoveContainerToMonitorUp,
+    MoveContainerToMonitorPrevious,
+    MoveContainerToMonitorNext,
+    MoveContainerToMonitor(#[knuffel(argument)] String),
     ResizeGrowWidth,
     ResizeShrinkWidth,
     ResizeGrowHeight,
@@ -508,16 +530,29 @@ impl From<tiri_ipc::Action> for Action {
             tiri_ipc::Action::FocusWindowBottom {} => Self::FocusWindowBottom,
             tiri_ipc::Action::FocusWindowDownOrTop {} => Self::FocusWindowDownOrTop,
             tiri_ipc::Action::FocusWindowUpOrBottom {} => Self::FocusWindowUpOrBottom,
-            tiri_ipc::Action::MoveColumnLeft {} => Self::MoveColumnLeft,
-            tiri_ipc::Action::MoveColumnRight {} => Self::MoveColumnRight,
-            tiri_ipc::Action::MoveColumnToFirst {} => Self::MoveColumnToFirst,
-            tiri_ipc::Action::MoveColumnToLast {} => Self::MoveColumnToLast,
-            tiri_ipc::Action::MoveColumnToIndex { index } => Self::MoveColumnToIndex(index),
-            tiri_ipc::Action::MoveColumnLeftOrToMonitorLeft {} => {
-                Self::MoveColumnLeftOrToMonitorLeft
+            tiri_ipc::Action::MoveColumnLeft {} | tiri_ipc::Action::MoveContainerLeft {} => {
+                Self::MoveContainerLeft
             }
-            tiri_ipc::Action::MoveColumnRightOrToMonitorRight {} => {
-                Self::MoveColumnRightOrToMonitorRight
+            tiri_ipc::Action::MoveColumnRight {} | tiri_ipc::Action::MoveContainerRight {} => {
+                Self::MoveContainerRight
+            }
+            tiri_ipc::Action::MoveColumnToFirst {} | tiri_ipc::Action::MoveContainerToFirst {} => {
+                Self::MoveContainerToFirst
+            }
+            tiri_ipc::Action::MoveColumnToLast {} | tiri_ipc::Action::MoveContainerToLast {} => {
+                Self::MoveContainerToLast
+            }
+            tiri_ipc::Action::MoveColumnToIndex { index }
+            | tiri_ipc::Action::MoveContainerToIndex { index } => {
+                Self::MoveContainerToIndex(index)
+            }
+            tiri_ipc::Action::MoveColumnLeftOrToMonitorLeft {}
+            | tiri_ipc::Action::MoveContainerLeftOrToMonitorLeft {} => {
+                Self::MoveContainerLeftOrToMonitorLeft
+            }
+            tiri_ipc::Action::MoveColumnRightOrToMonitorRight {}
+            | tiri_ipc::Action::MoveContainerRightOrToMonitorRight {} => {
+                Self::MoveContainerRightOrToMonitorRight
             }
             tiri_ipc::Action::MoveWindowDown {} => Self::MoveWindowDown,
             tiri_ipc::Action::MoveWindowUp {} => Self::MoveWindowUp,
@@ -546,8 +581,12 @@ impl From<tiri_ipc::Action> for Action {
             tiri_ipc::Action::ConsumeOrExpelWindowRight { id: Some(id) } => {
                 Self::ConsumeOrExpelWindowRightById(id)
             }
-            tiri_ipc::Action::ConsumeWindowIntoColumn {} => Self::ConsumeWindowIntoColumn,
-            tiri_ipc::Action::ExpelWindowFromColumn {} => Self::ExpelWindowFromColumn,
+            tiri_ipc::Action::ConsumeWindowIntoColumn {}
+            | tiri_ipc::Action::ConsumeWindowIntoContainer {} => {
+                Self::ConsumeWindowIntoContainer
+            }
+            tiri_ipc::Action::ExpelWindowFromColumn {}
+            | tiri_ipc::Action::ExpelWindowFromContainer {} => Self::ExpelWindowFromContainer,
             tiri_ipc::Action::SwapWindowRight {} => Self::SwapWindowRight,
             tiri_ipc::Action::SwapWindowLeft {} => Self::SwapWindowLeft,
             tiri_ipc::Action::ToggleColumnTabbedDisplay {} => Self::ToggleColumnTabbedDisplay,
@@ -583,14 +622,17 @@ impl From<tiri_ipc::Action> for Action {
                 reference: WorkspaceReference::from(reference),
                 focus,
             },
-            tiri_ipc::Action::MoveColumnToWorkspaceDown { focus } => {
-                Self::MoveColumnToWorkspaceDown(focus)
+            tiri_ipc::Action::MoveColumnToWorkspaceDown { focus }
+            | tiri_ipc::Action::MoveContainerToWorkspaceDown { focus } => {
+                Self::MoveContainerToWorkspaceDown(focus)
             }
-            tiri_ipc::Action::MoveColumnToWorkspaceUp { focus } => {
-                Self::MoveColumnToWorkspaceUp(focus)
+            tiri_ipc::Action::MoveColumnToWorkspaceUp { focus }
+            | tiri_ipc::Action::MoveContainerToWorkspaceUp { focus } => {
+                Self::MoveContainerToWorkspaceUp(focus)
             }
-            tiri_ipc::Action::MoveColumnToWorkspace { reference, focus } => {
-                Self::MoveColumnToWorkspace(WorkspaceReference::from(reference), focus)
+            tiri_ipc::Action::MoveColumnToWorkspace { reference, focus }
+            | tiri_ipc::Action::MoveContainerToWorkspace { reference, focus } => {
+                Self::MoveContainerToWorkspace(WorkspaceReference::from(reference), focus)
             }
             tiri_ipc::Action::MoveWorkspaceDown {} => Self::MoveWorkspaceDown,
             tiri_ipc::Action::MoveWorkspaceUp {} => Self::MoveWorkspaceUp,
@@ -629,13 +671,34 @@ impl From<tiri_ipc::Action> for Action {
                 id: Some(id),
                 output,
             } => Self::MoveWindowToMonitorById { id, output },
-            tiri_ipc::Action::MoveColumnToMonitorLeft {} => Self::MoveColumnToMonitorLeft,
-            tiri_ipc::Action::MoveColumnToMonitorRight {} => Self::MoveColumnToMonitorRight,
-            tiri_ipc::Action::MoveColumnToMonitorDown {} => Self::MoveColumnToMonitorDown,
-            tiri_ipc::Action::MoveColumnToMonitorUp {} => Self::MoveColumnToMonitorUp,
-            tiri_ipc::Action::MoveColumnToMonitorPrevious {} => Self::MoveColumnToMonitorPrevious,
-            tiri_ipc::Action::MoveColumnToMonitorNext {} => Self::MoveColumnToMonitorNext,
-            tiri_ipc::Action::MoveColumnToMonitor { output } => Self::MoveColumnToMonitor(output),
+            tiri_ipc::Action::MoveColumnToMonitorLeft {}
+            | tiri_ipc::Action::MoveContainerToMonitorLeft {} => {
+                Self::MoveContainerToMonitorLeft
+            }
+            tiri_ipc::Action::MoveColumnToMonitorRight {}
+            | tiri_ipc::Action::MoveContainerToMonitorRight {} => {
+                Self::MoveContainerToMonitorRight
+            }
+            tiri_ipc::Action::MoveColumnToMonitorDown {}
+            | tiri_ipc::Action::MoveContainerToMonitorDown {} => {
+                Self::MoveContainerToMonitorDown
+            }
+            tiri_ipc::Action::MoveColumnToMonitorUp {}
+            | tiri_ipc::Action::MoveContainerToMonitorUp {} => {
+                Self::MoveContainerToMonitorUp
+            }
+            tiri_ipc::Action::MoveColumnToMonitorPrevious {}
+            | tiri_ipc::Action::MoveContainerToMonitorPrevious {} => {
+                Self::MoveContainerToMonitorPrevious
+            }
+            tiri_ipc::Action::MoveColumnToMonitorNext {}
+            | tiri_ipc::Action::MoveContainerToMonitorNext {} => {
+                Self::MoveContainerToMonitorNext
+            }
+            tiri_ipc::Action::MoveColumnToMonitor { output }
+            | tiri_ipc::Action::MoveContainerToMonitor { output } => {
+                Self::MoveContainerToMonitor(output)
+            }
             tiri_ipc::Action::SetWindowWidth { id: None, change } => Self::SetWindowWidth(change),
             tiri_ipc::Action::SetWindowWidth {
                 id: Some(id),

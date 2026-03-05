@@ -214,14 +214,20 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
         &Action::CloseWindow,
         &Action::FocusColumnLeft,
         &Action::FocusColumnRight,
-        &Action::MoveColumnLeft,
-        &Action::MoveColumnRight,
+        &Action::MoveContainerLeft,
+        &Action::MoveContainerRight,
         &Action::FocusWorkspaceDown,
         &Action::FocusWorkspaceUp,
     ]);
 
-    // Prefer move-column-to-workspace-down, but fall back to move-window-to-workspace-down.
+    // Prefer move-container-to-workspace-down, then move-column-to-workspace-down for
+    // compatibility, then fall back to move-window-to-workspace-down.
     if let Some(bind) = binds
+        .iter()
+        .find(|bind| matches!(bind.action, Action::MoveContainerToWorkspaceDown(_)))
+    {
+        actions.push(&bind.action);
+    } else if let Some(bind) = binds
         .iter()
         .find(|bind| matches!(bind.action, Action::MoveColumnToWorkspaceDown(_)))
     {
@@ -232,11 +238,16 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
     {
         actions.push(&Action::MoveWindowToWorkspaceDown(true));
     } else {
-        actions.push(&Action::MoveColumnToWorkspaceDown(true));
+        actions.push(&Action::MoveContainerToWorkspaceDown(true));
     }
 
     // Same for -up.
     if let Some(bind) = binds
+        .iter()
+        .find(|bind| matches!(bind.action, Action::MoveContainerToWorkspaceUp(_)))
+    {
+        actions.push(&bind.action);
+    } else if let Some(bind) = binds
         .iter()
         .find(|bind| matches!(bind.action, Action::MoveColumnToWorkspaceUp(_)))
     {
@@ -247,7 +258,7 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
     {
         actions.push(&Action::MoveWindowToWorkspaceUp(true));
     } else {
-        actions.push(&Action::MoveColumnToWorkspaceUp(true));
+        actions.push(&Action::MoveContainerToWorkspaceUp(true));
     }
 
     actions.extend(&[
@@ -463,12 +474,16 @@ fn action_name(action: &Action) -> String {
         Action::CloseWindow => String::from("Close Focused Window"),
         Action::FocusColumnLeft => String::from("Focus Column to the Left"),
         Action::FocusColumnRight => String::from("Focus Column to the Right"),
-        Action::MoveColumnLeft => String::from("Move Column Left"),
-        Action::MoveColumnRight => String::from("Move Column Right"),
+        Action::MoveColumnLeft | Action::MoveContainerLeft => String::from("Move Container Left"),
+        Action::MoveColumnRight | Action::MoveContainerRight => String::from("Move Container Right"),
         Action::FocusWorkspaceDown => String::from("Switch Workspace Down"),
         Action::FocusWorkspaceUp => String::from("Switch Workspace Up"),
-        Action::MoveColumnToWorkspaceDown(_) => String::from("Move Column to Workspace Down"),
-        Action::MoveColumnToWorkspaceUp(_) => String::from("Move Column to Workspace Up"),
+        Action::MoveColumnToWorkspaceDown(_) | Action::MoveContainerToWorkspaceDown(_) => {
+            String::from("Move Container to Workspace Down")
+        }
+        Action::MoveColumnToWorkspaceUp(_) | Action::MoveContainerToWorkspaceUp(_) => {
+            String::from("Move Container to Workspace Up")
+        }
         Action::MoveWindowToWorkspaceDown(_) => String::from("Move Window to Workspace Down"),
         Action::MoveWindowToWorkspaceUp(_) => String::from("Move Window to Workspace Up"),
         Action::SwitchPresetColumnWidth => String::from("Switch Preset Column Widths"),

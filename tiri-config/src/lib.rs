@@ -915,8 +915,8 @@ mod tests {
                 Mod+Shift+O { focus-monitor "eDP-1"; }
                 Mod+Ctrl+Shift+L { move-window-to-monitor-right; }
                 Mod+Ctrl+Alt+O { move-window-to-monitor "eDP-1"; }
-                Mod+Ctrl+Alt+P { move-column-to-monitor "DP-1"; }
-                Mod+Comma { consume-window-into-column; }
+                Mod+Ctrl+Alt+P { move-container-to-monitor "DP-1"; }
+                Mod+Comma { consume-window-into-container; }
                 Mod+1 { focus-workspace 1; }
                 Mod+Shift+1 { focus-workspace "workspace-1"; }
                 Mod+Shift+E allow-inhibiting=false { quit skip-confirmation=true; }
@@ -2125,7 +2125,7 @@ mod tests {
                                 CTRL | ALT | COMPOSITOR,
                             ),
                         },
-                        action: MoveColumnToMonitor(
+                        action: MoveContainerToMonitor(
                             "DP-1",
                         ),
                         repeat: true,
@@ -2143,7 +2143,7 @@ mod tests {
                                 COMPOSITOR,
                             ),
                         },
-                        action: ConsumeWindowIntoColumn,
+                        action: ConsumeWindowIntoContainer,
                         repeat: true,
                         cooldown: None,
                         allow_when_locked: false,

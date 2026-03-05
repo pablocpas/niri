@@ -203,6 +203,15 @@ enum CommandContext {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HandlerContext {
+    TilingWindow,
+    TilingContainer,
+    FloatingWindow,
+    FloatingContainer,
+    Workspace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InactiveTilingRestoreSource {
     Stack,
     Current,
@@ -230,6 +239,32 @@ impl OutputId {
 impl FloatingActive {
     fn get(self) -> bool {
         self == Self::Yes
+    }
+}
+
+impl HandlerContext {
+    fn command_context(self) -> CommandContext {
+        match self {
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => CommandContext::Tiling,
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+                CommandContext::Floating
+            }
+            HandlerContext::Workspace => CommandContext::Workspace,
+        }
+    }
+
+    fn targets_container(self) -> bool {
+        matches!(
+            self,
+            HandlerContext::TilingContainer | HandlerContext::FloatingContainer
+        )
+    }
+
+    fn has_window_target(self) -> bool {
+        matches!(
+            self,
+            HandlerContext::TilingWindow | HandlerContext::FloatingWindow
+        )
     }
 }
 
@@ -563,28 +598,36 @@ impl<W: LayoutElement> Workspace<W> {
         })
     }
 
-    fn command_context(&self) -> CommandContext {
+    fn handler_context(&self) -> HandlerContext {
         // Match sway semantics: no floating command context exists when there are
         // no floating containers in the workspace.
-        if self.floating.is_empty() {
-            return CommandContext::Tiling;
-        }
-
-        if !self.floating_is_active.get() {
-            return CommandContext::Tiling;
+        if self.floating.is_empty() || !self.floating_is_active.get() {
+            return if self.scrolling.selected_is_container() {
+                HandlerContext::TilingContainer
+            } else {
+                HandlerContext::TilingWindow
+            };
         }
 
         // Match sway handler-context semantics: command routing may remain on a
         // selected tiling container even while focus mode is floating.
         if self.scrolling.selected_is_container() {
-            return CommandContext::Tiling;
+            return HandlerContext::TilingContainer;
         }
 
         if self.floating_workspace_context {
-            return CommandContext::Workspace;
+            return HandlerContext::Workspace;
         }
 
-        CommandContext::Floating
+        if self.floating.active_wrapper_selected() || self.floating.selected_is_container(None) {
+            HandlerContext::FloatingContainer
+        } else {
+            HandlerContext::FloatingWindow
+        }
+    }
+
+    fn command_context(&self) -> CommandContext {
+        self.handler_context().command_context()
     }
 
     pub fn current_output(&self) -> Option<&Output> {
@@ -608,34 +651,35 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn active_selection_is_container(&self) -> bool {
-        if self.floating_is_active.get() {
-            return self.floating.active_wrapper_selected()
-                || self.floating.selected_is_container(None);
-        }
+        self.handler_context().targets_container()
+    }
 
-        self.scrolling.selected_is_container()
+    pub fn active_command_has_window_target(&self) -> bool {
+        self.handler_context().has_window_target()
     }
 
     pub fn close_window_ids_for_active_selection(&self) -> Vec<W::Id> {
-        if self.command_context() == CommandContext::Workspace {
-            return self.windows().map(|window| window.id().clone()).collect();
-        }
-
-        if self.floating_is_active.get() {
-            // Sway kill semantics: when floating wrapper selection is active, command targets the
-            // workspace container and closes every window in it.
-            if self.floating.active_wrapper_selected() {
+        match self.handler_context() {
+            HandlerContext::Workspace => {
                 return self.windows().map(|window| window.id().clone()).collect();
             }
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+                // Sway kill semantics: when floating wrapper selection is active,
+                // command targets the workspace container and closes every window in it.
+                if self.floating.active_wrapper_selected() {
+                    return self.windows().map(|window| window.id().clone()).collect();
+                }
 
-            let ids = self.floating.close_window_ids_for_active_selection();
-            if !ids.is_empty() {
-                return ids;
+                let ids = self.floating.close_window_ids_for_active_selection();
+                if !ids.is_empty() {
+                    return ids;
+                }
             }
-        } else {
-            let ids = self.scrolling.close_window_ids_for_active_selection();
-            if !ids.is_empty() {
-                return ids;
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+                let ids = self.scrolling.close_window_ids_for_active_selection();
+                if !ids.is_empty() {
+                    return ids;
+                }
             }
         }
 
@@ -1625,73 +1669,103 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn move_left(&mut self) -> bool {
-        if self.floating_is_active.get() {
-            self.floating.move_left();
-            true
-        } else {
-            self.scrolling.move_left()
+        match self.handler_context() {
+            HandlerContext::Workspace => false,
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+                self.floating.move_left();
+                true
+            }
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => self.scrolling.move_left(),
         }
     }
 
     pub fn move_right(&mut self) -> bool {
-        if self.floating_is_active.get() {
-            self.floating.move_right();
-            true
-        } else {
-            self.scrolling.move_right()
+        match self.handler_context() {
+            HandlerContext::Workspace => false,
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+                self.floating.move_right();
+                true
+            }
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+                self.scrolling.move_right()
+            }
         }
     }
 
-    pub fn move_column_left(&mut self) -> bool {
+    pub fn move_container_left(&mut self) -> bool {
         if self.floating_is_active.get() {
             return false;
         }
         self.scrolling.move_column_left()
     }
 
-    pub fn move_column_right(&mut self) -> bool {
+    pub fn move_column_left(&mut self) -> bool {
+        self.move_container_left()
+    }
+
+    pub fn move_container_right(&mut self) -> bool {
         if self.floating_is_active.get() {
             return false;
         }
         self.scrolling.move_column_right()
     }
 
-    pub fn move_column_to_first(&mut self) {
+    pub fn move_column_right(&mut self) -> bool {
+        self.move_container_right()
+    }
+
+    pub fn move_container_to_first(&mut self) {
         if self.floating_is_active.get() {
             return;
         }
         self.scrolling.move_column_to_first();
     }
 
-    pub fn move_column_to_last(&mut self) {
+    pub fn move_column_to_first(&mut self) {
+        self.move_container_to_first();
+    }
+
+    pub fn move_container_to_last(&mut self) {
         if self.floating_is_active.get() {
             return;
         }
         self.scrolling.move_column_to_last();
     }
 
-    pub fn move_column_to_index(&mut self, index: usize) {
+    pub fn move_column_to_last(&mut self) {
+        self.move_container_to_last();
+    }
+
+    pub fn move_container_to_index(&mut self, index: usize) {
         if self.floating_is_active.get() {
             return;
         }
         self.scrolling.move_column_to_index(index);
     }
 
+    pub fn move_column_to_index(&mut self, index: usize) {
+        self.move_container_to_index(index);
+    }
+
     pub fn move_down(&mut self) -> bool {
-        if self.floating_is_active.get() {
-            self.floating.move_down();
-            true
-        } else {
-            self.scrolling.move_down()
+        match self.handler_context() {
+            HandlerContext::Workspace => false,
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+                self.floating.move_down();
+                true
+            }
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => self.scrolling.move_down(),
         }
     }
 
     pub fn move_up(&mut self) -> bool {
-        if self.floating_is_active.get() {
-            self.floating.move_up();
-            true
-        } else {
-            self.scrolling.move_up()
+        match self.handler_context() {
+            HandlerContext::Workspace => false,
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+                self.floating.move_up();
+                true
+            }
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => self.scrolling.move_up(),
         }
     }
 
@@ -1711,7 +1785,7 @@ impl<W: LayoutElement> Workspace<W> {
         }
     }
 
-    pub fn consume_into_column(&mut self) {
+    pub fn consume_into_container(&mut self) {
         if self.floating_is_active.get() {
             self.floating.consume_into_column();
         } else {
@@ -1719,7 +1793,11 @@ impl<W: LayoutElement> Workspace<W> {
         }
     }
 
-    pub fn expel_from_column(&mut self) {
+    pub fn consume_into_column(&mut self) {
+        self.consume_into_container();
+    }
+
+    pub fn expel_from_container(&mut self) {
         if self.floating_is_active.get() {
             self.floating.expel_from_column();
         } else {
@@ -1727,11 +1805,19 @@ impl<W: LayoutElement> Workspace<W> {
         }
     }
 
+    pub fn expel_from_column(&mut self) {
+        self.expel_from_container();
+    }
+
     pub fn swap_window_in_direction(&mut self, direction: ScrollDirection) {
-        if self.floating_is_active.get() {
-            self.floating.swap_window_in_direction(direction);
-        } else {
-            self.scrolling.swap_window_in_direction(direction);
+        match self.handler_context() {
+            HandlerContext::Workspace => {}
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+                self.floating.swap_window_in_direction(direction);
+            }
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+                self.scrolling.swap_window_in_direction(direction);
+            }
         }
     }
 
@@ -1846,41 +1932,43 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn focus_parent(&mut self) {
-        match self.command_context() {
-            CommandContext::Floating => {
+        match self.handler_context() {
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
                 // Match sway: when floating focus reaches above the floating container,
                 // command context moves to workspace while floating mode remains active.
                 self.floating_workspace_context = !self.floating.focus_parent();
             }
-            CommandContext::Tiling => {
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
                 self.scrolling.focus_parent();
                 self.sync_tiling_focus_context_from_scrolling();
             }
-            CommandContext::Workspace => {}
+            HandlerContext::Workspace => {}
         }
     }
 
     pub fn focus_child(&mut self) {
-        match self.command_context() {
-            CommandContext::Floating => {
+        match self.handler_context() {
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
                 self.floating.focus_child();
             }
-            CommandContext::Tiling => {
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
                 self.scrolling.focus_child();
                 self.sync_tiling_focus_context_from_scrolling();
             }
             // Sway focus_child from workspace context may no-op when no active
             // tiling child can be resolved.
-            CommandContext::Workspace => {}
+            HandlerContext::Workspace => {}
         }
     }
 
     pub fn split_horizontal(&mut self) {
-        match self.command_context() {
+        match self.handler_context() {
             // Sway: cmd_split works in both floating and tiling.
-            CommandContext::Workspace => self.scrolling.split_workspace_horizontal(),
-            CommandContext::Tiling => self.scrolling.split_horizontal(),
-            CommandContext::Floating => {
+            HandlerContext::Workspace => self.scrolling.split_workspace_horizontal(),
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+                self.scrolling.split_horizontal()
+            }
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
                 self.floating_workspace_context = false;
                 self.floating.split_horizontal();
             }
@@ -1888,11 +1976,13 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn split_vertical(&mut self) {
-        match self.command_context() {
+        match self.handler_context() {
             // Sway: cmd_split works in both floating and tiling.
-            CommandContext::Workspace => self.scrolling.split_workspace_vertical(),
-            CommandContext::Tiling => self.scrolling.split_vertical(),
-            CommandContext::Floating => {
+            HandlerContext::Workspace => self.scrolling.split_workspace_vertical(),
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+                self.scrolling.split_vertical()
+            }
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
                 self.floating_workspace_context = false;
                 self.floating.split_vertical();
             }
@@ -1900,14 +1990,16 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn set_layout_mode(&mut self, layout: Layout) {
-        match self.command_context() {
-            CommandContext::Workspace => {
+        match self.handler_context() {
+            HandlerContext::Workspace => {
                 if self.scrolling.is_empty() {
                     self.scrolling.set_workspace_layout_hint(layout);
                 }
             }
-            CommandContext::Tiling => self.scrolling.set_layout_mode(layout),
-            CommandContext::Floating => {
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+                self.scrolling.set_layout_mode(layout)
+            }
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
                 self.floating_workspace_context = false;
                 self.floating.set_layout_mode(layout);
             }
@@ -1915,14 +2007,16 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn toggle_split_layout(&mut self) {
-        match self.command_context() {
-            CommandContext::Workspace => {
+        match self.handler_context() {
+            HandlerContext::Workspace => {
                 if self.scrolling.is_empty() {
                     self.scrolling.toggle_workspace_split_layout();
                 }
             }
-            CommandContext::Tiling => self.scrolling.toggle_split_layout(),
-            CommandContext::Floating => {
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+                self.scrolling.toggle_split_layout()
+            }
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
                 self.floating_workspace_context = false;
                 self.floating.toggle_split_layout();
             }
@@ -1930,14 +2024,16 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn toggle_layout_all(&mut self) {
-        match self.command_context() {
-            CommandContext::Workspace => {
+        match self.handler_context() {
+            HandlerContext::Workspace => {
                 if self.scrolling.is_empty() {
                     self.scrolling.toggle_workspace_layout_all();
                 }
             }
-            CommandContext::Tiling => self.scrolling.toggle_layout_all(),
-            CommandContext::Floating => {
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+                self.scrolling.toggle_layout_all()
+            }
+            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
                 self.floating_workspace_context = false;
                 self.floating.toggle_layout_all();
             }

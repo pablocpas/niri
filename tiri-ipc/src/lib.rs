@@ -480,6 +480,26 @@ pub enum Action {
         #[cfg_attr(feature = "clap", arg())]
         index: usize,
     },
+    /// Move the focused container to the left.
+    MoveContainerLeft {},
+    /// Move the focused container to the right.
+    MoveContainerRight {},
+    /// Move the focused container to the start of the workspace.
+    MoveContainerToFirst {},
+    /// Move the focused container to the end of the workspace.
+    MoveContainerToLast {},
+    /// Move the focused container to a specific index on its workspace.
+    MoveContainerToIndex {
+        /// New index for the container.
+        ///
+        /// The index starts from 1 for the first position.
+        #[cfg_attr(feature = "clap", arg())]
+        index: usize,
+    },
+    /// Move the focused container to the left or to the monitor to the left.
+    MoveContainerLeftOrToMonitorLeft {},
+    /// Move the focused container to the right or to the monitor to the right.
+    MoveContainerRightOrToMonitorRight {},
     /// Move the focused window down in a column.
     MoveWindowDown {},
     /// Move the focused window up in a column.
@@ -534,6 +554,10 @@ pub enum Action {
     ConsumeWindowIntoColumn {},
     /// Expel the focused window from the column.
     ExpelWindowFromColumn {},
+    /// Consume the window to the right into the focused container.
+    ConsumeWindowIntoContainer {},
+    /// Expel the focused window from the focused container.
+    ExpelWindowFromContainer {},
     /// Swap focused window with one to the right.
     SwapWindowRight {},
     /// Swap focused window with one to the left.
@@ -649,6 +673,37 @@ pub enum Action {
         #[cfg_attr(feature = "clap", arg(long, action = clap::ArgAction::Set, default_value_t = true))]
         focus: bool,
     },
+    /// Move the focused container to the workspace below.
+    MoveContainerToWorkspaceDown {
+        /// Whether the focus should follow the target workspace.
+        ///
+        /// If `true` (the default), the focus will follow the container to the new workspace. If
+        /// `false`, the focus will remain on the original workspace.
+        #[cfg_attr(feature = "clap", arg(long, action = clap::ArgAction::Set, default_value_t = true))]
+        focus: bool,
+    },
+    /// Move the focused container to the workspace above.
+    MoveContainerToWorkspaceUp {
+        /// Whether the focus should follow the target workspace.
+        ///
+        /// If `true` (the default), the focus will follow the container to the new workspace. If
+        /// `false`, the focus will remain on the original workspace.
+        #[cfg_attr(feature = "clap", arg(long, action = clap::ArgAction::Set, default_value_t = true))]
+        focus: bool,
+    },
+    /// Move the focused container to a workspace by reference (index or name).
+    MoveContainerToWorkspace {
+        /// Reference (index or name) of the workspace to move the container to.
+        #[cfg_attr(feature = "clap", arg())]
+        reference: WorkspaceReferenceArg,
+
+        /// Whether the focus should follow the target workspace.
+        ///
+        /// If `true` (the default), the focus will follow the container to the new workspace. If
+        /// `false`, the focus will remain on the original workspace.
+        #[cfg_attr(feature = "clap", arg(long, action = clap::ArgAction::Set, default_value_t = true))]
+        focus: bool,
+    },
     /// Move the focused workspace down.
     MoveWorkspaceDown {},
     /// Move the focused workspace up.
@@ -757,6 +812,24 @@ pub enum Action {
     MoveColumnToMonitorNext {},
     /// Move the focused column to a specific monitor.
     MoveColumnToMonitor {
+        /// The target output name.
+        #[cfg_attr(feature = "clap", arg())]
+        output: String,
+    },
+    /// Move the focused container to the monitor to the left.
+    MoveContainerToMonitorLeft {},
+    /// Move the focused container to the monitor to the right.
+    MoveContainerToMonitorRight {},
+    /// Move the focused container to the monitor below.
+    MoveContainerToMonitorDown {},
+    /// Move the focused container to the monitor above.
+    MoveContainerToMonitorUp {},
+    /// Move the focused container to the previous monitor.
+    MoveContainerToMonitorPrevious {},
+    /// Move the focused container to the next monitor.
+    MoveContainerToMonitorNext {},
+    /// Move the focused container to a specific monitor.
+    MoveContainerToMonitor {
         /// The target output name.
         #[cfg_attr(feature = "clap", arg())]
         output: String,
