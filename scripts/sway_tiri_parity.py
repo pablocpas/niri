@@ -686,6 +686,24 @@ def normalize_sway_tiling_root(workspace: dict[str, Any]) -> dict[str, Any] | No
     }
 
 
+def normalize_sway_floating_roots(workspace: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_floating = workspace.get("floating_nodes", [])
+    if not isinstance(raw_floating, list):
+        return []
+    return [normalize_sway_node(node) for node in raw_floating if isinstance(node, dict)]
+
+
+def normalize_sway_focused_floating_root(workspace: dict[str, Any]) -> dict[str, Any] | None:
+    raw_floating = workspace.get("floating_nodes", [])
+    if not isinstance(raw_floating, list):
+        return None
+
+    for node in raw_floating:
+        if isinstance(node, dict) and subtree_has_focus(node):
+            return normalize_sway_node(node)
+    return None
+
+
 def normalize_sway_snapshot(
     sway_socket: str | None, swaymsg_cmd: str, workspace_hint: str | None = None
 ) -> dict[str, Any]:
@@ -696,6 +714,8 @@ def normalize_sway_snapshot(
         raise RuntimeError("sway: could not find focused workspace in get_tree")
 
     tiling_root = normalize_sway_tiling_root(workspace)
+    floating_roots = normalize_sway_floating_roots(workspace)
+    focused_floating_root = normalize_sway_focused_floating_root(workspace)
     raw_focus_path, raw_focus_known, raw_focus_mode = sway_tiling_focus_path(workspace)
     normalized_focus_path = list(raw_focus_path)
     if (
@@ -726,6 +746,8 @@ def normalize_sway_snapshot(
         "workspace_name": workspace.get("name"),
         "workspace_num": workspace.get("num"),
         "tiling_tree": tiling_root,
+        "focused_floating_tree": focused_floating_root,
+        "floating_trees": floating_roots,
         "tiling_focus_known": tiling_focus_known,
         "tiling_leaf_focus_known": tiling_leaf_focus_known,
         "sway_raw_tiling_focus_path": raw_focus_path,
@@ -1256,6 +1278,46 @@ def json_diff(left: Any, right: Any, left_name: str, right_name: str) -> str:
     return "".join(difflib.unified_diff(left_s, right_s, fromfile=left_name, tofile=right_name))
 
 
+def snapshot_debug_summary(snapshot: dict[str, Any], target: Any) -> dict[str, Any]:
+    tiling_tree = snapshot.get("tiling_tree")
+    root_layout = None
+    root_children = None
+    if isinstance(tiling_tree, dict):
+        root_layout = tiling_tree.get("layout")
+        children = tiling_tree.get("children")
+        if isinstance(children, list):
+            root_children = len(children)
+
+    focused_floating_tree = snapshot.get("focused_floating_tree")
+    floating_focus_layout = None
+    floating_focus_kind = None
+    floating_focus_children = None
+    if isinstance(focused_floating_tree, dict):
+        floating_focus_layout = focused_floating_tree.get("layout")
+        floating_focus_kind = focused_floating_tree.get("kind")
+        children = focused_floating_tree.get("children")
+        if isinstance(children, list):
+            floating_focus_children = len(children)
+
+    summary = {
+        "target": target,
+        "focused_is_floating": snapshot.get("focused_is_floating"),
+        "focused_path": snapshot.get("focused_path"),
+        "tiling_count": snapshot.get("tiling_count"),
+        "floating_count": snapshot.get("floating_count"),
+        "window_count": snapshot.get("window_count"),
+        "tiling_root_layout": root_layout,
+        "tiling_root_children": root_children,
+        "focused_floating_kind": floating_focus_kind,
+        "focused_floating_layout": floating_focus_layout,
+        "focused_floating_children": floating_focus_children,
+    }
+    if target == "sway":
+        summary["sway_raw_focus_mode"] = snapshot.get("sway_raw_focus_mode")
+        summary["sway_raw_tiling_focus_path"] = snapshot.get("sway_raw_tiling_focus_path")
+    return summary
+
+
 def collect_trace_mismatches(
     left: dict[str, Any], right: dict[str, Any], mode: str
 ) -> tuple[list[dict[str, Any]], str | None]:
@@ -1355,6 +1417,16 @@ def collect_trace_mismatches(
                 rk["focused_is_floating"] = False
 
         if lk != rk:
+            left_prev = (
+                left_states[i - 1].get("snapshot")
+                if i > 0 and isinstance(left_states[i - 1], dict)
+                else None
+            )
+            right_prev = (
+                right_states[i - 1].get("snapshot")
+                if i > 0 and isinstance(right_states[i - 1], dict)
+                else None
+            )
             mismatches.append(
                 {
                     "step": i,
@@ -1364,6 +1436,20 @@ def collect_trace_mismatches(
                         "left": lk,
                         "right": rk,
                         "diff": json_diff(lk, rk, "left", "right"),
+                        "context": {
+                            "left": snapshot_debug_summary(ls["snapshot"], left_target),
+                            "right": snapshot_debug_summary(rs["snapshot"], right_target),
+                            "left_prev": (
+                                snapshot_debug_summary(left_prev, left_target)
+                                if isinstance(left_prev, dict)
+                                else None
+                            ),
+                            "right_prev": (
+                                snapshot_debug_summary(right_prev, right_target)
+                                if isinstance(right_prev, dict)
+                                else None
+                            ),
+                        },
                     },
                 }
             )
@@ -1390,6 +1476,10 @@ def compare_traces(left: dict[str, Any], right: dict[str, Any], mode: str) -> in
             details = mismatch.get("details")
             if isinstance(details, dict) and "diff" in details:
                 print(details["diff"], file=sys.stderr)
+                context = details.get("context")
+                if context is not None:
+                    print("context:", file=sys.stderr)
+                    print(json.dumps(context, indent=2, sort_keys=True), file=sys.stderr)
             elif details is not None:
                 print(json.dumps(details, indent=2, sort_keys=True), file=sys.stderr)
 

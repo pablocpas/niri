@@ -156,6 +156,61 @@ fn windowed_fullscreen_chain() {
 }
 
 #[test]
+fn client_fullscreen_request_uses_windowed_fullscreen() {
+    let (mut f, id, surface) = set_up();
+
+    let _ = f.client(id).window(&surface).recent_configures();
+
+    // Client requests fullscreen via xdg-toplevel.
+    f.client(id).window(&surface).set_fullscreen(None);
+    f.double_roundtrip(id);
+
+    // It should receive fullscreen state with tiled size (windowed fullscreen), not WM fullscreen.
+    let window = f.client(id).window(&surface);
+    assert_snapshot!(
+        window.format_recent_configures(),
+        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
+    );
+
+    let mapped = f.niri().layout.windows().next().unwrap().1;
+    assert!(!mapped.sizing_mode().is_fullscreen());
+    // The client hasn't committed the configure yet.
+    assert!(!mapped.is_windowed_fullscreen());
+
+    // Commit client fullscreen configure.
+    let window = f.client(id).window(&surface);
+    window.ack_last_and_commit();
+    f.roundtrip(id);
+
+    let mapped = f.niri().layout.windows().next().unwrap().1;
+    assert!(!mapped.sizing_mode().is_fullscreen());
+    assert!(mapped.is_windowed_fullscreen());
+
+    // Client exits fullscreen.
+    f.client(id).window(&surface).unset_fullscreen();
+    f.double_roundtrip(id);
+
+    let window = f.client(id).window(&surface);
+    assert_snapshot!(
+        window.format_recent_configures(),
+        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
+    );
+
+    let mapped = f.niri().layout.windows().next().unwrap().1;
+    assert!(!mapped.sizing_mode().is_fullscreen());
+    // Not committed yet.
+    assert!(mapped.is_windowed_fullscreen());
+
+    let window = f.client(id).window(&surface);
+    window.ack_last_and_commit();
+    f.roundtrip(id);
+
+    let mapped = f.niri().layout.windows().next().unwrap().1;
+    assert!(!mapped.sizing_mode().is_fullscreen());
+    assert!(!mapped.is_windowed_fullscreen());
+}
+
+#[test]
 fn unfullscreen_before_fullscreen_ack_doesnt_prevent_view_offset_save_restore() {
     let (mut f, id, _surface) = set_up();
 

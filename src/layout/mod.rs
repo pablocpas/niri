@@ -2175,12 +2175,20 @@ impl<W: LayoutElement> Layout<W> {
                         workspace_id: ws_id,
                         output_name: Some(output_name.clone()),
                     });
-                    if let Some(win) = ws.active_window() {
-                        chain.push(SeatFocusNode::Floating {
-                            workspace_id: ws_id,
-                            window_id: win.id().clone(),
-                        });
+                    if !ws.is_floating_workspace_context_active() {
+                        if let Some(win) = ws.active_window() {
+                            chain.push(SeatFocusNode::Floating {
+                                workspace_id: ws_id,
+                                window_id: win.id().clone(),
+                            });
+                        }
                     }
+                    chain
+                } else if ws.is_tiling_workspace_context_active() {
+                    chain.push(SeatFocusNode::Workspace {
+                        workspace_id: ws_id,
+                        output_name: Some(output_name.clone()),
+                    });
                     chain
                 } else {
                     let references = ws.seat_focus_tiling_chain();
@@ -2220,12 +2228,19 @@ impl<W: LayoutElement> Layout<W> {
                         workspace_id: ws_id,
                         output_name: None,
                     });
-                    if let Some(win) = ws.active_window() {
-                        chain.push(SeatFocusNode::Floating {
-                            workspace_id: ws_id,
-                            window_id: win.id().clone(),
-                        });
+                    if !ws.is_floating_workspace_context_active() {
+                        if let Some(win) = ws.active_window() {
+                            chain.push(SeatFocusNode::Floating {
+                                workspace_id: ws_id,
+                                window_id: win.id().clone(),
+                            });
+                        }
                     }
+                } else if ws.is_tiling_workspace_context_active() {
+                    chain.push(SeatFocusNode::Workspace {
+                        workspace_id: ws_id,
+                        output_name: None,
+                    });
                 } else {
                     let references = ws.seat_focus_tiling_chain();
                     if let Some((inner, ancestors)) = references.split_first() {
@@ -2270,7 +2285,7 @@ impl<W: LayoutElement> Layout<W> {
                 reference,
             } => self
                 .find_workspace_by_id(*workspace_id)
-                .is_some_and(|(_, ws)| ws.has_tiling_reference(reference, false)),
+                .is_some_and(|(_, ws)| ws.has_tiling_reference(reference, true)),
             SeatFocusNode::Floating {
                 workspace_id,
                 window_id,
@@ -4263,29 +4278,72 @@ impl<W: LayoutElement> Layout<W> {
 
     pub fn focus_floating(&mut self) {
         self.clear_sticky_focus();
-        let Some(workspace) = self.active_workspace_mut() else {
-            return;
-        };
-        workspace.focus_floating();
-        self.seat_focus_record_active_chain();
+        if self.focus_mode_like_sway(true) {
+            self.seat_focus_record_active_chain();
+        }
     }
 
     pub fn focus_tiling(&mut self) {
         self.clear_sticky_focus();
-        let Some(workspace) = self.active_workspace_mut() else {
-            return;
-        };
-        workspace.focus_tiling();
-        self.seat_focus_record_active_chain();
+        if self.focus_mode_like_sway(false) {
+            self.seat_focus_record_active_chain();
+        }
     }
 
     pub fn switch_focus_floating_tiling(&mut self) {
         self.clear_sticky_focus();
-        let Some(workspace) = self.active_workspace_mut() else {
+        let Some(target_floating) = self
+            .active_workspace()
+            .map(|ws| ws.focus_mode_toggle_target_is_floating_like_sway())
+        else {
             return;
         };
-        workspace.switch_focus_floating_tiling();
-        self.seat_focus_record_active_chain();
+        if self.focus_mode_like_sway(target_floating) {
+            self.seat_focus_record_active_chain();
+        }
+    }
+
+    fn focus_mode_like_sway(&mut self, floating: bool) -> bool {
+        if !floating
+            && self.active_workspace().is_some_and(|ws| {
+                ws.floating_is_active()
+                    && ws
+                        .active_window()
+                        .is_some_and(|window| window.is_pending_windowed_fullscreen())
+            })
+        {
+            // Match sway seat focus constraints: don't move focus from an active
+            // fullscreen floating container to tiling.
+            return false;
+        }
+
+        let Some(workspace_id) = self.active_workspace().map(|ws| ws.id()) else {
+            return false;
+        };
+
+        if floating {
+            let Some(window_id) = self.seat_focus.focus_inactive_floating(workspace_id) else {
+                return false;
+            };
+            let Some(workspace) = self.active_workspace_mut() else {
+                return false;
+            };
+            return workspace.focus_floating_window(&window_id, false);
+        }
+
+        let Some(reference) = self.seat_focus.focus_inactive_tiling(workspace_id) else {
+            return false;
+        };
+        if self.active_workspace().is_some_and(|ws| {
+            ws.floating_is_active()
+                && !ws.tiling_reference_focusable_like_sway(&reference, true)
+        }) {
+            return false;
+        }
+        let Some(workspace) = self.active_workspace_mut() else {
+            return false;
+        };
+        workspace.focus_tiling_reference(&reference, true)
     }
 
     pub fn move_window_to_scratchpad(&mut self, window: Option<&W::Id>) {
@@ -4912,6 +4970,23 @@ impl<W: LayoutElement> Layout<W> {
                 return;
             }
         }
+    }
+
+    pub fn set_windowed_fullscreen(&mut self, id: &W::Id, is_fullscreen: bool) {
+        let Some((_, window)) = self.windows().find(|(_, win)| win.id() == id) else {
+            return;
+        };
+
+        // Keep WM fullscreen independent from client windowed fullscreen requests.
+        if window.pending_sizing_mode().is_fullscreen() {
+            return;
+        }
+
+        self.with_windows_mut(|window, _| {
+            if window.id() == id {
+                window.request_windowed_fullscreen(is_fullscreen);
+            }
+        });
     }
 
     pub fn toggle_windowed_fullscreen(&mut self, id: &W::Id) {

@@ -160,7 +160,11 @@ impl<WindowId: Clone + PartialEq> SeatFocusStack<WindowId> {
             SeatFocusNode::Tiling {
                 workspace_id: ws_id,
                 reference,
-            } if *ws_id == workspace_id => Some(reference.clone()),
+            } if *ws_id == workspace_id
+                && matches!(reference, InactiveTilingReference::Leaf { .. }) =>
+            {
+                Some(reference.clone())
+            }
             _ => None,
         })
     }

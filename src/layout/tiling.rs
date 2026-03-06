@@ -57,6 +57,10 @@ use crate::utils::{round_logical_in_physical_max1, to_physical_precise_round};
 pub struct TilingSpace<W: LayoutElement> {
     /// Container tree managing window layout
     tree: ContainerTree<W>,
+    /// Workspace-level layout state (sway workspace->layout equivalent).
+    workspace_layout: Layout,
+    /// Previous workspace split layout (sway workspace->prev_split_layout equivalent).
+    workspace_prev_split_layout: Option<Layout>,
     /// View size (output size)
     view_size: Size<f64, Logical>,
     /// Working area (view_size minus gaps/bars)
@@ -92,6 +96,15 @@ struct ResizeTarget {
 #[derive(Debug, Clone, Copy)]
 struct ResizeBoundary {
     coord: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkspaceLayoutTargetKind {
+    RootLeaf,
+    SyntheticRootContainer,
+    SelectedRootContainer,
+    SelectedContainer,
+    FocusedContainer,
 }
 
 #[derive(Debug, Clone)]
@@ -270,6 +283,55 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     fn effective_tab_bar_config(&self) -> TabBar {
         self.options.layout.tab_bar.clone()
+    }
+
+    fn update_workspace_layout_state(&mut self, layout: Layout) {
+        if self.workspace_layout != layout
+            && matches!(self.workspace_layout, Layout::SplitH | Layout::SplitV)
+        {
+            self.workspace_prev_split_layout = Some(self.workspace_layout);
+        }
+        self.workspace_layout = layout;
+    }
+
+    fn workspace_layout_target_kind(&self) -> WorkspaceLayoutTargetKind {
+        if self.tree.selected_is_container() {
+            if self.tree.selected_container_is_root() {
+                if self.tree.root_is_synthetic_workspace_container() {
+                    return WorkspaceLayoutTargetKind::SyntheticRootContainer;
+                }
+                return WorkspaceLayoutTargetKind::SelectedRootContainer;
+            }
+
+            return WorkspaceLayoutTargetKind::SelectedContainer;
+        }
+
+        if self.tree.focused_leaf_targets_workspace_layout() {
+            if self.tree.focus_path().is_empty() {
+                return WorkspaceLayoutTargetKind::RootLeaf;
+            }
+            return WorkspaceLayoutTargetKind::SyntheticRootContainer;
+        }
+
+        WorkspaceLayoutTargetKind::FocusedContainer
+    }
+
+    fn apply_workspace_layout_target(&mut self, layout: Layout) -> bool {
+        if self.workspace_layout == layout {
+            return false;
+        }
+
+        match self.workspace_layout_target_kind() {
+            WorkspaceLayoutTargetKind::RootLeaf => self.tree.set_focused_layout(layout),
+            WorkspaceLayoutTargetKind::SyntheticRootContainer => {
+                self.tree.set_root_container_layout(layout)
+            }
+            WorkspaceLayoutTargetKind::SelectedRootContainer => {
+                self.tree.set_selected_container_layout_like_sway(layout)
+            }
+            WorkspaceLayoutTargetKind::SelectedContainer
+            | WorkspaceLayoutTargetKind::FocusedContainer => false,
+        }
     }
 
     fn available_span(&self, total: f64, child_count: usize) -> f64 {
@@ -458,6 +520,44 @@ impl<W: LayoutElement> TilingSpace<W> {
         let rect = self.selected_geometry()?;
         let (subtree, origin) = self.tree.take_subtree_at_path(&path)?;
         Some((subtree, origin, rect))
+    }
+
+    pub(super) fn take_workspace_subtree_for_floating(
+        &mut self,
+    ) -> Option<(DetachedNode<W>, Rectangle<f64, Logical>)> {
+        let rect = self.working_area;
+
+        let subtree = if self.tree.root_is_synthetic_workspace_container() {
+            match self.tree.root_children_len() {
+                0 => return None,
+                1 => self.tree.take_root_child_subtree(0)?,
+                _ => {
+                    if !self
+                        .tree
+                        .wrap_synthetic_root_children_for_workspace_layout(self.workspace_layout)
+                    {
+                        return None;
+                    }
+                    self.tree.take_root_child_subtree(0)?
+                }
+            }
+        } else {
+            let (subtree, _) = self.tree.take_subtree_at_path(&[])?;
+            match subtree {
+                DetachedNode::Leaf(tile) => DetachedNode::Container(DetachedContainer::from_parts(
+                    self.workspace_layout,
+                    vec![DetachedNode::Leaf(tile)],
+                    vec![1.0],
+                    vec![0],
+                    true,
+                )),
+                subtree => subtree,
+            }
+        };
+
+        self.sync_fullscreen_window();
+        self.tree.layout();
+        Some((subtree, rect))
     }
 
     fn container_available_span(
@@ -743,6 +843,8 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         Self {
             tree,
+            workspace_layout: Layout::SplitH,
+            workspace_prev_split_layout: None,
             view_size,
             working_area,
             scale,
@@ -817,6 +919,16 @@ impl<W: LayoutElement> TilingSpace<W> {
     #[cfg(test)]
     pub fn focus_path(&self) -> Vec<usize> {
         self.tree.focus_path()
+    }
+
+    #[cfg(test)]
+    pub fn debug_workspace_layout(&self) -> Layout {
+        self.workspace_layout
+    }
+
+    #[cfg(test)]
+    pub fn debug_root_is_synthetic_workspace_container(&self) -> bool {
+        self.tree.root_is_synthetic_workspace_container()
     }
 
     pub fn selected_path(&self) -> Vec<usize> {
@@ -909,6 +1021,16 @@ impl<W: LayoutElement> TilingSpace<W> {
         let focus_path = self.tree.focus_path();
         let selection_is_container = self.tree.selected_is_container();
         let fullscreen_id = self.fullscreen_window.as_ref();
+        let windowed_fullscreen_id = if fullscreen_id.is_none() {
+            self.tree.focused_tile().and_then(|tile| {
+                tile.window()
+                    .is_pending_windowed_fullscreen()
+                    .then(|| tile.window().id().clone())
+            })
+        } else {
+            None
+        };
+        let has_fullscreen_like = fullscreen_id.is_some() || windowed_fullscreen_id.is_some();
         let view_rect = Rectangle::from_size(self.view_size);
 
         for closing in self.closing_windows.iter().rev() {
@@ -952,7 +1074,15 @@ impl<W: LayoutElement> TilingSpace<W> {
             if let Some(tile) = self.tree.get_tile(info.key) {
                 let is_fullscreen_tile =
                     fullscreen_id.is_some_and(|id| id == tile.window().id());
-                let show_tile = fullscreen_id.map_or(info.visible, |_| is_fullscreen_tile);
+                let is_windowed_fullscreen_tile = windowed_fullscreen_id
+                    .as_ref()
+                    .is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_like_tile = is_fullscreen_tile || is_windowed_fullscreen_tile;
+                let show_tile = if has_fullscreen_like {
+                    is_fullscreen_like_tile
+                } else {
+                    info.visible
+                };
 
                 if !show_tile {
                     continue;
@@ -960,7 +1090,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
                 let mut pos = info.rect.loc + tile.render_offset();
                 pos = pos.to_physical_precise_round(scale).to_logical(scale);
-                if is_fullscreen_tile {
+                if is_fullscreen_like_tile {
                     pos = Point::from((0.0, 0.0));
                 }
 
@@ -979,7 +1109,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         elements.extend(active_elements);
 
-        if fullscreen_id.is_none() && !self.options.layout.tab_bar.off {
+        if !has_fullscreen_like && !self.options.layout.tab_bar.off {
             let tab_bar_infos = self.tree.tab_bar_layouts();
             let mut cache = self.tab_bar_cache.borrow_mut();
             let mut next_cache = self.tab_bar_cache_alt.borrow_mut();
@@ -1129,6 +1259,16 @@ impl<W: LayoutElement> TilingSpace<W> {
         let selection_is_container = self.tree.selected_is_container();
         let scale = Scale::from(self.scale);
         let fullscreen_id = self.fullscreen_window.as_ref();
+        let windowed_fullscreen_id = if fullscreen_id.is_none() {
+            self.tree.focused_tile().and_then(|tile| {
+                tile.window()
+                    .is_pending_windowed_fullscreen()
+                    .then(|| tile.window().id().clone())
+            })
+        } else {
+            None
+        };
+        let has_fullscreen_like = fullscreen_id.is_some() || windowed_fullscreen_id.is_some();
         let layout_rect = self.tree.layout_area();
         let is_single_window = self.tree.window_count() <= 1;
         // Clone here because we need mutable access to tree in the loop below.
@@ -1167,6 +1307,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                     self.working_area.size,
                     &self.options,
                     fullscreen_id,
+                    windowed_fullscreen_id.as_ref(),
                     self.view_size,
                 );
             }
@@ -1176,18 +1317,29 @@ impl<W: LayoutElement> TilingSpace<W> {
             // Use O(1) key lookup instead of O(depth) path lookup.
             if let Some(tile) = self.tree.get_tile_mut(info.key) {
                 let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
+                let is_windowed_fullscreen_tile = windowed_fullscreen_id
+                    .as_ref()
+                    .is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_like_tile = is_fullscreen_tile || is_windowed_fullscreen_tile;
 
                 let mut pos = info.rect.loc + tile.render_offset();
                 pos = pos.to_physical_precise_round(scale).to_logical(scale);
+                if is_fullscreen_like_tile {
+                    pos = Point::from((0.0, 0.0));
+                }
 
                 let mut tile_view_rect = workspace_view;
                 tile_view_rect.loc -= pos;
 
-                if is_fullscreen_tile {
+                if is_fullscreen_like_tile {
                     tile_view_rect = workspace_view;
                 }
 
-                let show_tile = fullscreen_id.map_or(info.visible, |_| is_fullscreen_tile);
+                let show_tile = if has_fullscreen_like {
+                    is_fullscreen_like_tile
+                } else {
+                    info.visible
+                };
                 if show_tile {
                     let is_focused = is_active && info.path == focus_path && !selection_is_container;
                     tile.update_render_elements(
@@ -1536,6 +1688,14 @@ impl<W: LayoutElement> TilingSpace<W> {
         selected
     }
 
+    pub fn focus_parent_targets_workspace(&self) -> bool {
+        if self.tree.selected_is_container() {
+            return self.tree.selected_container_is_root();
+        }
+
+        self.tree.focused_leaf_targets_workspace_layout()
+    }
+
     pub fn clear_selection_context(&mut self) {
         self.tree.clear_selection();
     }
@@ -1600,6 +1760,14 @@ impl<W: LayoutElement> TilingSpace<W> {
             .insert_parent_info_from_inactive_tiling_reference_strict(reference)
     }
 
+    pub(super) fn inactive_tiling_reference_is_root_container_strict(
+        &self,
+        reference: &super::container::InactiveTilingReference,
+    ) -> bool {
+        self.tree
+            .inactive_tiling_reference_is_root_container_strict(reference)
+    }
+
     pub(super) fn has_inactive_tiling_reference(
         &self,
         reference: &super::container::InactiveTilingReference,
@@ -1614,6 +1782,15 @@ impl<W: LayoutElement> TilingSpace<W> {
         strict: bool,
     ) -> bool {
         self.tree.focus_inactive_tiling_reference(reference, strict)
+    }
+
+    pub(super) fn window_for_inactive_tiling_reference(
+        &self,
+        reference: &super::container::InactiveTilingReference,
+        strict: bool,
+    ) -> Option<&W> {
+        self.tree
+            .window_for_inactive_tiling_reference(reference, strict)
     }
 
     pub fn wrap_root_for_sibling_insert(&mut self) -> bool {
@@ -1646,14 +1823,36 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     fn set_layout_for_active_selection(&mut self, layout: Layout) -> bool {
-        if self.tree.selected_is_container() {
-            return self.tree.set_selected_container_layout_like_sway(layout);
+        match self.workspace_layout_target_kind() {
+            WorkspaceLayoutTargetKind::SelectedContainer => {
+                self.tree.set_selected_container_layout_like_sway(layout)
+            }
+            WorkspaceLayoutTargetKind::FocusedContainer => self.tree.set_focused_layout(layout),
+            WorkspaceLayoutTargetKind::RootLeaf
+            | WorkspaceLayoutTargetKind::SyntheticRootContainer
+            | WorkspaceLayoutTargetKind::SelectedRootContainer => {
+                self.apply_workspace_layout_target(layout)
+            }
         }
-
-        self.tree.set_focused_layout(layout)
     }
 
     fn toggle_split_for_active_selection(&mut self) -> bool {
+        if matches!(
+            self.workspace_layout_target_kind(),
+            WorkspaceLayoutTargetKind::RootLeaf
+                | WorkspaceLayoutTargetKind::SyntheticRootContainer
+                | WorkspaceLayoutTargetKind::SelectedRootContainer
+        ) {
+            let next = match self.workspace_layout {
+                Layout::SplitH => Layout::SplitV,
+                Layout::SplitV => Layout::SplitH,
+                Layout::Tabbed | Layout::Stacked => self
+                    .workspace_prev_split_layout
+                    .unwrap_or(Layout::SplitH),
+            };
+            return self.apply_workspace_layout_target(next);
+        }
+
         if self.tree.selected_is_container() {
             let path = self.tree.selected_path();
             if let Some((current, _, _)) = self.tree.container_info(&path) {
@@ -1670,6 +1869,16 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     fn toggle_layout_all_for_active_selection(&mut self) -> bool {
+        if matches!(
+            self.workspace_layout_target_kind(),
+            WorkspaceLayoutTargetKind::RootLeaf
+                | WorkspaceLayoutTargetKind::SyntheticRootContainer
+                | WorkspaceLayoutTargetKind::SelectedRootContainer
+        ) {
+            let next = Self::next_layout_all(self.workspace_layout);
+            return self.apply_workspace_layout_target(next);
+        }
+
         if self.tree.selected_is_container() {
             let path = self.tree.selected_path();
             if let Some((current, _, _)) = self.tree.container_info(&path) {
@@ -1745,26 +1954,42 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     /// Split workspace root like sway `workspace_split()`.
     pub fn split_workspace_horizontal(&mut self) {
-        self.split_workspace(Layout::SplitV);
+        self.split_workspace(Layout::SplitH);
     }
 
     /// Split workspace root like sway `workspace_split()`.
     pub fn split_workspace_vertical(&mut self) {
-        self.split_workspace(Layout::SplitH);
+        self.split_workspace(Layout::SplitV);
     }
 
     fn split_workspace(&mut self, layout: Layout) {
         if self.tree.is_empty() {
-            self.tree.set_workspace_layout_hint(layout);
+            self.update_workspace_layout_state(layout);
+            self.tree.set_pending_layout(layout);
+            return;
+        }
+
+        if self.workspace_layout == layout {
+            return;
+        }
+
+        if self
+            .tree
+            .wrap_synthetic_root_children_for_workspace_layout(layout)
+        {
+            self.set_workspace_layout_hint(layout);
+            self.tree.layout();
             return;
         }
 
         self.tree.set_workspace_layout_hint(layout);
         if self.tree.wrap_root_for_sibling_insert() {
+            self.set_workspace_layout_hint(layout);
             self.tree.layout();
             return;
         }
 
+        self.set_workspace_layout_hint(layout);
         if self.tree.split_focused(layout) {
             self.tree.layout();
         }
@@ -1780,13 +2005,32 @@ impl<W: LayoutElement> TilingSpace<W> {
     /// Set workspace-level layout target (root container) like sway workspace path.
     pub fn set_workspace_layout_mode(&mut self, layout: Layout) {
         if self.tree.is_empty() {
-            self.tree.set_workspace_layout_hint(layout);
+            self.set_workspace_layout_hint(layout);
             return;
         }
 
-        let changed =
-            self.tree.set_root_container_layout(layout) || self.tree.set_focused_layout(layout);
-        if changed {
+        if self.workspace_layout == layout {
+            return;
+        }
+
+        if self
+            .tree
+            .wrap_synthetic_root_children_for_workspace_layout(layout)
+        {
+            self.set_workspace_layout_hint(layout);
+            self.tree.layout();
+            return;
+        }
+
+        self.tree.set_workspace_layout_hint(layout);
+        if self.tree.wrap_root_for_sibling_insert() {
+            self.set_workspace_layout_hint(layout);
+            self.tree.layout();
+            return;
+        }
+
+        self.set_workspace_layout_hint(layout);
+        if self.tree.set_focused_layout(layout) {
             self.tree.layout();
         }
     }
@@ -1815,22 +2059,14 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn toggle_workspace_split_layout(&mut self) {
-        let next = self
-            .tree
-            .container_info(&[])
-            .map(|(layout, _, _)| match layout {
-                Layout::SplitH => Layout::SplitV,
-                Layout::SplitV => Layout::SplitH,
-                Layout::Tabbed | Layout::Stacked => Layout::SplitH,
-            });
-        if let Some(next) = next {
-            if self.tree.set_root_container_layout(next) {
-                self.tree.layout();
-            }
-            return;
-        }
-
-        self.toggle_split_layout();
+        let next = match self.workspace_layout {
+            Layout::SplitH => Layout::SplitV,
+            Layout::SplitV => Layout::SplitH,
+            Layout::Tabbed | Layout::Stacked => self
+                .workspace_prev_split_layout
+                .unwrap_or(Layout::SplitH),
+        };
+        self.set_workspace_layout_hint(next);
     }
 
     /// Cycle focused container layout in sway-style order.
@@ -1841,18 +2077,8 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn toggle_workspace_layout_all(&mut self) {
-        let next = self
-            .tree
-            .container_info(&[])
-            .map(|(layout, _, _)| Self::next_layout_all(layout));
-        if let Some(next) = next {
-            if self.tree.set_root_container_layout(next) {
-                self.tree.layout();
-            }
-            return;
-        }
-
-        self.toggle_layout_all();
+        let next = Self::next_layout_all(self.workspace_layout);
+        self.set_workspace_layout_mode(next);
     }
 
     /// Set the width of the currently focused root-level column
@@ -2012,6 +2238,16 @@ impl<W: LayoutElement> TilingSpace<W> {
     ) -> Option<(Vec<usize>, Rectangle<f64, Logical>)> {
         let scale = Scale::from(self.scale);
         let fullscreen_id = self.fullscreen_window.as_ref();
+        let windowed_fullscreen_id = if fullscreen_id.is_none() {
+            self.tree.focused_tile().and_then(|tile| {
+                tile.window()
+                    .is_pending_windowed_fullscreen()
+                    .then(|| tile.window().id().clone())
+            })
+        } else {
+            None
+        };
+        let has_fullscreen_like = fullscreen_id.is_some() || windowed_fullscreen_id.is_some();
 
         let mut nearest: Option<(Vec<usize>, Rectangle<f64, Logical>, f64)> = None;
 
@@ -2019,14 +2255,18 @@ impl<W: LayoutElement> TilingSpace<W> {
             if let Some(tile) = self.tree.get_tile(info.key) {
                 let is_fullscreen_tile =
                     fullscreen_id.is_some_and(|id| id == tile.window().id());
-                if fullscreen_id.is_some() && !is_fullscreen_tile {
+                let is_windowed_fullscreen_tile = windowed_fullscreen_id
+                    .as_ref()
+                    .is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_like_tile = is_fullscreen_tile || is_windowed_fullscreen_tile;
+                if has_fullscreen_like && !is_fullscreen_like_tile {
                     continue;
                 }
-                if !info.visible && !is_fullscreen_tile {
+                if !info.visible && !is_fullscreen_like_tile {
                     continue;
                 }
 
-                let base_pos = if is_fullscreen_tile {
+                let base_pos = if is_fullscreen_like_tile {
                     Point::from((0.0, 0.0))
                 } else {
                     info.rect.loc
@@ -2488,6 +2728,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn set_workspace_layout_hint(&mut self, layout: Layout) {
+        self.update_workspace_layout_state(layout);
         self.tree.set_workspace_layout_hint(layout);
     }
 
@@ -3280,6 +3521,15 @@ impl<W: LayoutElement> TilingSpace<W> {
         };
         let focus_path = self.tree.focus_path();
         let fullscreen_id = self.fullscreen_window.as_ref();
+        let windowed_fullscreen_id = if fullscreen_id.is_none() {
+            self.tree.focused_tile().and_then(|tile| {
+                tile.window()
+                    .is_pending_windowed_fullscreen()
+                    .then(|| tile.window().id().clone())
+            })
+        } else {
+            None
+        };
 
         for info in layouts {
             // Use O(1) key lookup instead of O(depth) path lookup.
@@ -3302,6 +3552,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                     self.working_area.size,
                     &self.options,
                     fullscreen_id,
+                    windowed_fullscreen_id.as_ref(),
                     self.view_size,
                 );
             }
@@ -3310,6 +3561,10 @@ impl<W: LayoutElement> TilingSpace<W> {
     pub fn render_above_top_layer(&self) -> bool {
         // Render above the top layer (e.g. waybar) when a window is fullscreen
         self.fullscreen_window.is_some()
+            || self
+                .tree
+                .focused_tile()
+                .is_some_and(|tile| tile.window().is_pending_windowed_fullscreen())
     }
 
     pub fn scroll_amount_to_activate(&self, _window: &W::Id) -> f64 {
@@ -3374,13 +3629,17 @@ impl<W: LayoutElement> TilingSpace<W> {
         working_area_size: Size<f64, Logical>,
         options: &Options,
         fullscreen_id: Option<&W::Id>,
+        windowed_fullscreen_id: Option<&W::Id>,
         view_size: Size<f64, Logical>,
     ) {
         let window_id = tile.window().id().clone();
         let is_focused_tile = info.path == focus_path;
         let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == &window_id);
+        let is_windowed_fullscreen_tile = windowed_fullscreen_id.is_some_and(|id| id == &window_id);
+        let is_fullscreen_like_tile = is_fullscreen_tile || is_windowed_fullscreen_tile;
+        let has_fullscreen_like = fullscreen_id.is_some() || windowed_fullscreen_id.is_some();
 
-        let target_size: Size<f64, Logical> = if is_fullscreen_tile {
+        let target_size: Size<f64, Logical> = if is_fullscreen_like_tile {
             view_size
         } else {
             Size::from((info.rect.size.w, info.rect.size.h))
@@ -3393,13 +3652,13 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         let mut active = workspace_active && is_focused_tile;
 
-        if fullscreen_id.is_some() && !is_fullscreen_tile {
+        if has_fullscreen_like && !is_fullscreen_like_tile {
             active = false;
         } else if deactivate_unfocused {
             active &= info.visible;
         }
 
-        let active_in_column = is_focused_tile && (fullscreen_id.is_none() || is_fullscreen_tile);
+        let active_in_column = is_focused_tile && (!has_fullscreen_like || is_fullscreen_like_tile);
 
         window.set_active_in_column(active_in_column);
         window.set_floating(false);
@@ -3408,7 +3667,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         let border_config = options.layout.border.merged_with(&window.rules().border);
 
-        let bounds = if is_fullscreen_tile {
+        let bounds = if is_fullscreen_like_tile {
             view_size.to_i32_floor()
         } else {
             let max_bounds = compute_toplevel_bounds(

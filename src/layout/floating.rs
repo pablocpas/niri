@@ -107,6 +107,7 @@ struct FloatingContainer<W: LayoutElement> {
     id: u64,
     tree: ContainerTree<W>,
     wrapper_selected: bool,
+    workspace_floated: bool,
     data: FloatingContainerData,
     origin: Option<InsertParentInfo>,
 }
@@ -1027,6 +1028,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             id: self.next_container_id,
             tree,
             wrapper_selected: false,
+            workspace_floated: false,
             data: FloatingContainerData::new(self.working_area, rect),
             origin: None,
         };
@@ -1158,6 +1160,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         origin: Option<InsertParentInfo>,
         activate: bool,
         focus: Option<&W::Id>,
+        workspace_floated: bool,
     ) {
         let view_size = self.view_size;
         let scale = self.scale;
@@ -1186,6 +1189,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             id: self.next_container_id,
             tree,
             wrapper_selected: false,
+            workspace_floated,
             data: FloatingContainerData::new(self.working_area, rect),
             origin,
         };
@@ -1254,6 +1258,13 @@ impl<W: LayoutElement> FloatingSpace<W> {
         }
 
         Some((subtree, origin, rect))
+    }
+
+    pub(super) fn active_container_is_workspace_floated(&self) -> bool {
+        self.active_window_id
+            .as_ref()
+            .and_then(|id| self.idx_of(id))
+            .is_some_and(|idx| self.containers[idx].workspace_floated)
     }
 
     fn remove_tile_from_container(&mut self, idx: usize, id: &W::Id) -> RemovedTile<W> {

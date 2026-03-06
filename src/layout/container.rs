@@ -836,7 +836,19 @@ impl<W: LayoutElement> ContainerTree<W> {
     /// In tiri this node is an implementation detail and should be ignored in
     /// inactive-tiling reference resolution.
     fn is_synthetic_root_container_key(&self, key: NodeKey) -> bool {
-        self.root == Some(key) && matches!(self.get_node(key), Some(NodeData::Container(_)))
+        if self.root != Some(key) {
+            return false;
+        }
+
+        let Some(container) = self.get_container(key) else {
+            return false;
+        };
+
+        // Explicit root wrappers created to match sway root-level container
+        // semantics (for example after layout on a top-level leaf) are real
+        // restore/focus targets. Only the implicit workspace backing root
+        // should be treated as synthetic.
+        !container.preserve_on_single()
     }
 
     /// Create a new empty container tree
@@ -1222,6 +1234,22 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.root.is_none()
     }
 
+    pub fn root_is_synthetic_workspace_container(&self) -> bool {
+        self.root
+            .is_some_and(|root_key| self.is_synthetic_root_container_key(root_key))
+    }
+
+    pub fn selected_container_is_root(&self) -> bool {
+        self.selected_container_key()
+            .is_some_and(|selected_key| Some(selected_key) == self.root)
+    }
+
+    pub fn focused_leaf_targets_workspace_layout(&self) -> bool {
+        let focus_path = self.focus_path();
+        focus_path.is_empty()
+            || (focus_path.len() == 1 && self.root_is_synthetic_workspace_container())
+    }
+
     /// Insert a window into the tree, focusing it afterwards.
     pub fn insert_window(&mut self, tile: Tile<W>) {
         self.insert_window_with_focus(tile, true);
@@ -1232,12 +1260,27 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.clear_focus_history();
 
         if self.root.is_none() {
-            // First window becomes the root leaf
             let tile_key = self.insert_node(NodeData::Leaf(tile));
-            // Match sway/i3: layout commands issued on an empty workspace apply when a
-            // second window arrives (root-leaf conversion), not to the first opened window.
-            self.set_parent(tile_key, None);
-            self.root = Some(tile_key);
+
+            if self.pending_layout_wrap_on_split {
+                let layout = self.pending_layout.take().unwrap_or(Layout::SplitH);
+                self.pending_layout_wrap_on_split = false;
+
+                let mut container = ContainerData::new(layout);
+                container.mark_preserve_on_single();
+                container.add_child(tile_key);
+
+                let container_key = self.insert_node(NodeData::Container(container));
+                self.set_parent(tile_key, Some(container_key));
+                self.set_parent(container_key, None);
+                self.root = Some(container_key);
+            } else {
+                // Match sway/i3: layout commands issued on an empty workspace apply when a
+                // second window arrives (root-leaf conversion), not to the first opened window.
+                self.set_parent(tile_key, None);
+                self.root = Some(tile_key);
+            }
+
             if focus {
                 self.focus_node_key(tile_key);
             } else if let Some(key) = self.focused_key {
@@ -3396,6 +3439,72 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.ensure_selected_root_has_parent_for_sibling_insert()
     }
 
+    /// Match sway workspace_wrap_children() when the visible root is the
+    /// synthetic workspace container: keep that root as the workspace node,
+    /// but move its current children under an explicit wrapper with the old
+    /// layout while the root adopts the new workspace layout.
+    pub fn wrap_synthetic_root_children_for_workspace_layout(&mut self, layout: Layout) -> bool {
+        let Some(root_key) = self.root else {
+            return false;
+        };
+        if !self.is_synthetic_root_container_key(root_key) {
+            return false;
+        }
+
+        let (
+            old_layout,
+            old_children,
+            old_focus_stack,
+            old_child_percents,
+            root_geometry,
+        ) = {
+            let Some(root) = self.get_container_mut(root_key) else {
+                return false;
+            };
+            if root.children.is_empty() {
+                return false;
+            }
+
+            (
+                root.layout,
+                std::mem::take(&mut root.children),
+                std::mem::take(&mut root.focus_stack),
+                std::mem::take(&mut root.child_percents),
+                root.geometry,
+            )
+        };
+
+        let mut wrapper = ContainerData::new(old_layout);
+        wrapper.children = old_children;
+        wrapper.focus_stack = old_focus_stack;
+        wrapper.child_percents = old_child_percents;
+        wrapper.geometry = root_geometry;
+        wrapper.mark_preserve_on_single();
+        wrapper.ensure_focus_stack();
+
+        let wrapper_children = wrapper.children.clone();
+        let wrapper_key = self.insert_node(NodeData::Container(wrapper));
+        for child in wrapper_children {
+            self.set_parent(child, Some(wrapper_key));
+        }
+
+        let Some(root) = self.get_container_mut(root_key) else {
+            return false;
+        };
+        root.layout = layout;
+        root.children.push(wrapper_key);
+        root.focus_stack.push(wrapper_key);
+        root.child_percents.push(1.0);
+        root.ensure_focus_stack();
+        self.set_parent(wrapper_key, Some(root_key));
+
+        if let Some(focused_key) = self.focused_key {
+            self.sync_container_focus_from_key(focused_key);
+        }
+
+        true
+    }
+
     pub fn collapse_redundant_root_single_child_split(&mut self) -> bool {
         let mut changed = false;
 
@@ -3453,6 +3562,55 @@ impl<W: LayoutElement> ContainerTree<W> {
             (parent, child),
             (Layout::SplitH, Layout::SplitH) | (Layout::SplitV, Layout::SplitV)
         )
+    }
+
+    /// Match sway cmd_layout() "flatten once" behavior:
+    /// when operating on a container with one child whose parent also has one
+    /// child, remove the middle container and operate on its parent.
+    fn flatten_layout_target_once_like_sway(&mut self, container_key: NodeKey) -> Option<NodeKey> {
+        let child_key = self
+            .get_container(container_key)
+            .and_then(|container| {
+                (container.child_count() == 1)
+                    .then(|| container.children().first().copied())
+                    .flatten()
+            })?;
+
+        let parent_key = self.parent_of(container_key)?;
+        let parent_child_count = self
+            .get_container(parent_key)
+            .map(|container| container.child_count())?;
+        if parent_child_count != 1 {
+            return None;
+        }
+
+        let parent_idx = self.child_index(parent_key, container_key)?;
+        if let Some(parent) = self.get_container_mut(parent_key) {
+            parent.children[parent_idx] = child_key;
+            if let Some(pos) = parent
+                .focus_stack
+                .iter()
+                .position(|key| *key == container_key)
+            {
+                parent.focus_stack[pos] = child_key;
+            } else if !parent.focus_stack.contains(&child_key) {
+                parent.focus_stack.push(child_key);
+            }
+            parent.ensure_focus_stack();
+        }
+
+        self.set_parent(child_key, Some(parent_key));
+        self.nodes.remove(container_key);
+        self.parents.remove(container_key);
+
+        if self.selected_key == Some(container_key) {
+            self.selected_key = Some(child_key);
+        }
+        if self.focused_key == Some(container_key) {
+            self.focused_key = self.leaf_under_key(child_key).or(Some(child_key));
+        }
+
+        Some(parent_key)
     }
 
     fn split_selected_container_like_sway(
@@ -3636,7 +3794,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.clear_focus_history();
         if self.root.is_none() {
             self.pending_layout = Some(layout);
-            self.pending_layout_wrap_on_split = false;
+            self.pending_layout_wrap_on_split = true;
             return true;
         }
 
@@ -3759,8 +3917,16 @@ impl<W: LayoutElement> ContainerTree<W> {
                     return false;
                 };
 
+                let target_key = if matches!(layout, Layout::Tabbed | Layout::Stacked) {
+                    self.flatten_layout_target_once_like_sway(parent_key)
+                        .unwrap_or(parent_key)
+                } else {
+                    parent_key
+                };
+                let target_is_root = Some(target_key) == self.root;
+
                 let (parent_layout, parent_child_count, parent_preserve_on_single) = self
-                    .get_container(parent_key)
+                    .get_container(target_key)
                     .map(|container| {
                         (
                             container.layout(),
@@ -3773,15 +3939,15 @@ impl<W: LayoutElement> ContainerTree<W> {
                 if parent_layout == layout
                     && parent_child_count == 1
                     && parent_preserve_on_single
-                    && parent_path.is_empty()
+                    && target_is_root
                     && matches!(layout, Layout::SplitH | Layout::SplitV)
                 {
                     if layout == Layout::SplitV {
-                        let Some(child_idx) = self.child_index(parent_key, node_key) else {
+                        let Some(child_idx) = self.child_index(target_key, node_key) else {
                             return false;
                         };
 
-                        if let Some(container) = self.get_container_mut(parent_key) {
+                        if let Some(container) = self.get_container_mut(target_key) {
                             container.remove_child(child_idx);
                         }
                         self.set_parent(node_key, None);
@@ -3792,16 +3958,16 @@ impl<W: LayoutElement> ContainerTree<W> {
                         let nested_key = self.insert_node(NodeData::Container(nested));
                         self.set_parent(node_key, Some(nested_key));
 
-                        if let Some(container) = self.get_container_mut(parent_key) {
+                        if let Some(container) = self.get_container_mut(target_key) {
                             container.insert_child(child_idx, nested_key);
                         }
-                        self.set_parent(nested_key, Some(parent_key));
+                        self.set_parent(nested_key, Some(target_key));
 
                         self.focus_node_key(node_key);
                         return true;
                     }
 
-                    if let Some(container) = self.get_container_mut(parent_key) {
+                    if let Some(container) = self.get_container_mut(target_key) {
                         // Match sway parity path around seed1 step 283: layout_splith on this
                         // explicit single-child root keeps the shape flat (no extra nesting).
                         container.set_layout_explicit(layout);
@@ -3809,7 +3975,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     return true;
                 }
 
-                if let Some(container) = self.get_container_mut(parent_key) {
+                if let Some(container) = self.get_container_mut(target_key) {
                     container.set_layout_explicit(layout);
                     return true;
                 }
@@ -3857,30 +4023,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             Layout::SplitV => Layout::SplitH,
             Layout::Tabbed | Layout::Stacked => Layout::SplitH,
         };
-
-        if matches!(current, Layout::Stacked)
-            && Some(target_key) == self.root
-            && focus_path.len() == 1
-        {
-            let Some(old_root_key) = self.root else {
-                return false;
-            };
-
-            let focus_key = self.focused_key.or_else(|| self.first_leaf_key());
-
-            let mut outer = ContainerData::new(next);
-            outer.add_child(old_root_key);
-
-            let outer_key = self.insert_node(NodeData::Container(outer));
-            self.set_parent(old_root_key, Some(outer_key));
-            self.set_parent(outer_key, None);
-            self.root = Some(outer_key);
-
-            if let Some(focus_key) = focus_key {
-                self.focus_node_key(focus_key);
-            }
-            return true;
-        }
 
         if matches!(current, Layout::Tabbed | Layout::Stacked) {
             if let Some(container) = self.get_container_mut(target_key) {
@@ -4871,7 +5013,11 @@ impl<W: LayoutElement> ContainerTree<W> {
         let mut chain = Vec::new();
         // Match sway command-context semantics: when a container is selected
         // (focus-parent), that selected node is the active reference source.
-        let Some(mut key) = self.selected_node_key().or_else(|| self.first_leaf_key()) else {
+        let Some(mut key) = self
+            .selected_node_key()
+            .or(self.focused_key)
+            .or_else(|| self.first_leaf_key())
+        else {
             return chain;
         };
 
@@ -4892,7 +5038,10 @@ impl<W: LayoutElement> ContainerTree<W> {
     pub(super) fn inactive_tiling_reference_for_selected_or_focused(
         &self,
     ) -> Option<InactiveTilingReference> {
-        let key = self.selected_node_key().or_else(|| self.first_leaf_key())?;
+        let key = self
+            .selected_node_key()
+            .or(self.focused_key)
+            .or_else(|| self.first_leaf_key())?;
         self.inactive_tiling_reference_for_node_key(key)
     }
 
@@ -5000,6 +5149,16 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.insert_parent_info_from_resolved_inactive_tiling_reference(resolved)
     }
 
+    pub(super) fn inactive_tiling_reference_is_root_container_strict(
+        &self,
+        reference: &InactiveTilingReference,
+    ) -> bool {
+        matches!(
+            self.resolve_inactive_tiling_reference_strict_key(reference),
+            Some(ResolvedInactiveTilingReference::Container { path, .. }) if path.is_empty()
+        )
+    }
+
     pub(super) fn has_inactive_tiling_reference(
         &self,
         reference: &InactiveTilingReference,
@@ -5040,6 +5199,29 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.focus_node_key(key);
         self.layout();
         true
+    }
+
+    pub(super) fn window_for_inactive_tiling_reference(
+        &self,
+        reference: &InactiveTilingReference,
+        strict: bool,
+    ) -> Option<&W> {
+        let resolved = if strict {
+            self.resolve_inactive_tiling_reference_strict_key(reference)
+        } else {
+            self.resolve_inactive_tiling_reference(reference)
+        }?;
+
+        let path = match resolved {
+            ResolvedInactiveTilingReference::Leaf { path } => path,
+            ResolvedInactiveTilingReference::Container { .. } => return None,
+        };
+
+        let key = self.get_node_key_at_path(&path)?;
+        match self.get_node(key)? {
+            NodeData::Leaf(tile) => Some(tile.window()),
+            NodeData::Container(_) => None,
+        }
     }
 
     fn insert_parent_info_for_path(&self, path: &[usize]) -> Option<InsertParentInfo> {
@@ -5592,8 +5774,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                     self.parents.remove(container_key);
                 }
             } else if remove_container {
-                self.pending_layout = None;
-                self.pending_layout_wrap_on_split = false;
+                self.pending_layout = Some(container_layout);
+                self.pending_layout_wrap_on_split = container_preserve_on_single;
                 self.remove_node_recursive(container_key);
                 self.root = None;
             } else if let Some(child_key) = replace_with_child {
