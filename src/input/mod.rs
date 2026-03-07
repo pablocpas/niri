@@ -370,36 +370,11 @@ impl State {
             .is_some_and(KeyboardShortcutsInhibitor::is_active)
     }
 
-    fn on_keyboard<I: InputBackend + 'static>(
+    fn on_keyboard<I: InputBackend>(
         &mut self,
         event: I::KeyboardKeyEvent,
         consumed_by_a11y: &mut bool,
-    ) where
-        I::Device: 'static,
-    {
-        // Reset the keymap when handling a physical keyboard after a virtual one.
-        if self.niri.reset_keymap {
-            let device = event.device();
-            let is_virtual_keyboard = (&device as &dyn Any)
-                .downcast_ref::<VirtualKeyboard>()
-                .is_some();
-            if !is_virtual_keyboard {
-                self.niri.reset_keymap = false;
-
-                let config = self.niri.config.borrow();
-                let xkb_config = config.input.keyboard.xkb.clone();
-                std::mem::drop(config);
-
-                if xkb_config != Xkb::default() {
-                    self.set_xkb_config(xkb_config.to_xkb_config());
-                } else {
-                    // Use locale1 settings if xkb config is unset.
-                    let xkb = self.niri.xkb_from_locale1.clone().unwrap_or_default();
-                    self.set_xkb_config(xkb.to_xkb_config());
-                }
-            }
-        }
-
+    ) {
         let mod_key = self.backend.mod_key(&self.niri.config.borrow());
 
         let serial = SERIAL_COUNTER.next_serial();

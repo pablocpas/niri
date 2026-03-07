@@ -45,12 +45,6 @@ impl NiriInputDevice for WinitVirtualDevice {
     }
 }
 
-impl NiriInputDevice for VirtualKeyboard {
-    fn output(&self, _: &State) -> Option<Output> {
-        None
-    }
-}
-
 impl NiriInputDevice for VirtualPointer {
     fn output(&self, _: &State) -> Option<Output> {
         self.output().cloned()
