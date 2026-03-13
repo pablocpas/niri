@@ -72,6 +72,7 @@ struct TestWindowInner {
     is_pending_windowed_fullscreen: Cell<bool>,
     animate_next_configure: Cell<bool>,
     animation_snapshot: RefCell<Option<LayoutElementRenderSnapshot>>,
+    is_urgent: Cell<bool>,
     rules: ResolvedWindowRules,
 }
 
@@ -85,6 +86,7 @@ struct TestWindowParams {
     #[proptest(strategy = "arbitrary_parent_id()")]
     parent_id: Option<usize>,
     is_floating: bool,
+    is_urgent: bool,
     #[proptest(strategy = "arbitrary_bbox()")]
     bbox: Rectangle<i32, Logical>,
     #[proptest(strategy = "arbitrary_min_max_size()")]
@@ -99,6 +101,7 @@ impl TestWindowParams {
             id,
             parent_id: None,
             is_floating: false,
+            is_urgent: false,
             bbox: Rectangle::from_size(Size::from((100, 200))),
             min_max_size: Default::default(),
             rules: None,
@@ -124,6 +127,7 @@ impl TestWindow {
             is_pending_windowed_fullscreen: Cell::new(false),
             animate_next_configure: Cell::new(false),
             animation_snapshot: RefCell::new(None),
+            is_urgent: Cell::new(params.is_urgent),
             rules: params.rules.unwrap_or_default(),
         }))
     }
@@ -176,6 +180,10 @@ impl TestWindow {
         }
 
         changed
+    }
+
+    fn set_urgent(&self, urgent: bool) {
+        self.0.is_urgent.set(urgent);
     }
 }
 
@@ -310,7 +318,7 @@ impl LayoutElement for TestWindow {
     }
 
     fn is_urgent(&self) -> bool {
-        false
+        self.0.is_urgent.get()
     }
 }
 
@@ -1723,6 +1731,14 @@ fn marks_for(layout: &Layout<TestWindow>, id: usize) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn set_window_urgent(layout: &mut Layout<TestWindow>, id: usize, urgent: bool) {
+    layout.with_windows_mut(|win, _output| {
+        if *win.id() == id {
+            win.set_urgent(urgent);
+        }
+    });
+}
+
 fn window_layout(layout: &Layout<TestWindow>, id: usize) -> tiri_ipc::WindowLayout {
     let mut found = None;
     layout.with_windows(|win, _output, _ws_id, layout| {
@@ -2312,88 +2328,6 @@ fn apply_parity_replay_op(layout: &mut Layout<TestWindow>, op: &str, next_id: &m
     }
 }
 
-fn replay_seed1_prefix(layout: &mut Layout<TestWindow>, steps: usize) {
-    let ops = include_str!("tests/parity_seed1_ops.txt");
-    let mut next_id = 5usize;
-    for op in ops.lines().take(steps) {
-        apply_parity_replay_op(layout, op, &mut next_id);
-    }
-}
-
-fn replay_seed3_prefix(layout: &mut Layout<TestWindow>, steps: usize) {
-    let ops = include_str!("tests/parity_seed3_ops.txt");
-    let mut next_id = 5usize;
-    for op in ops.lines().take(steps) {
-        apply_parity_replay_op(layout, op, &mut next_id);
-    }
-}
-
-#[test]
-fn parity_seed3_step112_toggle_focus_mode_stays_floating_like_sway() {
-    let mut layout = Layout::default();
-    check_ops_on_layout(
-        &mut layout,
-        [
-            Op::AddOutput(1),
-            Op::AddWindow {
-                params: TestWindowParams::new(1),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(2),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(3),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(4),
-            },
-        ],
-    );
-
-    // Step 111 in the trace (op #112): open_window.
-    replay_seed3_prefix(&mut layout, 112);
-
-    let workspace_before = layout.active_workspace().expect("active workspace");
-    let before_ctx = workspace_before.debug_command_context();
-    let before_ws_ctx = workspace_before.debug_floating_workspace_context();
-    let before_floating_selected = workspace_before.floating().selected_is_container(None);
-    let before_wrapper_selected = workspace_before.debug_active_floating_wrapper_selected();
-    let before_tiling_selected = workspace_before.scrolling().selected_is_container();
-    let before_tiling_focus_path = workspace_before.scrolling().focus_path();
-    let before_tiling_selected_path = workspace_before.scrolling().selected_path();
-    let before_tiling_has_fullscreen = workspace_before.scrolling().has_fullscreen_window();
-    let before_active_fullscreen = layout
-        .focus()
-        .is_some_and(|win| win.is_pending_windowed_fullscreen() || win.pending_sizing_mode().is_fullscreen());
-    let before_any_fullscreen = workspace_before.windows().any(|win| {
-        win.is_pending_windowed_fullscreen() || win.pending_sizing_mode().is_fullscreen()
-    });
-    let before_seat_focus = layout.seat_focus.snapshot();
-    assert!(
-        workspace_before.floating_is_active(),
-        "precondition: focus mode should still be floating before step 112 toggle_focus_mode",
-    );
-
-    // Step 112 in the trace (op #113): toggle_focus_mode.
-    layout.switch_focus_floating_tiling();
-
-    let workspace_after = layout.active_workspace().expect("active workspace");
-    assert!(
-        workspace_after.floating_is_active(),
-        "focus mode_toggle must remain floating in this sway parity path \
-         (before_ctx={before_ctx} before_ws_ctx={before_ws_ctx} \
-         before_floating_selected={before_floating_selected} \
-         before_wrapper_selected={before_wrapper_selected} \
-         before_tiling_selected={before_tiling_selected} \
-         before_tiling_focus_path={before_tiling_focus_path:?} \
-         before_tiling_selected_path={before_tiling_selected_path:?} \
-         before_tiling_has_fullscreen={before_tiling_has_fullscreen} \
-         before_seat_focus={before_seat_focus:?} \
-         before_active_fullscreen={before_active_fullscreen} \
-         before_any_fullscreen={before_any_fullscreen})",
-    );
-}
-
 #[test]
 fn parity_seed1_step53_replay_includes_floating_roundtrip_shape() {
     let mut layout = Layout::default();
@@ -2536,179 +2470,6 @@ fn parity_seed1_step53_replay_includes_floating_roundtrip_shape() {
     );
 }
 
-#[test]
-fn parity_seed1_step54_toggle_floating_keeps_sway_focus_leaf() {
-    let mut layout = Layout::default();
-    check_ops_on_layout(
-        &mut layout,
-        [
-            Op::AddOutput(1),
-            Op::AddWindow {
-                params: TestWindowParams::new(1),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(2),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(3),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(4),
-            },
-        ],
-    );
-
-    // Replay through step 53, then apply step 54 (`toggle_floating`).
-    replay_seed1_prefix(&mut layout, 53);
-    layout.toggle_window_floating(None);
-
-    let workspace = layout.active_workspace().expect("active workspace");
-    assert!(!workspace.floating_is_active());
-    assert_eq!(workspace.scrolling().focus_path(), vec![0, 1, 0, 0]);
-}
-
-#[test]
-fn parity_seed1_step71_layout_tabbed_is_noop_while_floating_focused() {
-    let mut layout = Layout::default();
-    check_ops_on_layout(
-        &mut layout,
-        [
-            Op::AddOutput(1),
-            Op::AddWindow {
-                params: TestWindowParams::new(1),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(2),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(3),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(4),
-            },
-        ],
-    );
-
-    // Step 71 in seed1 is `layout_tabbed`.
-    replay_seed1_prefix(&mut layout, 70);
-
-    let workspace = layout.active_workspace().expect("active workspace");
-    assert!(
-        workspace.floating_is_active(),
-        "precondition: step 70 should still be in floating focus mode",
-    );
-    assert_ne!(
-        workspace.debug_command_context(),
-        "tiling",
-        "with floating focus, layout command context must not be tiling",
-    );
-    let tiling_before = workspace.scrolling().debug_tree().replace(" *", "");
-
-    layout.set_layout_mode(ContainerLayout::Tabbed);
-
-    let workspace = layout.active_workspace().expect("active workspace");
-    assert!(
-        workspace.floating_is_active(),
-        "layout_tabbed while floating-focused should not leave floating mode",
-    );
-    let tiling_after = workspace.scrolling().debug_tree().replace(" *", "");
-    assert_eq!(
-        tiling_after, tiling_before,
-        "layout_tabbed in floating focus must not mutate tiling tree (sway parity)",
-    );
-}
-
-#[test]
-fn parity_seed1_step102_layout_tabbed_after_unfloat_keeps_flat_root_like_sway() {
-    let mut layout = Layout::default();
-    check_ops_on_layout(
-        &mut layout,
-        [
-            Op::AddOutput(1),
-            Op::AddWindow {
-                params: TestWindowParams::new(1),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(2),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(3),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(4),
-            },
-        ],
-    );
-
-    // Replay through step 101 (`toggle_floating`), then apply step 102 (`layout_tabbed`).
-    replay_seed1_prefix(&mut layout, 102);
-    layout.set_layout_mode(ContainerLayout::Tabbed);
-
-    let workspace = layout.active_workspace().expect("active workspace");
-    let tree = workspace.scrolling().debug_tree();
-    assert_eq!(
-        workspace.scrolling().focus_path(),
-        vec![0],
-        "focus should remain on the leaf after layout_tabbed",
-    );
-    assert!(
-        !tree.contains("Tabbed\n  SplitV"),
-        "layout_tabbed after unfloat must not wrap the split root:\n{tree}",
-    );
-}
-
-#[test]
-fn parity_seed1_step181_workspace_split_chain_matches_sway() {
-    let mut layout = Layout::default();
-    check_ops_on_layout(
-        &mut layout,
-        [
-            Op::AddOutput(1),
-            Op::AddWindow {
-                params: TestWindowParams::new(1),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(2),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(3),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(4),
-            },
-        ],
-    );
-
-    // Replay through step 179 (`focus_parent`), then apply 180/181 splits.
-    replay_seed1_prefix(&mut layout, 180);
-
-    {
-        let workspace = layout.active_workspace().expect("active workspace");
-        assert!(workspace.floating_is_active());
-        assert_eq!(workspace.debug_command_context(), "workspace");
-    }
-
-    layout.split_horizontal();
-    {
-        let workspace = layout.active_workspace().expect("active workspace");
-        let tree = workspace.scrolling().debug_tree().replace(" *", "");
-        assert!(
-            tree.starts_with("Tabbed\n  SplitH\n"),
-            "seed1 step180 (`split_h`) should wrap with previous workspace layout like sway:\n{tree}",
-        );
-    }
-
-    layout.split_vertical();
-    {
-        let workspace = layout.active_workspace().expect("active workspace");
-        let tree = workspace.scrolling().debug_tree().replace(" *", "");
-        assert!(
-            tree.starts_with("SplitH\n  Tabbed\n"),
-            "seed1 step181 (`split_v`) should continue workspace split chain like sway:\n{tree}",
-        );
-    }
-}
-
 
 #[test]
 fn parity_seed2_step60_toggle_floating_restores_stacked_subtree_like_sway() {
@@ -2812,107 +2573,6 @@ fn parity_seed2_step60_toggle_floating_restores_stacked_subtree_like_sway() {
         vec![1, 1, 0],
         "step60 focus should land on the restored floating leaf like sway",
     );
-}
-
-#[test]
-fn parity_seed1_step59_open_window_joins_floating_when_tiling_not_empty() {
-    let mut layout = Layout::default();
-    check_ops_on_layout(
-        &mut layout,
-        [
-            Op::AddOutput(1),
-            Op::AddWindow {
-                params: TestWindowParams::new(1),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(2),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(3),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(4),
-            },
-        ],
-    );
-
-    // Replay until just before scenario step 59 (`open_window`).
-    replay_seed1_prefix(&mut layout, 59);
-
-    let workspace = layout.active_workspace().expect("active workspace");
-    let tiling_before = workspace.scrolling().tiles().count();
-    let floating_before = workspace.floating().tiles().count();
-    assert!(
-        workspace.floating_is_active(),
-        "precondition: parity path keeps floating focus active before step 59 open",
-    );
-    assert!(
-        tiling_before > 0,
-        "precondition: tiling must still be non-empty at step 59 parity point",
-    );
-    assert_eq!(
-        workspace.debug_command_context(),
-        "floating",
-        "precondition: step 59 open should still target floating, not workspace",
-    );
-    let focus_id = layout.focus().map(|w| *w.id()).expect("focused window");
-    assert!(
-        workspace.floating().selected_is_container(Some(&focus_id)),
-        "precondition: seed1 step59 should be a floating container-targeted join path",
-    );
-
-    layout.add_window(
-        TestWindow::new(TestWindowParams::new(9998)),
-        AddWindowTarget::Auto,
-        None,
-        None,
-        false,
-        false,
-        ActivateWindow::default(),
-    );
-
-    let workspace = layout.active_workspace().expect("active workspace");
-    assert_eq!(
-        workspace.scrolling().tiles().count(),
-        tiling_before,
-        "step 59 open_window should not change tiling count in this floating-grouped path",
-    );
-    assert_eq!(
-        workspace.floating().tiles().count(),
-        floating_before + 1,
-        "step 59 open_window should join floating in this parity path",
-    );
-}
-
-#[test]
-fn parity_seed1_step60_toggle_floating_restores_after_inactive_parent_reference() {
-    let mut layout = Layout::default();
-    check_ops_on_layout(
-        &mut layout,
-        [
-            Op::AddOutput(1),
-            Op::AddWindow {
-                params: TestWindowParams::new(1),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(2),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(3),
-            },
-            Op::AddWindow {
-                params: TestWindowParams::new(4),
-            },
-        ],
-    );
-
-    // Replay through step 59, then apply step 60 (`toggle_floating`).
-    replay_seed1_prefix(&mut layout, 60);
-    layout.toggle_window_floating(None);
-
-    let workspace = layout.active_workspace().expect("active workspace");
-    assert!(!workspace.floating_is_active());
-    assert_eq!(workspace.scrolling().focus_path(), vec![0, 1, 2, 0, 0]);
 }
 
 #[test]
@@ -3298,6 +2958,224 @@ fn empty_workspace_layout_applies_on_second_open() {
     assert!(
         tree.contains("Tabbed"),
         "second open should apply pending empty-workspace layout:\n{tree}",
+    );
+}
+
+#[test]
+fn i3_167_workspace_layout_tabbed_groups_second_open() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(&mut layout, [Op::AddOutput(1)]);
+
+    layout.set_layout_mode(ContainerLayout::Tabbed);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree();
+    assert!(
+        tree.contains("Tabbed"),
+        "workspace layout tabbed should group the second open into a tabbed container:\n{tree}",
+    );
+}
+
+#[test]
+fn i3_167_workspace_layout_stacked_groups_second_open() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(&mut layout, [Op::AddOutput(1)]);
+
+    layout.set_layout_mode(ContainerLayout::Stacked);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree();
+    assert!(
+        tree.contains("Stacked"),
+        "workspace layout stacked should group the second open into a stacked container:\n{tree}",
+    );
+}
+
+#[test]
+fn i3_167_workspace_layout_stacked_reinserts_after_floating_roundtrip() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(&mut layout, [Op::AddOutput(1)]);
+
+    layout.set_layout_mode(ContainerLayout::Stacked);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+    layout.toggle_window_floating(None);
+    layout.toggle_window_floating(None);
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree();
+    assert!(
+        tree.contains("Stacked"),
+        "workspace layout stacked should still apply after floating roundtrip reinsertion:\n{tree}",
+    );
+}
+
+#[test]
+fn i3_167_empty_workspace_layout_can_switch_back_to_splith() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(&mut layout, [Op::AddOutput(1)]);
+
+    layout.set_layout_mode(ContainerLayout::Stacked);
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+    layout.remove_window(&1, Transaction::new());
+    layout.remove_window(&2, Transaction::new());
+
+    layout.set_layout_mode(ContainerLayout::SplitH);
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(3)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(4)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree();
+    assert!(
+        !tree.contains("Stacked"),
+        "after resetting empty workspace layout to splith, new opens should no longer land in stacked:\n{tree}",
+    );
+}
+
+#[test]
+fn i3_167_empty_workspace_layout_can_switch_back_to_splitv() {
+    let mut layout = Layout::default();
+    check_ops_on_layout(&mut layout, [Op::AddOutput(1)]);
+
+    layout.set_layout_mode(ContainerLayout::Tabbed);
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+    layout.remove_window(&1, Transaction::new());
+    layout.remove_window(&2, Transaction::new());
+
+    layout.set_layout_mode(ContainerLayout::SplitV);
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(3)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(4)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.scrolling().debug_tree();
+    assert!(
+        tree.contains("SplitV"),
+        "after resetting empty workspace layout to splitv, new opens should land in a vertical split:\n{tree}",
+    );
+    assert!(
+        !tree.contains("Tabbed"),
+        "after resetting empty workspace layout to splitv, new opens should no longer land in tabbed:\n{tree}",
     );
 }
 
@@ -4285,6 +4163,103 @@ fn focus_left_wraps_within_split_container_like_sway() {
         tree.contains("Window 3 *"),
         "expected focus to wrap to last child inside current split container:\n{tree}"
     );
+}
+
+#[test]
+fn i3_101_directional_focus_on_single_window_is_noop() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+    ]);
+
+    let focused_before = layout.focus().map(|win| *win.id());
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::FocusWindowDown,
+            Op::FocusWindowUp,
+            Op::FocusColumnLeft,
+            Op::FocusColumnRight,
+        ],
+    );
+
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        focused_before,
+        "directional focus should be a no-op when only one tiled window exists",
+    );
+}
+
+#[test]
+fn i3_121_focus_left_right_wraps_across_root_split() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+    ]);
+
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(3));
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnRight]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(1),
+        "focus right should wrap from the rightmost root leaf to the leftmost one",
+    );
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnRight]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(2));
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnRight]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(3));
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnLeft]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(2));
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnLeft]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(1));
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnLeft]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(3),
+        "focus left should wrap from the leftmost root leaf to the rightmost one",
+    );
+}
+
+#[test]
+fn i3_101_focus_window_command_targets_specific_leaf() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+    ]);
+
+    check_ops_on_layout(&mut layout, [Op::FocusWindow(2)]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(2),
+        "focus command should activate the requested leaf directly",
+    );
+
+    check_ops_on_layout(&mut layout, [Op::FocusWindow(1)]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(1));
 }
 
 #[test]
@@ -5714,6 +5689,86 @@ fn marks_unique_across_windows() {
     // Mark should now be only on window 2, not on window 1
     assert!(marks_for(&layout, id1).is_empty());
     assert_eq!(marks_for(&layout, id2), vec![String::from("unique_mark")]);
+}
+
+#[test]
+fn unmark_removes_specific_mark_and_clears_focused_window_marks() {
+    let options = Options::from_config(&Config::default());
+    let mut layout = Layout::with_options(Clock::with_time(Duration::ZERO), options);
+
+    let output = make_test_output("output-test");
+    layout.add_output(output.clone(), None);
+
+    let params1 = TestWindowParams::new(1);
+    let id1 = params1.id;
+    layout.add_window(
+        TestWindow::new(params1),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let params2 = TestWindowParams::new(2);
+    let id2 = params2.id;
+    layout.add_window(
+        TestWindow::new(params2),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let workspace = layout.active_workspace_mut().expect("active workspace");
+    assert!(workspace.focus_window_by_id(&id1));
+    layout.mark_focused(String::from("alpha"), MarkMode::Replace);
+    layout.mark_focused(String::from("beta"), MarkMode::Add);
+
+    let workspace = layout.active_workspace_mut().expect("active workspace");
+    assert!(workspace.focus_window_by_id(&id2));
+    layout.mark_focused(String::from("gamma"), MarkMode::Replace);
+
+    layout.unmark(Some("alpha"));
+    assert_eq!(marks_for(&layout, id1), vec![String::from("beta")]);
+    assert_eq!(marks_for(&layout, id2), vec![String::from("gamma")]);
+
+    let workspace = layout.active_workspace_mut().expect("active workspace");
+    assert!(workspace.focus_window_by_id(&id1));
+    layout.unmark(None);
+
+    assert!(marks_for(&layout, id1).is_empty());
+    assert_eq!(marks_for(&layout, id2), vec![String::from("gamma")]);
+}
+
+#[test]
+fn urgent_propagates_to_workspace() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::SetLayoutTabbed,
+    ]);
+
+    set_window_urgent(&mut layout, 1, true);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_urgent(), "workspace should reflect urgent child state");
+
+    set_window_urgent(&mut layout, 1, false);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        !workspace.is_urgent(),
+        "workspace urgency should clear when urgent flag is removed",
+    );
 }
 
 #[track_caller]
@@ -8456,7 +8511,11 @@ impl TreeHarness {
     }
 
     fn add_window(&mut self, id: usize) {
-        let window = TestWindow::new(TestWindowParams::new(id));
+        self.add_window_with_params(TestWindowParams::new(id));
+    }
+
+    fn add_window_with_params(&mut self, params: TestWindowParams) {
+        let window = TestWindow::new(params);
         let tile = Tile::new(
             window,
             self.view_size,
@@ -8468,7 +8527,11 @@ impl TreeHarness {
     }
 
     fn append_window(&mut self, id: usize) {
-        let window = TestWindow::new(TestWindowParams::new(id));
+        self.append_window_with_params(TestWindowParams::new(id));
+    }
+
+    fn append_window_with_params(&mut self, params: TestWindowParams) {
+        let window = TestWindow::new(params);
         let tile = Tile::new(
             window,
             self.view_size,
@@ -8526,6 +8589,12 @@ fn parse_debug_tree_windows(tree: &str) -> (Vec<usize>, usize, Option<usize>) {
     }
 
     (ids, focused_count, focused_id)
+}
+
+fn count_root_children_in_debug_tree(tree: &str) -> usize {
+    tree.lines()
+        .filter(|line| line.starts_with("  ") && !line.starts_with("    "))
+        .count()
 }
 
 fn apply_tree_random_op(harness: &mut TreeHarness, op: TreeRandomOp, next_window_id: &mut usize) {
@@ -8678,11 +8747,10 @@ fn move_right_enters_container_with_different_layout() {
     assert_snapshot!(
         tree.as_str(),
         @"
-    SplitH
-      SplitV
-        Window 2
-        Window 1 *
-        Window 3
+    SplitV
+      Window 2
+      Window 1 *
+      Window 3
     "
     );
 }
@@ -9145,6 +9213,32 @@ fn direct_tabbed_tiles_use_content_rect_without_tile_tab_offset() {
 }
 
 #[test]
+fn tabbed_container_marks_urgent_tab() {
+    let mut harness = TreeHarness::new();
+    let mut urgent = TestWindowParams::new(1);
+    urgent.is_urgent = true;
+    harness.add_window_with_params(urgent);
+    harness.add_window(2);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    harness.tree.layout();
+
+    let tab_bar = harness
+        .tree
+        .tab_bar_layouts()
+        .into_iter()
+        .next()
+        .expect("tabbed tree should expose one tab bar");
+
+    let urgent_tabs = tab_bar
+        .tabs
+        .iter()
+        .filter(|tab| tab.is_urgent)
+        .map(|tab| tab.title.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(urgent_tabs, vec!["Window 1"]);
+}
+
+#[test]
 fn tabbed_context_propagates_to_nested_split_tiles() {
     let mut harness = TreeHarness::new();
     harness.add_window(1);
@@ -9227,6 +9321,142 @@ fn toggle_layout_all_cycles_through_all_layouts() {
     SplitH
       Window 1
       Window 2 *
+    "
+    );
+}
+
+#[test]
+fn i3_192_nested_container_layout_transitions() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_window_by_id(&2));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(3);
+
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Stacked));
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      Window 1
+      Stacked
+        Window 2
+        Window 3 *
+    "
+    );
+
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      Window 1
+      Tabbed
+        Window 2
+        Window 3 *
+    "
+    );
+
+    assert!(harness.tree.toggle_split_layout());
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      Window 1
+      SplitV
+        Window 2
+        Window 3 *
+    "
+    );
+}
+
+#[test]
+fn i3_192_toggle_layout_all_cycles_nested_container_layouts() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_window_by_id(&2));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(3);
+
+    assert!(harness.tree.toggle_layout_all());
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      Window 1
+      Stacked
+        Window 2
+        Window 3 *
+    "
+    );
+
+    assert!(harness.tree.toggle_layout_all());
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      Window 1
+      Tabbed
+        Window 2
+        Window 3 *
+    "
+    );
+
+    assert!(harness.tree.toggle_layout_all());
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      Window 1
+      SplitH
+        Window 2
+        Window 3 *
+    "
+    );
+}
+
+#[test]
+fn i3_192_nested_container_layout_sequence_matches_i3() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_window_by_id(&2));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(3);
+
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Stacked));
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    assert!(harness.tree.toggle_split_layout());
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      Window 1
+      SplitV
+        Window 2
+        Window 3 *
+    "
+    );
+
+    assert!(harness.tree.toggle_split_layout());
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      Window 1
+      SplitH
+        Window 2
+        Window 3 *
     "
     );
 }
@@ -9335,6 +9565,144 @@ fn move_up_at_edge_is_noop() {
     SplitV
       Window 1 *
       Window 2
+    "
+    );
+}
+
+#[test]
+fn i3_122_repeated_split_on_single_window_does_not_nest_wrappers() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    let before = harness.tree.debug_tree().replace(" *", "");
+
+    let _ = harness.tree.split_focused(ContainerLayout::SplitV);
+    let after = harness.tree.debug_tree().replace(" *", "");
+
+    assert_eq!(
+        after, before,
+        "repeating split on a single focused window should not keep nesting redundant wrappers",
+    );
+}
+
+#[test]
+fn i3_122_split_inside_stacked_creates_nested_split() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Stacked));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitH));
+    harness.add_window(2);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    Stacked
+      SplitH
+        Window 1
+        Window 2 *
+    "
+    );
+}
+
+#[test]
+fn i3_122_toggle_split_switches_nested_container_orientation() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_window_by_id(&2));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(3);
+
+    assert!(harness.tree.toggle_split_layout());
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      Window 1
+      SplitH
+        Window 2
+        Window 3 *
+    "
+    );
+}
+
+#[test]
+fn i3_122_split_workspace_with_multiple_children_wraps_focused_branch() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+
+    assert!(harness.tree.focus_root_child(0));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(3);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      SplitV
+        Window 1
+        Window 3 *
+      Window 2
+    "
+    );
+}
+
+#[test]
+fn i3_122_repeated_split_without_new_window_keeps_tree_shape() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+
+    assert!(harness.tree.focus_root_child(0));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(3);
+    let before = harness.tree.debug_tree().replace(" *", "");
+
+    let _ = harness.tree.split_focused(ContainerLayout::SplitV);
+    let after = harness.tree.debug_tree().replace(" *", "");
+
+    assert_eq!(
+        after, before,
+        "repeating split without opening a new window should not create extra container structure",
+    );
+}
+
+#[test]
+fn i3_122_split_on_empty_workspace_applies_to_next_window() {
+    let mut harness = TreeHarness::new();
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(1);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitV
+      Window 1 *
+    "
+    );
+}
+
+#[test]
+fn i3_122_split_on_single_window_persists_after_close() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    let _ = harness.tree.remove_window(&1);
+    harness.add_window(2);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitV
+      Window 2 *
     "
     );
 }
@@ -9600,6 +9968,125 @@ fn move_out_of_explicit_parallel_split_preserves_container_for_reentry() {
     );
 }
 
+#[test]
+fn i3_124_move_single_window_is_noop() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+
+    let before = harness.tree.debug_tree();
+    assert!(!harness.tree.move_in_direction(Direction::Left));
+    assert!(!harness.tree.move_in_direction(Direction::Right));
+    assert!(!harness.tree.move_in_direction(Direction::Up));
+    assert!(!harness.tree.move_in_direction(Direction::Down));
+    let after = harness.tree.debug_tree();
+
+    assert_eq!(
+        after, before,
+        "moving a single container in any direction should be a no-op",
+    );
+}
+
+#[test]
+fn i3_124_move_window_into_adjacent_split_container() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.tree.split_focused(ContainerLayout::SplitV);
+    harness.add_window(3);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    assert!(harness.tree.move_in_direction(Direction::Right));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitV
+      Window 2
+      Window 1 *
+      Window 3
+    "
+    );
+}
+
+#[test]
+fn i3_124_move_window_out_of_split_on_layout_mismatch() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_in_direction(Direction::Left));
+    harness.tree.split_focused(ContainerLayout::SplitV);
+    harness.add_window(3);
+    assert!(harness.tree.move_in_direction(Direction::Right));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      SplitV
+        Window 1
+      Window 3 *
+      Window 2
+    "
+    );
+}
+
+#[test]
+fn i3_145_move_up_then_right_flattens_back_to_root_siblings() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.add_window(3);
+
+    assert!(harness.tree.move_in_direction(Direction::Up));
+    assert!(harness.tree.move_in_direction(Direction::Right));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      Window 1
+      Window 2
+      Window 3 *
+    "
+    );
+}
+
+#[test]
+fn i3_145_ticket_1053_sequence_flattens_after_second_move() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    harness.add_window(3);
+    harness.add_window(4);
+
+    assert!(harness.tree.focus_in_direction(Direction::Right));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    assert!(harness.tree.focus_in_direction(Direction::Right));
+    assert!(harness.tree.move_in_direction(Direction::Left));
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    assert!(harness.tree.focus_parent());
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+
+    let before = harness.tree.debug_tree();
+    assert_eq!(
+        count_root_children_in_debug_tree(&before),
+        3,
+        "precondition: first phase of i3 145 ticket #1053 should still have 3 root children:\n{before}",
+    );
+
+    assert!(harness.tree.focus_in_direction(Direction::Right));
+    assert!(harness.tree.move_in_direction(Direction::Left));
+
+    let after = harness.tree.debug_tree();
+    assert_eq!(
+        count_root_children_in_debug_tree(&after),
+        2,
+        "i3 145 ticket #1053 should flatten redundant wrappers after the second move:\n{after}",
+    );
+}
+
 // Focus parent/child navigation tests
 #[test]
 fn focus_parent_at_root_is_noop() {
@@ -9686,6 +10173,87 @@ fn i3_104_focus_stack_restores_tiling_focus_after_floating_close() {
 }
 
 #[test]
+fn i3_117_workspace_previous_switches_between_mru_workspaces() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(1),
+        Op::MoveWindowToWorkspaceDown(true),
+    ]);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(
+            workspace.has_window(&1),
+            "moving with focus=true should leave us on the destination workspace",
+        );
+    }
+
+    check_ops_on_layout(&mut layout, [Op::FocusWorkspacePrevious]);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(
+            workspace.has_window(&2),
+            "workspace previous should restore the previously-focused workspace",
+        );
+        assert!(!workspace.has_window(&1));
+    }
+
+    check_ops_on_layout(&mut layout, [Op::FocusWorkspacePrevious]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        workspace.has_window(&1),
+        "workspace previous should toggle back to the MRU workspace",
+    );
+}
+
+#[test]
+fn i3_118_open_then_kill_single_window_leaves_workspace_empty() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+    ]);
+
+    assert!(layout.has_window(&1));
+    layout.remove_window(&1, Transaction::new());
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(workspace.windows().count(), 0);
+    assert_eq!(workspace.scrolling().tiles().count(), 0);
+    assert_eq!(workspace.floating().tiles().count(), 0);
+}
+
+#[test]
+fn i3_118_kill_unfocused_window_by_id_removes_correct_leaf() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+    ]);
+
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(2));
+    layout.remove_window(&1, Transaction::new());
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.has_window(&1));
+    assert!(workspace.has_window(&2));
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(2));
+}
+
+#[test]
 fn i3_129_focus_after_close_prefers_focus_stack_leaf() {
     // Mirrors i3_test_cases/t/129-focus-after-close.t (second scenario):
     // when closing an active leaf, focus is restored to the most-recent leaf from the stack.
@@ -9717,6 +10285,728 @@ fn i3_129_focus_after_close_prefers_focus_stack_leaf() {
     assert_eq!(
         focused, 4,
         "after closing the bottom leaf, focus should return to top-right MRU leaf",
+    );
+}
+
+#[test]
+fn i3_129_kill_workspace_closes_tiling_and_floating_windows() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::FocusParent,
+        Op::FocusParent,
+    ]);
+
+    let selected_ids = layout.close_window_ids_for_active_selection();
+    assert_eq!(
+        selected_ids.len(),
+        2,
+        "workspace-level kill should target both tiling and floating windows",
+    );
+
+    for id in selected_ids {
+        layout.remove_window(&id, Transaction::new());
+    }
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(workspace.windows().count(), 0);
+    assert_eq!(workspace.scrolling().tiles().count(), 0);
+    assert_eq!(workspace.floating().tiles().count(), 0);
+}
+
+#[test]
+fn i3_130_closing_last_children_removes_empty_split_wrapper() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.focus_window_by_id(&1));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(3);
+
+    let _ = harness.tree.remove_window(&3);
+    let _ = harness.tree.remove_window(&1);
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    Window 2 *
+    "
+    );
+}
+
+#[test]
+fn i3_130_moving_last_children_away_removes_empty_split_wrapper() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(1),
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::MoveWindowToWorkspaceDown(false),
+        Op::FocusWindow(1),
+        Op::MoveWindowToWorkspaceDown(false),
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.has_window(&2));
+    assert!(!workspace.has_window(&1));
+    assert!(!workspace.has_window(&3));
+
+    let tree = workspace.scrolling().debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    Window 2 *
+    "
+    );
+}
+
+#[test]
+fn i3_124_move_left_then_right_swaps_root_siblings_without_extra_changes() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+
+    assert!(harness.tree.move_in_direction(Direction::Left));
+    let after_left = harness.tree.debug_tree();
+    assert_eq!(
+        parse_debug_tree_windows(&after_left),
+        (vec![2, 1], 1, Some(2)),
+        "moving the second root sibling left should swap it before the first:\n{after_left}",
+    );
+
+    assert!(!harness.tree.move_in_direction(Direction::Left));
+    let after_second_left = harness.tree.debug_tree();
+    assert_eq!(
+        parse_debug_tree_windows(&after_second_left),
+        (vec![2, 1], 1, Some(2)),
+        "moving left again at the edge should be a no-op:\n{after_second_left}",
+    );
+
+    assert!(harness.tree.move_in_direction(Direction::Right));
+    let after_right = harness.tree.debug_tree();
+    assert_eq!(
+        parse_debug_tree_windows(&after_right),
+        (vec![1, 2], 1, Some(2)),
+        "moving right should swap the root siblings back:\n{after_right}",
+    );
+
+    assert!(!harness.tree.move_in_direction(Direction::Right));
+    let after_second_right = harness.tree.debug_tree();
+    assert_eq!(
+        parse_debug_tree_windows(&after_second_right),
+        (vec![1, 2], 1, Some(2)),
+        "moving right again at the edge should be a no-op:\n{after_second_right}",
+    );
+}
+
+#[test]
+fn i3_124_moving_all_children_out_of_split_removes_source_container() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+    harness.add_window(2);
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(3);
+    assert!(harness.tree.focus_window_by_id(&1));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(4);
+
+    assert!(harness.tree.focus_window_by_id(&4));
+    assert!(harness.tree.move_in_direction(Direction::Right));
+    assert!(harness.tree.focus_window_by_id(&1));
+    assert!(harness.tree.move_in_direction(Direction::Right));
+
+    let tree = harness.tree.debug_tree();
+    let mut ids = parse_debug_tree_windows(&tree).0;
+    ids.sort_unstable();
+
+    assert_eq!(
+        count_root_children_in_debug_tree(&tree),
+        1,
+        "after moving the last two children out of the left split, the source container should be removed:\n{tree}",
+    );
+    assert_eq!(ids, vec![1, 2, 3, 4], "all windows should still be present:\n{tree}");
+}
+
+#[test]
+fn i3_127_killing_parent_chain_then_disabling_floating_reinserts_cleanly() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::FocusWindow(2),
+        Op::CloseWindow(2),
+        Op::FocusWindow(1),
+        Op::CloseWindow(1),
+        Op::FocusWindow(3),
+        Op::ToggleWindowFloating { id: None },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(workspace.floating().tiles().count(), 0);
+    assert_eq!(workspace.scrolling().tiles().count(), 1);
+    assert_snapshot!(
+        workspace.scrolling().debug_tree().as_str(),
+        @"
+    Window 3 *
+    "
+    );
+}
+
+#[test]
+fn i3_135_floating_toggle_roundtrip_preserves_focus() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::ToggleWindowFloating { id: None },
+    ]);
+
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(2),
+        "toggling the focused window to floating and back should preserve focus",
+    );
+}
+
+#[test]
+fn i3_135_killing_unfocused_floating_window_keeps_current_floating_focus() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::ToggleWindowFloating { id: Some(3) },
+        Op::FocusWindow(2),
+        Op::ToggleWindowFloating { id: None },
+        Op::CloseWindow(3),
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(2));
+    assert!(workspace.is_floating(&2));
+    assert!(!workspace.has_window(&3));
+}
+
+#[test]
+fn i3_135_killing_focused_floating_window_falls_back_to_next_floating_then_tiling() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(2),
+        Op::ToggleWindowFloating { id: None },
+        Op::FocusWindow(3),
+        Op::ToggleWindowFloating { id: None },
+        Op::FocusWindow(2),
+    ]);
+
+    check_ops_on_layout(&mut layout, [Op::CloseWindow(2)]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(3),
+        "after closing the focused floating window, focus should fall back to the next floating window",
+    );
+
+    check_ops_on_layout(&mut layout, [Op::CloseWindow(3)]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(1),
+        "after closing the last floating window, focus should fall back to the last tiled window",
+    );
+}
+
+#[test]
+fn i3_135_focus_tiling_focus_floating_and_mode_toggle_switch_domains() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::ToggleWindowFloating { id: None },
+    ]);
+
+    check_ops_on_layout(&mut layout, [Op::FocusTiling]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(1));
+
+    check_ops_on_layout(&mut layout, [Op::FocusFloating]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(2));
+
+    check_ops_on_layout(&mut layout, [Op::FocusFloating]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(2),
+        "focus floating on an already-focused floating window should be a no-op",
+    );
+
+    check_ops_on_layout(&mut layout, [Op::SwitchFocusFloatingTiling]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(1));
+
+    check_ops_on_layout(&mut layout, [Op::SwitchFocusFloatingTiling]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(2));
+}
+
+#[test]
+fn i3_135_directional_focus_cycles_across_floating_windows() {
+    let mut one = TestWindowParams::new(1);
+    one.is_floating = true;
+    let mut two = TestWindowParams::new(2);
+    two.is_floating = true;
+    let mut three = TestWindowParams::new(3);
+    three.is_floating = true;
+
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow { params: one },
+        Op::AddWindow { params: two },
+        Op::AddWindow { params: three },
+    ]);
+
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(3));
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnLeft]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(2));
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnLeft]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(1));
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnLeft]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(3));
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnRight]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(1));
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnRight]);
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(2));
+}
+
+#[test]
+fn i3_135_focusing_floating_window_raises_it_to_front() {
+    let mut one = TestWindowParams::new(1);
+    one.is_floating = true;
+    let mut two = TestWindowParams::new(2);
+    two.is_floating = true;
+
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow { params: one },
+        Op::AddWindow { params: two },
+    ]);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        let order: Vec<_> = workspace
+            .floating()
+            .tiles()
+            .map(|tile| *tile.window().id())
+            .collect();
+        assert_eq!(
+            order.first().copied(),
+            Some(2),
+            "precondition: newest floating window should start on top",
+        );
+    }
+
+    check_ops_on_layout(&mut layout, [Op::FocusWindow(1)]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let order: Vec<_> = workspace
+        .floating()
+        .tiles()
+        .map(|tile| *tile.window().id())
+        .collect();
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(1));
+    assert_eq!(
+        order.first().copied(),
+        Some(1),
+        "focusing a floating window should raise its container to the top of the floating stack",
+    );
+}
+
+#[test]
+fn i3_135_toggle_floating_on_focused_window_from_other_workspace_preserves_focus() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWorkspace(1),
+        Op::ToggleWindowFloating { id: Some(2) },
+        Op::FocusWorkspace(0),
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&2));
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(2),
+        "toggling floating for the focused window from another workspace should preserve its focus",
+    );
+
+    check_ops_on_layout(
+        &mut layout,
+        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(2) }, Op::FocusWorkspace(0)],
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.is_floating(&2));
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(2),
+        "toggling the same window back to tiling from another workspace should still preserve focus",
+    );
+}
+
+#[test]
+fn i3_135_toggle_floating_on_unfocused_window_from_other_workspace_does_not_steal_focus() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWorkspace(1),
+        Op::ToggleWindowFloating { id: Some(1) },
+        Op::FocusWorkspace(0),
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&1));
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(2),
+        "toggling floating for an unfocused window from another workspace must not steal focus",
+    );
+
+    check_ops_on_layout(
+        &mut layout,
+        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(1) }, Op::FocusWorkspace(0)],
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.is_floating(&1));
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(2),
+        "toggling the unfocused window back to tiling from another workspace must still not steal focus",
+    );
+}
+
+#[test]
+fn i3_135_toggle_floating_on_other_workspace_keeps_focused_floating_window() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::ToggleWindowFloating { id: Some(2) },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWorkspace(1),
+        Op::ToggleWindowFloating { id: Some(3) },
+        Op::FocusWorkspace(0),
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&2));
+    assert!(workspace.is_floating(&3));
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(3),
+        "if the toggled window was focused on its workspace, it should remain focused after returning",
+    );
+
+    check_ops_on_layout(
+        &mut layout,
+        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(3) }, Op::FocusWorkspace(0)],
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&2));
+    assert!(!workspace.is_floating(&3));
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(3),
+        "toggling that same focused window back to tiling on another workspace should keep focus on it",
+    );
+}
+
+#[test]
+fn i3_135_toggle_unfocused_window_on_other_workspace_keeps_current_floating_focus() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::ToggleWindowFloating { id: Some(3) },
+        Op::FocusWorkspace(1),
+        Op::ToggleWindowFloating { id: Some(2) },
+        Op::FocusWorkspace(0),
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.is_floating(&2));
+    assert!(workspace.is_floating(&3));
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(3),
+        "toggling another window from a different workspace must not steal focus from the current floating window",
+    );
+
+    check_ops_on_layout(
+        &mut layout,
+        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(2) }, Op::FocusWorkspace(0)],
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.is_floating(&2));
+    assert!(workspace.is_floating(&3));
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(3),
+        "toggling the unfocused window back to tiling on another workspace must keep floating focus unchanged",
+    );
+}
+
+#[test]
+fn i3_135_toggle_floating_for_nested_window_from_other_workspace_preserves_focus() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWorkspace(1),
+        Op::ToggleWindowFloating { id: Some(3) },
+        Op::FocusWorkspace(0),
+    ]);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(workspace.is_floating(&3));
+        assert_eq!(
+            layout.focus().map(|win| *win.id()),
+            Some(3),
+            "toggling a focused nested window to floating from another workspace should preserve its focus",
+        );
+    }
+
+    check_ops_on_layout(
+        &mut layout,
+        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(3) }, Op::FocusWorkspace(0)],
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(!workspace.is_floating(&3));
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(3),
+        "toggling that nested window back to tiling from another workspace should still preserve focus",
+    );
+    let tree = workspace.scrolling().debug_tree();
+    assert!(
+        tree.contains("Window 3 *"),
+        "after the roundtrip, the nested window should still be the focused tiling leaf:\n{tree}",
+    );
+}
+
+#[test]
+fn i3_135_deep_floating_roundtrip_from_other_workspace_preserves_focus_chain() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::SplitHorizontal,
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(5),
+        },
+    ]);
+
+    let tree_before = layout
+        .active_workspace()
+        .expect("active workspace")
+        .scrolling()
+        .debug_tree()
+        .replace(" *", "");
+    assert!(
+        tree_before.contains("SplitV\n        Window 4\n        Window 5"),
+        "precondition: deep nested layout should place window 4 before 5 in the innermost split:\n{tree_before}",
+    );
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(5));
+
+    check_ops_on_layout(
+        &mut layout,
+        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(4) }, Op::FocusWorkspace(0)],
+    );
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(workspace.is_floating(&4));
+        assert_eq!(
+            layout.focus().map(|win| *win.id()),
+            Some(5),
+            "after floating the deep nested window from another workspace, focus should stay on D-like sibling",
+        );
+        let tree = workspace.scrolling().debug_tree().replace(" *", "");
+        assert!(
+            tree.contains("Window 5"),
+            "the tiling tree should keep the sibling that replaced the floated window's slot:\n{tree}",
+        );
+    }
+
+    check_ops_on_layout(
+        &mut layout,
+        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(4) }, Op::FocusWorkspace(0)],
+    );
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(!workspace.is_floating(&4));
+        assert_eq!(
+            layout.focus().map(|win| *win.id()),
+            Some(5),
+            "after restoring the deep nested window to tiling from another workspace, focus should stay on the previously-focused sibling",
+        );
+        let tree = workspace.scrolling().debug_tree();
+        assert!(
+            tree.contains("Window 4") && tree.contains("Window 5 *"),
+            "after the roundtrip both deep siblings should exist and window 5 should still be focused:\n{tree}",
+        );
+    }
+
+    check_ops_on_layout(&mut layout, [Op::CloseWindow(5)]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(4),
+        "after killing the focused deep sibling, focus should fall back to the restored floating-roundtrip window",
+    );
+
+    check_ops_on_layout(&mut layout, [Op::CloseWindow(4)]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(3),
+        "after killing the restored deep window, focus should move up the focus stack to the next ancestor leaf",
+    );
+
+    check_ops_on_layout(&mut layout, [Op::CloseWindow(3)]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(2),
+        "after killing the next leaf, focus should continue restoring toward the previous sibling branch",
+    );
+
+    check_ops_on_layout(&mut layout, [Op::CloseWindow(2)]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(1),
+        "after killing that branch, the root-left leaf should receive focus",
+    );
+}
+
+#[test]
+fn i3_135_focus_parent_then_focus_child_roundtrips_from_floating_window() {
+    let mut floating = TestWindowParams::new(2);
+    floating.is_floating = true;
+
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow { params: floating },
+    ]);
+
+    check_ops_on_layout(&mut layout, [Op::FocusParent]);
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        assert!(
+            workspace.debug_floating_workspace_context(),
+            "focus parent from a floating window should move to workspace context",
+        );
+    }
+
+    check_ops_on_layout(&mut layout, [Op::FocusChild]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(2),
+        "focus child from workspace context should return to the floating window",
     );
 }
 
@@ -10060,6 +11350,117 @@ fn i3_218_floating_container_cannot_be_split_or_relayouted() {
 }
 
 #[test]
+fn i3_192_toggle_layout_all_cycles_floating_container_layouts() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::SplitV),
+    );
+
+    check_ops_on_layout(&mut layout, [Op::ToggleLayoutAll]);
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::Stacked),
+        "toggle_layout_all should cycle floating container layout from SplitV to Stacked",
+    );
+
+    check_ops_on_layout(&mut layout, [Op::ToggleLayoutAll]);
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::Tabbed),
+        "toggle_layout_all should cycle floating container layout from Stacked to Tabbed",
+    );
+
+    check_ops_on_layout(&mut layout, [Op::ToggleLayoutAll]);
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::SplitH),
+        "toggle_layout_all should cycle floating container layout from Tabbed to SplitH",
+    );
+}
+
+#[test]
+fn i3_218_toggle_layout_all_on_floating_leaf_is_noop() {
+    let mut params = TestWindowParams::new(1);
+    params.is_floating = true;
+
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow { params },
+    ]);
+
+    let before = layout
+        .active_workspace()
+        .expect("active workspace")
+        .floating()
+        .root_layout_for_window(&1);
+
+    check_ops_on_layout(&mut layout, [Op::ToggleLayoutAll]);
+
+    let after = layout
+        .active_workspace()
+        .expect("active workspace")
+        .floating()
+        .root_layout_for_window(&1);
+    assert_eq!(
+        after, before,
+        "toggle_layout_all should be a no-op on a floating leaf without an explicit wrapper",
+    );
+}
+
+#[test]
+fn i3_192_set_layout_on_floating_container_with_children_retargets_wrapper() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::SplitV),
+    );
+
+    check_ops_on_layout(&mut layout, [Op::SetLayoutTabbed]);
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::Tabbed),
+        "set_layout should retarget the active floating container wrapper",
+    );
+
+    check_ops_on_layout(&mut layout, [Op::SetLayoutStacked]);
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::Stacked),
+        "set_layout should continue to mutate the same floating container wrapper",
+    );
+}
+
+#[test]
 fn i3_510_cross_output_focus_uses_target_workspace_mru_leaf() {
     // Mirrors i3_test_cases/t/510-focus-across-outputs.t (#1160 section):
     // crossing outputs should focus the MRU leaf in target workspace, not the geometric first leaf.
@@ -10088,6 +11489,167 @@ fn i3_510_cross_output_focus_uses_target_workspace_mru_leaf() {
     assert_eq!(
         focused, 1,
         "cross-output focus should land on target workspace MRU leaf",
+    );
+}
+
+#[test]
+fn i3_510_cross_output_focus_prefers_tiling_over_destination_floating() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddOutput(2),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::ToggleWindowFloating { id: Some(3) },
+        Op::FocusWindow(2),
+        Op::FocusFloating,
+        Op::FocusOutput(2),
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::FocusColumnOrMonitorLeft(1),
+    ]);
+
+    let focused = layout
+        .focus()
+        .map(|win| *win.id())
+        .expect("focused window should exist");
+    assert_eq!(
+        focused, 2,
+        "cross-output focus should not land on destination floating when a tiling candidate exists",
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        !workspace.is_floating(&2),
+        "cross-output focus should land on the destination tiling leaf, not the floating window",
+    );
+}
+
+#[test]
+fn i3_510_cross_output_focus_uses_focused_descendant_in_tabbed_target() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddOutput(2),
+        Op::FocusOutput(2),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::SetLayoutTabbed,
+        Op::FocusWindow(1),
+        Op::FocusOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusColumnOrMonitorRight(2),
+    ]);
+
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(1),
+        "cross-output focus should land on the focused tab inside the destination tabbed container",
+    );
+}
+
+#[test]
+fn i3_510_cross_output_focus_uses_focused_descendant_in_stacked_target() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddOutput(2),
+        Op::FocusOutput(2),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::SetLayoutStacked,
+        Op::FocusWindow(1),
+        Op::FocusOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusColumnOrMonitorRight(2),
+    ]);
+
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(1),
+        "cross-output focus should land on the focused child inside the destination stacked container",
+    );
+}
+
+#[test]
+fn i3_510_cross_output_focus_uses_nested_focused_descendant() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddOutput(2),
+        Op::FocusOutput(2),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(3),
+        Op::SplitHorizontal,
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::FocusWindow(4),
+        Op::FocusOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(5),
+        },
+        Op::FocusColumnOrMonitorRight(2),
+    ]);
+
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(4),
+        "cross-output focus should descend into the focused nested leaf of the destination workspace",
+    );
+}
+
+#[test]
+fn i3_520_cross_output_focus_falls_back_to_existing_floating_window() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddOutput(2),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::FocusOutput(2),
+        Op::FocusColumnOrMonitorLeft(1),
+    ]);
+
+    let focused = layout
+        .focus()
+        .map(|win| *win.id())
+        .expect("focused window should exist");
+    assert_eq!(
+        focused, 1,
+        "cross-output focus should target the floating window when the destination output has no tiling candidate",
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(
+        workspace.is_floating(&1),
+        "cross-output directional focus should land on the floating container itself",
     );
 }
 
@@ -10151,6 +11713,105 @@ fn layout_on_top_level_leaf_materializes_explicit_root_wrapper_when_workspace_ch
     Tabbed
       Window 1
       Window 2 *
+    "
+    );
+}
+
+#[test]
+fn i3_550_repeated_split_toggles_on_single_leaf_keep_one_wrapper() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitH));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitV
+      Window 1 *
+    "
+    );
+}
+
+#[test]
+fn i3_550_tabbed_then_stacked_on_single_leaf_keeps_single_wrapper() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Stacked));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    Stacked
+      Window 1 *
+    "
+    );
+}
+
+#[test]
+fn i3_550_split_inside_tabbed_keeps_single_nested_split_wrapper() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    Tabbed
+      SplitV
+        Window 1 *
+    "
+    );
+}
+
+#[test]
+fn i3_550_toggle_split_inside_tabbed_does_not_create_redundant_wrappers() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    Tabbed
+      SplitV
+        Window 1 *
+    "
+    );
+}
+
+#[test]
+fn i3_550_tabbed_with_two_nodes_inside_other_tabbed_stays_two_level() {
+    let mut harness = TreeHarness::new();
+    harness.add_window(1);
+
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+    assert!(harness.tree.split_focused(ContainerLayout::SplitV));
+    harness.add_window(2);
+    assert!(harness.tree.set_focused_layout(ContainerLayout::Tabbed));
+
+    let tree = harness.tree.debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    Tabbed
+      Tabbed
+        Window 1
+        Window 2 *
     "
     );
 }

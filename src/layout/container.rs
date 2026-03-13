@@ -101,6 +101,7 @@ pub struct DetachedContainer<W: LayoutElement> {
     child_percents: Vec<f64>,
     focus_stack: Vec<usize>,
     preserve_on_single: bool,
+    prev_split_layout: Option<Layout>,
 }
 
 /// Container data stored in slotmap
@@ -114,6 +115,8 @@ pub struct ContainerData {
     focus_stack: Vec<NodeKey>,
     /// Preserve container even if it has a single child (explicit split).
     preserve_on_single: bool,
+    /// Previous split layout for sway/i3-style `layout toggle split`.
+    prev_split_layout: Option<Layout>,
     /// Relative sizes of children (sum normalized to 1.0 for split layouts)
     child_percents: Vec<f64>,
     /// Cached geometry for rendering
@@ -250,6 +253,7 @@ impl ContainerData {
             children: Vec::new(),
             focus_stack: Vec::new(),
             preserve_on_single: false,
+            prev_split_layout: None,
             child_percents: Vec::new(),
             geometry: Rectangle::from_size(Size::from((0.0, 0.0))),
         }
@@ -262,16 +266,23 @@ impl ContainerData {
 
     /// Set container layout
     pub fn set_layout(&mut self, layout: Layout) {
+        if self.layout != layout && matches!(self.layout, Layout::SplitH | Layout::SplitV) {
+            self.prev_split_layout = Some(self.layout);
+        }
         self.layout = layout;
     }
 
     pub fn set_layout_explicit(&mut self, layout: Layout) {
-        self.layout = layout;
+        self.set_layout(layout);
         self.preserve_on_single = true;
     }
 
     pub fn preserve_on_single(&self) -> bool {
         self.preserve_on_single
+    }
+
+    pub fn prev_split_layout(&self) -> Option<Layout> {
+        self.prev_split_layout
     }
 
     pub fn mark_preserve_on_single(&mut self) {
@@ -746,6 +757,7 @@ impl<W: LayoutElement> DetachedContainer<W> {
             child_percents: Vec::new(),
             focus_stack: Vec::new(),
             preserve_on_single: false,
+            prev_split_layout: None,
         };
         container.ensure_focus_stack();
         container.recalculate_percentages();
@@ -758,6 +770,7 @@ impl<W: LayoutElement> DetachedContainer<W> {
         child_percents: Vec<f64>,
         focus_stack: Vec<usize>,
         preserve_on_single: bool,
+        prev_split_layout: Option<Layout>,
     ) -> Self {
         let mut container = Self {
             layout,
@@ -765,6 +778,7 @@ impl<W: LayoutElement> DetachedContainer<W> {
             child_percents,
             focus_stack,
             preserve_on_single,
+            prev_split_layout,
         };
         container.normalize_child_percents();
         container.ensure_focus_stack();
@@ -3346,8 +3360,85 @@ impl<W: LayoutElement> ContainerTree<W> {
             return true;
         }
 
+        if !layout_matches {
+            let mut ancestor_path = node_parent_path.to_vec();
+            while !ancestor_path.is_empty() {
+                let ancestor_parent_path = &ancestor_path[..ancestor_path.len() - 1];
+                let ancestor_idx = *ancestor_path.last().unwrap();
+                let ancestor_parent_key = if ancestor_parent_path.is_empty() {
+                    self.root
+                } else {
+                    self.get_node_key_at_path(ancestor_parent_path)
+                };
+                let Some(ancestor_parent_key) = ancestor_parent_key else {
+                    break;
+                };
+                let Some(ancestor_parent_layout) =
+                    self.get_container(ancestor_parent_key).map(|c| c.layout())
+                else {
+                    break;
+                };
+
+                let ancestor_parallel = match (ancestor_parent_layout, direction) {
+                    (Layout::SplitH | Layout::Tabbed, Direction::Left | Direction::Right) => true,
+                    (Layout::SplitV | Layout::Stacked, Direction::Up | Direction::Down) => true,
+                    _ => false,
+                };
+                if !ancestor_parallel {
+                    ancestor_path.pop();
+                    continue;
+                }
+
+                let ancestor_child_count = self
+                    .get_container(ancestor_parent_key)
+                    .map(|container| container.child_count())
+                    .unwrap_or(0);
+                let target_idx = match direction {
+                    Direction::Left | Direction::Up => ancestor_idx.checked_sub(1),
+                    Direction::Right | Direction::Down => {
+                        (ancestor_idx + 1 < ancestor_child_count).then_some(ancestor_idx + 1)
+                    }
+                };
+                let Some(target_idx) = target_idx else {
+                    break;
+                };
+                let Some(target_key) = self
+                    .get_container(ancestor_parent_key)
+                    .and_then(|container| container.child_key(target_idx))
+                else {
+                    break;
+                };
+                if let Some(target_container) = self.get_container(target_key) {
+                    let moved = self.move_node_into_container(
+                        node_key,
+                        node_parent_path,
+                        node_idx,
+                        target_key,
+                        direction,
+                        target_container.focused_child_index().unwrap_or(0),
+                    );
+                    if moved
+                        && ancestor_parent_path.is_empty()
+                        && self.root == Some(target_key)
+                    {
+                        let _ = self.wrap_root_node_with_layout(ancestor_parent_layout, false);
+                    }
+                    if moved && preserve_selected_container {
+                        self.selected_key = Some(node_key);
+                    }
+                    return moved;
+                }
+
+                break;
+            }
+        }
+
         if node_parent_path.is_empty() {
-            return false;
+            let moved = self.move_root_node_orthogonally_into_adjacent(node_key, node_idx, direction);
+            if moved && preserve_selected_container {
+                self.selected_key = Some(node_key);
+            }
+            return moved;
         }
 
         let grandparent_path = &node_parent_path[..node_parent_path.len() - 1];
@@ -3545,14 +3636,6 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
 
         changed
-    }
-
-    fn layouts_parallel(a: Layout, b: Layout) -> bool {
-        matches!(
-            (a, b),
-            (Layout::SplitH | Layout::Tabbed, Layout::SplitH | Layout::Tabbed)
-                | (Layout::SplitV | Layout::Stacked, Layout::SplitV | Layout::Stacked)
-        )
     }
 
     fn layouts_squashable(parent: Layout, child: Layout) -> bool {
@@ -3839,6 +3922,15 @@ impl<W: LayoutElement> ContainerTree<W> {
                 .map(|container| container.child_count())
                 .unwrap_or(0);
 
+            if parent_layout == layout {
+                if matches!(parent_layout, Layout::SplitH | Layout::SplitV) {
+                    if let Some(container) = self.get_container_mut(parent_key) {
+                        container.set_layout_explicit(layout);
+                    }
+                }
+                return true;
+            }
+
             if parent_layout == layout && parent_child_count == 1 {
                 if matches!(parent_layout, Layout::SplitH | Layout::SplitV) {
                     // Match sway/i3: explicit split command on a single-child split container
@@ -4021,7 +4113,10 @@ impl<W: LayoutElement> ContainerTree<W> {
         let next = match current {
             Layout::SplitH => Layout::SplitV,
             Layout::SplitV => Layout::SplitH,
-            Layout::Tabbed | Layout::Stacked => Layout::SplitH,
+            Layout::Tabbed | Layout::Stacked => self
+                .get_container(target_key)
+                .and_then(|container| container.prev_split_layout())
+                .unwrap_or(Layout::SplitH),
         };
 
         if matches!(current, Layout::Tabbed | Layout::Stacked) {
@@ -4504,6 +4599,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     container.child_percents,
                     focus_stack,
                     container.preserve_on_single,
+                    container.prev_split_layout,
                 ))
             }
         }
@@ -4533,6 +4629,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                         .filter_map(|idx| node.children.get(*idx).copied())
                         .collect();
                     node.preserve_on_single = container.preserve_on_single;
+                    node.prev_split_layout = container.prev_split_layout;
                     if node.child_percents.len() != node.children.len() {
                         node.recalculate_percentages();
                     } else {
@@ -5614,11 +5711,14 @@ impl<W: LayoutElement> ContainerTree<W> {
                     .map(|parent| parent.layout())
             });
 
+            let single_child_key = container_children.first().copied();
             let can_replace_with_child = !container_preserve_on_single
-                && (parent_layout
-                    .map(|layout| Self::layouts_parallel(layout, container_layout))
-                    .unwrap_or(false)
-                    || parent_key.is_none());
+                && match parent_key {
+                    Some(_) => true,
+                    None => single_child_key.is_some_and(|child_key| {
+                        matches!(self.get_node(child_key), Some(NodeData::Leaf(_)))
+                    }),
+                };
 
             if child_count == 0 {
                 remove_container = true;
@@ -5792,6 +5892,33 @@ impl<W: LayoutElement> ContainerTree<W> {
             }
 
             key = parent_key;
+        }
+
+        loop {
+            let Some(root_key) = self.root else {
+                break;
+            };
+            let Some(root) = self.get_container(root_key) else {
+                break;
+            };
+            if root.child_count() != 1 || root.preserve_on_single() {
+                break;
+            }
+
+            let Some(child_key) = root.child_key(0) else {
+                break;
+            };
+            if self.selected_key == Some(root_key) {
+                self.selected_key = Some(child_key);
+            }
+            if self.focused_key == Some(root_key) {
+                self.focused_key = Some(child_key);
+            }
+
+            self.set_parent(child_key, None);
+            self.nodes.remove(root_key);
+            self.parents.remove(root_key);
+            self.root = Some(child_key);
         }
     }
 
@@ -6032,6 +6159,121 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.cleanup_containers(Some(node_parent_key));
 
         self.focus_node_key(node_key);
+
+        true
+    }
+
+    fn wrap_child_in_container(
+        &mut self,
+        parent_key: NodeKey,
+        child_idx: usize,
+        layout: Layout,
+    ) -> Option<NodeKey> {
+        let child_key = self.get_container(parent_key)?.child_key(child_idx)?;
+        if matches!(self.get_node(child_key), Some(NodeData::Container(_))) {
+            return Some(child_key);
+        }
+
+        if let Some(parent) = self.get_container_mut(parent_key) {
+            let _ = parent.remove_child(child_idx);
+        } else {
+            return None;
+        }
+        self.set_parent(child_key, None);
+
+        let mut wrapper = ContainerData::new(layout);
+        wrapper.add_child(child_key);
+        let wrapper_key = self.insert_node(NodeData::Container(wrapper));
+        self.set_parent(child_key, Some(wrapper_key));
+
+        if let Some(parent) = self.get_container_mut(parent_key) {
+            parent.insert_child(child_idx, wrapper_key);
+        } else {
+            return None;
+        }
+        self.set_parent(wrapper_key, Some(parent_key));
+
+        Some(wrapper_key)
+    }
+
+    fn move_root_node_orthogonally_into_adjacent(
+        &mut self,
+        node_key: NodeKey,
+        node_idx: usize,
+        direction: Direction,
+    ) -> bool {
+        let Some(root_key) = self.root else {
+            return false;
+        };
+
+        let child_count = self
+            .get_container(root_key)
+            .map(|container| container.child_count())
+            .unwrap_or(0);
+        if child_count <= 1 {
+            return false;
+        }
+
+        let target_idx = match direction {
+            Direction::Left | Direction::Up => node_idx.checked_sub(1),
+            Direction::Right | Direction::Down => (node_idx + 1 < child_count).then_some(node_idx + 1),
+        };
+        let Some(target_idx) = target_idx else {
+            return false;
+        };
+
+        let wrapped_target = !matches!(
+            self.get_container(root_key)
+                .and_then(|container| container.child_key(target_idx))
+                .and_then(|key| self.get_node(key)),
+            Some(NodeData::Container(_))
+        );
+        let desired_layout = if direction.is_horizontal() {
+            Layout::SplitH
+        } else {
+            Layout::SplitV
+        };
+        let Some(target_key) = self.wrap_child_in_container(root_key, target_idx, desired_layout) else {
+            return false;
+        };
+        let target_focus_idx = self
+            .get_container(target_key)
+            .and_then(|container| container.focused_child_index())
+            .unwrap_or(0);
+
+        let moved =
+            self.move_node_into_container(node_key, &[], node_idx, target_key, direction, target_focus_idx);
+        if moved && wrapped_target {
+            let _ = self.promote_single_root_child();
+        }
+        moved
+    }
+
+    fn promote_single_root_child(&mut self) -> bool {
+        let Some(root_key) = self.root else {
+            return false;
+        };
+        let Some(root) = self.get_container(root_key) else {
+            return false;
+        };
+        if root.child_count() != 1 {
+            return false;
+        }
+        let Some(child_key) = root.children().first().copied() else {
+            return false;
+        };
+
+        self.set_parent(child_key, None);
+        self.root = Some(child_key);
+        self.nodes.remove(root_key);
+        self.parents.remove(root_key);
+
+        if self.selected_key == Some(root_key) {
+            self.selected_key = Some(child_key);
+        }
+        if self.focused_key == Some(root_key) {
+            self.focused_key = self.leaf_under_key(child_key).or(Some(child_key));
+        }
 
         true
     }

@@ -550,6 +550,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                     vec![1.0],
                     vec![0],
                     true,
+                    Some(self.workspace_layout),
                 )),
                 subtree => subtree,
             }

@@ -899,8 +899,7 @@ impl<W: LayoutElement> Workspace<W> {
 
                 let keep_floating_focus = floating_active
                     && !wants_floating
-                    && (!self.scrolling.is_empty()
-                        || workspace_command_context
+                    && (workspace_command_context
                         || matches!(handler_context, HandlerContext::FloatingContainer));
                 // Match sway: when a floating container is selected (focus-parent context),
                 // opening a new floating window inserts into that container without stealing
@@ -1259,6 +1258,17 @@ impl<W: LayoutElement> Workspace<W> {
             self.floating_workspace_context = false;
         }
         focused
+    }
+
+    pub(super) fn tiling_reference_targets_window(
+        &self,
+        reference: &super::container::InactiveTilingReference,
+        strict: bool,
+        id: &W::Id,
+    ) -> bool {
+        self.scrolling
+            .window_for_inactive_tiling_reference(reference, strict)
+            .is_some_and(|window| window.id() == id)
     }
 
     pub(super) fn scrolling_replace_tile_at_path(

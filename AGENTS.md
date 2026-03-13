@@ -1,7 +1,7 @@
 # Repository Guidelines
 
-Es necesaria la paridad en funcionamiento con i3/sway, para conseguirlo hay que evitar heurísticas y hacer una estructura basada en un modelo de sway (con las diferencias evidentes de la implemetnación)
-También hay que evitar todo lo posible dar palos de ciego.
+Es necesaria la paridad en funcionamiento con i3/sway
+Hay que evitar todo lo posible dar palos de ciego.
 ## Project Structure & Module Organization
 - `src/`: compositor + layout core (tiling, input, rendering). Layout logic lives under `src/layout/`.
 - `tiri-config/`, `tiri-ipc/`: config parsing and IPC crates used by the compositor.

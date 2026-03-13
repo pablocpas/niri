@@ -1808,11 +1808,109 @@ impl<W: LayoutElement> FloatingSpace<W> {
         false
     }
 
+    fn focus_in_stack_order(&mut self, delta: isize) -> bool {
+        if self.containers.len() <= 1 {
+            return false;
+        }
+
+        let Some(idx) = self.active_container_idx() else {
+            return false;
+        };
+        let len = self.containers.len() as isize;
+        let target_idx = (idx as isize + delta).rem_euclid(len) as usize;
+        if target_idx == idx {
+            return false;
+        }
+
+        let Some(id) = self.containers[target_idx]
+            .tree
+            .focused_window()
+            .map(|win| win.id().clone())
+            .or_else(|| {
+                self.containers[target_idx]
+                    .tree
+                    .all_windows()
+                    .into_iter()
+                    .next()
+                    .map(|win| win.id().clone())
+            })
+        else {
+            return false;
+        };
+
+        self.activate_window(&id);
+        true
+    }
+
+    fn focus_in_stable_container_order(&mut self, descending: bool) -> bool {
+        if self.containers.len() <= 1 {
+            return false;
+        }
+
+        let Some(active_idx) = self.active_container_idx() else {
+            return false;
+        };
+
+        let mut ordered: Vec<_> = self
+            .containers
+            .iter()
+            .enumerate()
+            .map(|(idx, container)| (idx, container.id))
+            .collect();
+        ordered.sort_by_key(|(_, id)| *id);
+        if descending {
+            ordered.reverse();
+        }
+
+        let Some(pos) = ordered.iter().position(|(idx, _)| *idx == active_idx) else {
+            return false;
+        };
+        let target_idx = ordered[(pos + 1) % ordered.len()].0;
+        if target_idx == active_idx {
+            return false;
+        }
+
+        let Some(id) = self.containers[target_idx]
+            .tree
+            .focused_window()
+            .map(|win| win.id().clone())
+            .or_else(|| {
+                self.containers[target_idx]
+                    .tree
+                    .all_windows()
+                    .into_iter()
+                    .next()
+                    .map(|win| win.id().clone())
+            })
+        else {
+            return false;
+        };
+
+        self.activate_window(&id);
+        true
+    }
+
+    fn should_cycle_top_level_stable_order(&self) -> bool {
+        self.containers.len() > 1
+            && self
+                .active_container_idx()
+                .is_some_and(|idx| self.has_implicit_single_leaf_root(idx))
+            && self
+                .containers
+                .iter()
+                .enumerate()
+                .all(|(idx, _)| self.has_implicit_single_leaf_root(idx))
+    }
+
     pub fn focus_left(&mut self) -> bool {
         if self.focus_within_active_container(Direction::Left, true) {
             return true;
         }
-        self.focus_directional(|focus, other| focus.x - other.x)
+        if self.should_cycle_top_level_stable_order() {
+            return self.focus_in_stable_container_order(true);
+        }
+        self.focus_in_stack_order(1)
+            || self.focus_directional(|focus, other| focus.x - other.x)
     }
 
     pub fn focus_left_no_wrap(&mut self) -> bool {
@@ -1837,7 +1935,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
         if self.focus_within_active_container(Direction::Right, true) {
             return true;
         }
-        self.focus_directional(|focus, other| other.x - focus.x)
+        if self.should_cycle_top_level_stable_order() {
+            return self.focus_in_stable_container_order(false);
+        }
+        self.focus_in_stack_order(-1)
+            || self.focus_directional(|focus, other| other.x - focus.x)
     }
 
     pub fn focus_right_no_wrap(&mut self) -> bool {
@@ -1921,6 +2023,24 @@ impl<W: LayoutElement> FloatingSpace<W> {
         };
         let container = &mut self.containers[idx];
         if container.wrapper_selected {
+            let root_child_count = container
+                .tree
+                .container_info(&[])
+                .map(|(_, _, count)| count)
+                .unwrap_or(0);
+            let root_meaningful = container
+                .tree
+                .container_is_meaningful_parent(&[])
+                .unwrap_or(false);
+            let preserve_on_single = container
+                .tree
+                .root_container()
+                .is_some_and(|container| container.preserve_on_single())
+                && !container.workspace_floated;
+            if !root_meaningful || (root_child_count <= 1 && !preserve_on_single) {
+                container.wrapper_selected = false;
+                container.tree.clear_selection();
+            }
             return false;
         }
 
@@ -1951,6 +2071,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 let preserve_on_single = if root_selected {
                     tree.root_container()
                         .is_some_and(|container| container.preserve_on_single())
+                        && !container.workspace_floated
                 } else {
                     false
                 };
