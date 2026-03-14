@@ -728,12 +728,6 @@ impl<W: LayoutElement> Workspace<W> {
                 return self.windows().map(|window| window.id().clone()).collect();
             }
             HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
-                // Sway kill semantics: when floating wrapper selection is active,
-                // command targets the workspace container and closes every window in it.
-                if self.floating.active_wrapper_selected() {
-                    return self.windows().map(|window| window.id().clone()).collect();
-                }
-
                 let ids = self.floating.close_window_ids_for_active_selection();
                 if !ids.is_empty() {
                     return ids;
@@ -885,7 +879,8 @@ impl<W: LayoutElement> Workspace<W> {
                 // Match sway: only a focused floating window inside an explicitly
                 // split/grouped floating container auto-groups the next normal
                 // window into floating. Floating container/workspace contexts do not.
-                let grouped_floating = floating_active
+                let grouped_floating = !is_floating
+                    && floating_active
                     && !self.floating.active_container_is_workspace_floated()
                     && self.floating.active_container_allows_splits()
                     && (matches!(handler_context, HandlerContext::FloatingWindow)
@@ -926,7 +921,7 @@ impl<W: LayoutElement> Workspace<W> {
                     && tile.window().pending_sizing_mode().is_normal()
                     && !tile.pending_maximized
                 {
-                    if floating_active && self.floating.active_container_allows_splits() {
+                    if grouped_floating {
                         self.floating.add_tile_to_active_container(tile, activate);
                     } else {
                         self.floating.add_tile(tile, activate);

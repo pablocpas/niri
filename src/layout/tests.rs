@@ -7312,6 +7312,169 @@ fn interactive_move_toggle_floating_ends_dnd_gesture() {
 }
 
 #[test]
+fn interactive_move_floating_window_stays_out_of_active_grouped_floating_container() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(1),
+        Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::FocusWindow(2),
+        Op::ToggleWindowFloating { id: None },
+    ]);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        let window2_tree = workspace
+            .floating()
+            .debug_tree_for_window(&2)
+            .expect("window 2 floating tree");
+        assert_eq!(workspace.tiling().tiles().count(), 0);
+        assert_eq!(workspace.floating().tiles().count(), 4);
+        assert_eq!(
+            workspace.floating().root_layout_for_window(&1),
+            Some(ContainerLayout::SplitV)
+        );
+        assert_eq!(
+            window2_tree.matches("Window ").count(),
+            1,
+            "precondition: window 2 should start in its own floating container:\n{window2_tree}",
+        );
+    }
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::InteractiveMoveBegin {
+                window: 2,
+                output_idx: 1,
+                px: 0.,
+                py: 0.,
+            },
+            Op::InteractiveMoveUpdate {
+                window: 2,
+                dx: 1.,
+                dy: 0.,
+                output_idx: 1,
+                px: 1.,
+                py: 0.,
+            },
+            Op::InteractiveMoveEnd { window: 2 },
+        ],
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let window2_tree = workspace
+        .floating()
+        .debug_tree_for_window(&2)
+        .expect("window 2 floating tree");
+    assert_eq!(workspace.tiling().tiles().count(), 0);
+    assert_eq!(workspace.floating().tiles().count(), 4);
+    assert_eq!(
+        workspace.floating().root_layout_for_window(&1),
+        Some(ContainerLayout::SplitV)
+    );
+    assert_eq!(
+        window2_tree.matches("Window ").count(),
+        1,
+        "interactive move should keep window 2 in its own floating container:\n{window2_tree}",
+    );
+}
+
+#[test]
+fn interactive_move_floating_window_stays_out_of_toggled_floating_subtree() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::SplitHorizontal,
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::FocusParent,
+        Op::ToggleWindowFloating { id: None },
+        Op::FocusWindow(1),
+        Op::ToggleWindowFloating { id: None },
+    ]);
+
+    {
+        let workspace = layout.active_workspace().expect("active workspace");
+        let window1_tree = workspace
+            .floating()
+            .debug_tree_for_window(&1)
+            .expect("window 1 floating tree");
+        assert_eq!(workspace.tiling().tiles().count(), 1);
+        assert_eq!(workspace.floating().tiles().count(), 3);
+        assert_eq!(
+            window1_tree.matches("Window ").count(),
+            1,
+            "precondition: window 1 should start in its own floating container:\n{window1_tree}",
+        );
+        let window4_tree = workspace
+            .floating()
+            .debug_tree_for_window(&4)
+            .expect("window 4 floating tree");
+        assert!(
+            window4_tree.matches("Window ").count() >= 2,
+            "precondition: window 4 should belong to a grouped floating subtree:\n{window4_tree}",
+        );
+    }
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::InteractiveMoveBegin {
+                window: 1,
+                output_idx: 1,
+                px: 0.,
+                py: 0.,
+            },
+            Op::InteractiveMoveUpdate {
+                window: 1,
+                dx: 1.,
+                dy: 0.,
+                output_idx: 1,
+                px: 1.,
+                py: 0.,
+            },
+            Op::InteractiveMoveEnd { window: 1 },
+        ],
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let window1_tree = workspace
+        .floating()
+        .debug_tree_for_window(&1)
+        .expect("window 1 floating tree");
+    assert_eq!(workspace.tiling().tiles().count(), 1);
+    assert_eq!(workspace.floating().tiles().count(), 3);
+    assert_eq!(
+        window1_tree.matches("Window ").count(),
+        1,
+        "interactive move should keep window 1 in its own floating container:\n{window1_tree}",
+    );
+}
+
+#[test]
 fn interactive_move_from_workspace_with_layout_config() {
     let ops = [
         Op::AddNamedWorkspace {
@@ -10546,6 +10709,49 @@ fn i3_129_kill_workspace_closes_tiling_and_floating_windows() {
     assert_eq!(workspace.windows().count(), 0);
     assert_eq!(workspace.tiling().tiles().count(), 0);
     assert_eq!(workspace.floating().tiles().count(), 0);
+}
+
+#[test]
+fn kill_selected_floating_container_does_not_close_other_windows() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(2),
+        Op::ToggleWindowFloating { id: None },
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::FocusWindow(3),
+        Op::ToggleWindowFloating { id: None },
+        Op::FocusWindow(2),
+        Op::FocusParent,
+    ]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert!(workspace.floating_is_active());
+    assert_eq!(workspace.tiling().tiles().count(), 1);
+    assert_eq!(workspace.floating().tiles().count(), 3);
+    assert!(
+        workspace.debug_handler_context() == "floating_container",
+        "precondition: expected floating container selection",
+    );
+
+    let mut selected_ids = layout.close_window_ids_for_active_selection();
+    selected_ids.sort_unstable();
+    assert_eq!(
+        selected_ids,
+        vec![2, 4],
+        "killing a selected floating container should not close other floating or tiling windows",
+    );
 }
 
 #[test]
