@@ -3922,28 +3922,11 @@ impl<W: LayoutElement> ContainerTree<W> {
                 .map(|container| container.child_count())
                 .unwrap_or(0);
 
-            if parent_layout == layout {
-                if matches!(parent_layout, Layout::SplitH | Layout::SplitV) {
-                    if let Some(container) = self.get_container_mut(parent_key) {
-                        container.set_layout_explicit(layout);
-                    }
-                }
-                return true;
-            }
-
-            if parent_layout == layout && parent_child_count == 1 {
-                if matches!(parent_layout, Layout::SplitH | Layout::SplitV) {
-                    // Match sway/i3: explicit split command on a single-child split container
-                    // must keep the container for future sibling inserts.
-                    if let Some(container) = self.get_container_mut(parent_key) {
-                        container.set_layout_explicit(layout);
-                    }
-                }
-                return true;
-            }
-
             if parent_child_count == 1 && matches!(parent_layout, Layout::SplitH | Layout::SplitV) {
                 if let Some(container) = self.get_container_mut(parent_key) {
+                    // Match sway/i3: explicit split command on a single-child split container
+                    // keeps that container around for future sibling inserts, even if the
+                    // requested split orientation matches the current one.
                     container.set_layout_explicit(layout);
                 }
                 return true;
@@ -5908,6 +5891,12 @@ impl<W: LayoutElement> ContainerTree<W> {
             let Some(child_key) = root.child_key(0) else {
                 break;
             };
+            if self
+                .get_container(child_key)
+                .is_some_and(|child| child.child_count() > 1)
+            {
+                break;
+            }
             if self.selected_key == Some(root_key) {
                 self.selected_key = Some(child_key);
             }

@@ -1073,8 +1073,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         for info in render_layouts.iter().rev() {
             // Use O(1) key lookup instead of O(depth) path lookup.
             if let Some(tile) = self.tree.get_tile(info.key) {
-                let is_fullscreen_tile =
-                    fullscreen_id.is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
                 let is_windowed_fullscreen_tile = windowed_fullscreen_id
                     .as_ref()
                     .is_some_and(|id| id == tile.window().id());
@@ -1514,7 +1513,12 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn resize_hit_under(&mut self, pos: Point<f64, Logical>) -> Option<ResizeHit<W::Id>> {
-        if self.fullscreen_window.is_some() {
+        let has_fullscreen_like = self.fullscreen_window.is_some()
+            || self
+                .tree
+                .focused_tile()
+                .is_some_and(|tile| tile.window().is_pending_windowed_fullscreen());
+        if has_fullscreen_like {
             return None;
         }
 
@@ -1965,8 +1969,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     fn split_workspace(&mut self, layout: Layout) {
         if self.tree.is_empty() {
-            self.update_workspace_layout_state(layout);
-            self.tree.set_pending_layout(layout);
+            self.set_workspace_layout_hint(layout);
             return;
         }
 
@@ -2254,8 +2257,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         for info in self.display_layouts() {
             if let Some(tile) = self.tree.get_tile(info.key) {
-                let is_fullscreen_tile =
-                    fullscreen_id.is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
                 let is_windowed_fullscreen_tile = windowed_fullscreen_id
                     .as_ref()
                     .is_some_and(|id| id == tile.window().id());
@@ -2568,6 +2570,16 @@ impl<W: LayoutElement> TilingSpace<W> {
     pub fn window_under(&self, pos: Point<f64, Logical>) -> Option<(&W, super::HitType)> {
         let scale = Scale::from(self.scale);
         let fullscreen_id = self.fullscreen_window.as_ref();
+        let windowed_fullscreen_id = if fullscreen_id.is_none() {
+            self.tree.focused_tile().and_then(|tile| {
+                tile.window()
+                    .is_pending_windowed_fullscreen()
+                    .then(|| tile.window().id().clone())
+            })
+        } else {
+            None
+        };
+        let has_fullscreen_like = fullscreen_id.is_some() || windowed_fullscreen_id.is_some();
 
         if let Some(hit) = self.tab_bar_hit(pos) {
             return Some(hit);
@@ -2578,15 +2590,19 @@ impl<W: LayoutElement> TilingSpace<W> {
             // Use O(1) key lookup instead of O(depth) path lookup.
             if let Some(tile) = self.tree.get_tile(info.key) {
                 let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
-                if fullscreen_id.is_some() && !is_fullscreen_tile {
+                let is_windowed_fullscreen_tile = windowed_fullscreen_id
+                    .as_ref()
+                    .is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_like_tile = is_fullscreen_tile || is_windowed_fullscreen_tile;
+                if has_fullscreen_like && !is_fullscreen_like_tile {
                     continue;
                 }
-                if !info.visible && !is_fullscreen_tile {
+                if !info.visible && !is_fullscreen_like_tile {
                     continue;
                 }
 
-                // For fullscreen tiles, use (0,0) as base position since they cover the entire screen
-                let base_pos = if is_fullscreen_tile {
+                // Fullscreen-like tiles are rendered relative to the workspace origin.
+                let base_pos = if is_fullscreen_like_tile {
                     Point::from((0.0, 0.0))
                 } else {
                     info.rect.loc
@@ -3640,13 +3656,15 @@ impl<W: LayoutElement> TilingSpace<W> {
         let is_fullscreen_like_tile = is_fullscreen_tile || is_windowed_fullscreen_tile;
         let has_fullscreen_like = fullscreen_id.is_some() || windowed_fullscreen_id.is_some();
 
-        let target_size: Size<f64, Logical> = if is_fullscreen_like_tile {
-            view_size
-        } else {
-            Size::from((info.rect.size.w, info.rect.size.h))
-        };
         if request_size {
-            tile.request_tile_size(target_size, false, None);
+            if is_fullscreen_tile {
+                tile.request_fullscreen(false, None);
+            } else if is_windowed_fullscreen_tile {
+                tile.request_windowed_fullscreen(false, None);
+            } else {
+                let target_size = Size::from((info.rect.size.w, info.rect.size.h));
+                tile.request_tile_size(target_size, false, None);
+            }
         }
 
         let window = tile.window_mut();

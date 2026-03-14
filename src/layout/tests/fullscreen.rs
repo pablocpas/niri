@@ -400,12 +400,11 @@ fn interactive_move_restore_to_floating_animates_view_offset() {
 
     let mut layout = check_ops(ops);
 
-    // Verify window 1 is in scrolling and has restore_to_floating = true.
-    let tiling = layout.active_workspace().unwrap().tiling();
-    let tile1 = tiling.tiles().find(|t| *t.window().id() == 1).unwrap();
+    // Verify window 1 is fullscreen in floating.
+    let workspace = layout.active_workspace().unwrap();
     assert!(
-        tile1.restore_to_floating,
-        "window 1 should have restore_to_floating = true"
+        workspace.floating().is_fullscreen(&1),
+        "window 1 should be fullscreen in floating"
     );
 
     let ops = [
