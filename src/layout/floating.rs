@@ -2573,25 +2573,33 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let selection_is_container = self
             .active_container_idx()
             .is_some_and(|idx| self.selected_is_container_in(idx));
-        for (tile, tile_pos) in self.tiles_with_render_positions() {
-            // Skip tiles entirely outside the viewport (culling)
-            let tile_rect = Rectangle::new(tile_pos, tile.tile_size());
-            if !tile_rect.overlaps(view_rect) {
-                continue;
+
+        // Like tiling, push container selection before the regular window
+        // contents so it stays visually on top after the global reverse-order
+        // composition pass in the renderer.
+        if (focus_ring || self.is_active) && selection_is_container {
+            if let Some(idx) = self.active_container_idx() {
+                let path = self.selected_path_in(idx);
+                if let Some((_, local_rect, _)) = self.containers[idx].tree.container_info(&path) {
+                    let rect = Rectangle::new(
+                        self.containers[idx].data.logical_pos + local_rect.loc,
+                        local_rect.size,
+                    );
+                    render_container_selection(
+                        renderer,
+                        rect,
+                        view_rect,
+                        self.scale,
+                        self.is_active,
+                        self.options.layout.focus_ring,
+                        self.options.layout.border,
+                        ContainerSelectionStyle::Floating,
+                        &mut |elem| {
+                            elements.push(FloatingSpaceRenderElement::ContainerSelection(elem))
+                        },
+                    );
+                }
             }
-
-            let is_focused =
-                self.is_active && Some(tile.window().id()) == active.as_ref() && !selection_is_container;
-            let draw_focus = focus_ring && is_focused;
-
-            tile.render(
-                renderer,
-                tile_pos,
-                draw_focus,
-                is_focused,
-                target,
-                &mut |elem| elements.push(elem.into()),
-            );
         }
 
         if !self.options.layout.tab_bar.off {
@@ -2676,31 +2684,25 @@ impl<W: LayoutElement> FloatingSpace<W> {
             self.tab_bar_cache.borrow_mut().clear();
         }
 
-        if (focus_ring || self.is_active) && selection_is_container {
-            if let Some(idx) = self.active_container_idx() {
-                let path = self.selected_path_in(idx);
-                if let Some((_, local_rect, _)) =
-                    self.containers[idx].tree.container_info(&path)
-                {
-                    let rect = Rectangle::new(
-                        self.containers[idx].data.logical_pos + local_rect.loc,
-                        local_rect.size,
-                    );
-                    render_container_selection(
-                        renderer,
-                        rect,
-                        view_rect,
-                        self.scale,
-                        self.is_active,
-                        self.options.layout.focus_ring,
-                        self.options.layout.border,
-                        ContainerSelectionStyle::Floating,
-                        &mut |elem| {
-                            elements.push(FloatingSpaceRenderElement::ContainerSelection(elem))
-                        },
-                    );
-                }
+        for (tile, tile_pos) in self.tiles_with_render_positions() {
+            // Skip tiles entirely outside the viewport (culling)
+            let tile_rect = Rectangle::new(tile_pos, tile.tile_size());
+            if !tile_rect.overlaps(view_rect) {
+                continue;
             }
+
+            let is_focused =
+                self.is_active && Some(tile.window().id()) == active.as_ref() && !selection_is_container;
+            let draw_focus = focus_ring && is_focused;
+
+            tile.render(
+                renderer,
+                tile_pos,
+                draw_focus,
+                is_focused,
+                target,
+                &mut |elem| elements.push(elem.into()),
+            );
         }
 
         elements

@@ -196,6 +196,7 @@ layout {
         padding-x 6
         padding-y 2
         separator-width 1
+        border-width 1
         font "sans 10px"
 
         active-bg "#7fc8ff"
@@ -204,7 +205,10 @@ layout {
         active-fg "#ffffff"
         inactive-fg "#888888"
         urgent-fg "#ffffff"
-        separator-color "#505050"
+        separator-color "#3c3c3c"
+        active-border "#2e9ef4"
+        inactive-border "#3c3c3c"
+        urgent-border "#7a0000"
     }
 
     // i3/sway-style preset (optional).
