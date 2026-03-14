@@ -6336,9 +6336,9 @@ impl<W: LayoutElement> ContainerTree<W> {
 impl ContainerTree<Mapped> {
     pub fn layout_tree(&self) -> Option<LayoutTreeNode> {
         let root_key = self.root?;
-        // Match sway IPC semantics: reported focus in the tree stays on the focused leaf,
-        // even when a container is selected via focus-parent command context.
-        let focused_key = self.focused_key.or_else(|| self.first_leaf_key());
+        // Expose focus-parent container selection through the observable layout tree while
+        // keeping actual seat/Wayland focus on the focused leaf elsewhere.
+        let focused_key = self.selected_node_key().or_else(|| self.first_leaf_key());
         Some(self.build_layout_tree_node(root_key, focused_key))
     }
 

@@ -1011,7 +1011,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         &self,
         renderer: &mut R,
         target: RenderTarget,
-        scrolling_focus_ring: bool,
+        tiling_focus_ring: bool,
     ) -> Vec<TilingSpaceRenderElement<R>> {
         // Pre-allocate: ~4 elements per tile + closing windows + tab bars
         let tile_count = self.tree.window_count();
@@ -1041,7 +1041,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         // Render container selection before regular tiling elements so it ends up
         // visually on top after the global reverse-order composition pass.
-        if selection_is_container && (scrolling_focus_ring || self.is_active) {
+        if selection_is_container && (tiling_focus_ring || self.is_active) {
             if let Some(rect) = self.selected_geometry() {
                 let mut selection_border = self.options.layout.border;
                 if let Some(focus_info) = self
@@ -1096,7 +1096,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                 }
 
                 let is_focused = self.is_active && info.path == focus_path && !selection_is_container;
-                let draw_focus = scrolling_focus_ring && is_focused;
+                let draw_focus = tiling_focus_ring && is_focused;
                 let target_elements = if info.path == focus_path {
                     &mut active_elements
                 } else {
@@ -1188,10 +1188,10 @@ impl<W: LayoutElement> TilingSpace<W> {
         &self,
         renderer: &mut R,
         target: RenderTarget,
-        scrolling_focus_ring: bool,
+        tiling_focus_ring: bool,
         push: &mut dyn FnMut(TilingSpaceRenderElement<R>),
     ) {
-        for elem in self.render_elements(renderer, target, scrolling_focus_ring) {
+        for elem in self.render_elements(renderer, target, tiling_focus_ring) {
             push(elem);
         }
     }
@@ -2696,7 +2696,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                 layout.tile_pos_in_workspace_view = Some((pos.x, pos.y));
                 let window_offset = tile.window_loc();
                 layout.window_offset_in_tile = (window_offset.x, window_offset.y);
-                layout.pos_in_scrolling_layout = Some((idx + 1, 1));
+                layout.pos_in_tiling_layout = Some((idx + 1, 1));
                 Some((tile, layout))
             })
     }
@@ -3577,7 +3577,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         for info in self.display_layouts() {
             if let Some(tile) = self.tree.get_tile(info.key) {
                 if tile.window().id() == window {
-                    // Similar to scrolling layout: constrain horizontally to window,
+                    // Similar to tiling layout: constrain horizontally to window,
                     // vertically to the working area
                     let width = tile.window_size().w;
                     let height = self.working_area.size.h;

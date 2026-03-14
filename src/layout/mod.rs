@@ -104,7 +104,7 @@ const RESIZE_EDGE_THRESHOLD: f64 = 10.;
 /// Pointer needs to move this far to pull a window from the layout.
 const INTERACTIVE_MOVE_START_THRESHOLD: f64 = 256. * 256.;
 
-/// Opacity of interactively moved tiles targeting the scrolling layout.
+/// Opacity of interactively moved tiles targeting the tiling layout.
 const INTERACTIVE_MOVE_ALPHA: f64 = 0.75;
 
 /// Amount of touchpad movement to toggle the overview.
@@ -449,7 +449,7 @@ struct InteractiveMoveData<W: LayoutElement> {
     /// config overrides for the workspace where the move originated from. As soon as the window
     /// moves over some different workspace though, this override will reset.
     pub(self) workspace_config: Option<(WorkspaceId, tiri_config::LayoutPart)>,
-    /// Original insert location for swaps within the scrolling layout.
+    /// Original insert location for swaps within the tiling layout.
     pub(self) swap_origin: Option<InsertParentInfo>,
     /// Workspace where the move originated.
     pub(self) origin_workspace: WorkspaceId,
@@ -998,7 +998,7 @@ impl<W: LayoutElement> Layout<W> {
         is_floating: bool,
         activate: ActivateWindow,
     ) -> Option<&Output> {
-        let scrolling_height = height.map(SizeChange::from);
+        let tiling_height = height.map(SizeChange::from);
         let id = window.id().clone();
 
         match &mut self.monitor_set {
@@ -1067,13 +1067,13 @@ impl<W: LayoutElement> Layout<W> {
 
                 let (ws_idx, _) = mon.resolve_add_window_target(target);
                 let ws = &mon.workspaces[ws_idx];
-                let scrolling_width = ws.resolve_scrolling_width(&window, width);
+                let tiling_width = ws.resolve_tiling_width(&window, width);
 
                 mon.add_window(
                     window,
                     target,
                     activate,
-                    scrolling_width,
+                    tiling_width,
                     is_full_width,
                     is_floating,
                 );
@@ -1082,9 +1082,9 @@ impl<W: LayoutElement> Layout<W> {
                     *active_monitor_idx = mon_idx;
                 }
 
-                // Set the default height for scrolling windows.
+                // Set the default height for tiling windows.
                 if !is_floating {
-                    if let Some(change) = scrolling_height {
+                    if let Some(change) = tiling_height {
                         let ws = mon
                             .workspaces
                             .iter_mut()
@@ -1148,21 +1148,21 @@ impl<W: LayoutElement> Layout<W> {
                 };
                 let ws = &mut workspaces[ws_idx];
 
-                let scrolling_width = ws.resolve_scrolling_width(&window, width);
+                let tiling_width = ws.resolve_tiling_width(&window, width);
 
                 let tile = ws.make_tile(window);
                 ws.add_tile(
                     tile,
                     target,
                     activate,
-                    scrolling_width,
+                    tiling_width,
                     is_full_width,
                     is_floating,
                 );
 
-                // Set the default height for scrolling windows.
+                // Set the default height for tiling windows.
                 if !is_floating {
-                    if let Some(change) = scrolling_height {
+                    if let Some(change) = tiling_height {
                         ws.set_window_height(Some(&id), change);
                     }
                 }
@@ -1694,7 +1694,7 @@ impl<W: LayoutElement> Layout<W> {
     pub fn popup_target_rect(&self, window: &W::Id) -> Rectangle<f64, Logical> {
         if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
             if move_.tile.window().id() == window {
-                // Follow the scrolling layout logic and fit the popup horizontally within the
+                // Follow the tiling layout logic and fit the popup horizontally within the
                 // window geometry.
                 let width = move_.tile.window_size().w;
                 let height = output_size(&move_.output).h;
@@ -3542,12 +3542,12 @@ impl<W: LayoutElement> Layout<W> {
                             assert_ne!(
                                 alpha.anim.to(),
                                 1.,
-                                "interactively moved scrolling tile must animate alpha to not 1"
+                                "interactively moved tiling tile must animate alpha to not 1"
                             );
 
                             assert!(
                                 alpha.hold_after_done,
-                                "interactively moved scrolling tile \
+                                "interactively moved tiling tile \
                                  must have held alpha animation"
                             );
                         }
@@ -3678,14 +3678,14 @@ impl<W: LayoutElement> Layout<W> {
                 if self.dnd.is_some() || self.interactive_move.is_some() {
                     // We'd like to check that all workspaces have the gesture here, furthermore we
                     // want to check that they have the gesture only if the interactive move
-                    // targets the scrolling layout. However, we cannot do that because we start
+                    // targets the tiling layout. However, we cannot do that because we start
                     // and stop the gesture lazily. Otherwise the gesture code would pollute a lot
                     // of places like adding new workspaces, implicitly moving windows between
                     // floating and tiling on fullscreen, etc.
                     //
                     // assert!(
                     //     has_view_offset_gesture,
-                    //     "during an interactive move in the scrolling layout, \
+                    //     "during an interactive move in the tiling layout, \
                     //      all workspaces should be in a view offset gesture"
                     // );
                 } else if saw_view_offset_gesture {
@@ -3975,7 +3975,7 @@ impl<W: LayoutElement> Layout<W> {
                     let position = if move_.is_floating {
                         InsertPosition::Floating
                     } else {
-                        ws.scrolling_insert_position(pos_within_workspace)
+                        ws.tiling_insert_position(pos_within_workspace)
                     };
 
                     let rules = move_.tile.window().rules();
@@ -5705,7 +5705,7 @@ impl<W: LayoutElement> Layout<W> {
                     let swap_origin = if is_floating {
                         None
                     } else {
-                        ws.scrolling_insert_parent_info(&window_id)
+                        ws.tiling_insert_parent_info(&window_id)
                     };
                     (origin_workspace, swap_origin)
                 };
@@ -6014,7 +6014,7 @@ impl<W: LayoutElement> Layout<W> {
                                     let pos_within_workspace =
                                         (move_.pointer_pos_within_output - geo.loc).downscale(zoom);
                                     let ws = &mut mon.workspaces[ws_idx];
-                                    ws.scrolling_insert_position(pos_within_workspace)
+                                    ws.tiling_insert_position(pos_within_workspace)
                                 };
 
                                 (position, Some(geo.loc))
@@ -6041,7 +6041,7 @@ impl<W: LayoutElement> Layout<W> {
                         let position = if move_.is_floating {
                             InsertPosition::Floating
                         } else {
-                            ws.scrolling_insert_position(Point::from((0., 0.)))
+                            ws.tiling_insert_position(Point::from((0., 0.)))
                         };
 
                         let insert_ws = InsertWorkspace::Existing(ws.id());
@@ -6117,15 +6117,15 @@ impl<W: LayoutElement> Layout<W> {
                         let same_workspace = move_.origin_workspace == ws_id;
                         let can_swap = same_workspace
                             && move_.swap_origin.is_some()
-                            && mon.workspaces[ws_idx].scrolling_is_leaf_at_path(&path);
+                            && mon.workspaces[ws_idx].tiling_is_leaf_at_path(&path);
 
                         if can_swap {
                             let origin = move_.swap_origin.clone().unwrap();
                             let target = mon.workspaces[ws_idx]
-                                .scrolling_replace_tile_at_path(&path, move_.tile)
+                                .tiling_replace_tile_at_path(&path, move_.tile)
                                 .expect("swap target missing");
                             let _ = mon.workspaces[ws_idx]
-                                .scrolling_insert_tile_with_parent_info(&origin, target, false);
+                                .tiling_insert_tile_with_parent_info(&origin, target, false);
 
                             if allow_to_activate_workspace {
                                 mon.workspaces[ws_idx].activate_window(&win_id);

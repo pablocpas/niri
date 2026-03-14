@@ -41,7 +41,7 @@ fn main() {
 
     println!("📊 Estado del código:");
     println!("   - container.rs: ~850 líneas");
-    println!("   - scrolling.rs: integrado con ContainerTree");
+    println!("   - tiling.rs: integrado con ContainerTree");
     println!("   - 4 TODOs no críticos pendientes\n");
 
     println!("🚀 Para probar en vivo:");

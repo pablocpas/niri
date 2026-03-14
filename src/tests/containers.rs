@@ -80,6 +80,32 @@ fn focused_leaf_count(node: &LayoutTreeNode) -> usize {
     this + node.children.iter().map(focused_leaf_count).sum::<usize>()
 }
 
+fn focused_node_count(node: &LayoutTreeNode) -> usize {
+    let this = usize::from(node.focused);
+    this + node.children.iter().map(focused_node_count).sum::<usize>()
+}
+
+fn focused_node_path(node: &LayoutTreeNode) -> Option<Vec<usize>> {
+    fn visit(node: &LayoutTreeNode, path: &mut Vec<usize>) -> Option<Vec<usize>> {
+        if node.focused {
+            return Some(path.clone());
+        }
+
+        for (idx, child) in node.children.iter().enumerate() {
+            path.push(idx);
+            let found = visit(child, path);
+            path.pop();
+            if found.is_some() {
+                return found;
+            }
+        }
+
+        None
+    }
+
+    visit(node, &mut Vec::new())
+}
+
 #[test]
 fn split_vertical_creates_nested_splitv_subtree() {
     let (mut f, id) = set_up();
@@ -200,6 +226,84 @@ fn focus_parent_then_child_in_split_preserves_focused_window() {
     let after = active_window_id(&mut f);
 
     assert_eq!(before, after);
+}
+
+#[test]
+fn focus_parent_marks_nested_container_focused_in_layout_tree() {
+    let (mut f, id) = set_up();
+    add_window(&mut f, id, (100, 100));
+    add_window(&mut f, id, (200, 200));
+
+    f.niri().layout.split_vertical();
+    f.double_roundtrip(id);
+    add_window(&mut f, id, (300, 300));
+
+    let focused_window_before = active_window_id(&mut f);
+
+    f.niri().layout.focus_parent();
+    f.double_roundtrip(id);
+
+    let root = layout_root(&mut f);
+    assert_eq!(root.layout, Some(LayoutTreeLayout::SplitH));
+    assert_eq!(focused_node_count(&root), 1);
+    assert_eq!(focused_leaf_count(&root), 0);
+    assert_eq!(focused_node_path(&root), Some(vec![1]));
+    assert_eq!(root.children[1].layout, Some(LayoutTreeLayout::SplitV));
+    assert!(root.children[1].focused);
+    assert_eq!(
+        active_window_id(&mut f),
+        focused_window_before,
+        "focus_parent should not move real surface focus away from the active leaf",
+    );
+}
+
+#[test]
+fn focus_parent_twice_bubbles_from_nested_split_to_parent_split_in_layout_tree() {
+    let (mut f, id) = set_up();
+    add_window(&mut f, id, (100, 100));
+    add_window(&mut f, id, (200, 200));
+
+    f.niri().layout.split_vertical();
+    f.double_roundtrip(id);
+    add_window(&mut f, id, (300, 300));
+    add_window(&mut f, id, (400, 400));
+
+    f.niri().layout.focus_left();
+    f.double_roundtrip(id);
+    add_window(&mut f, id, (500, 500));
+
+    f.niri().layout.focus_right();
+    f.double_roundtrip(id);
+    let focused_window_before = active_window_id(&mut f);
+
+    f.niri().layout.focus_parent();
+    f.double_roundtrip(id);
+
+    let after_first_parent = layout_root(&mut f);
+    assert_eq!(after_first_parent.layout, Some(LayoutTreeLayout::SplitH));
+    assert_eq!(focused_node_count(&after_first_parent), 1);
+    assert_eq!(focused_leaf_count(&after_first_parent), 0);
+    assert!(
+        after_first_parent.children.iter().any(|child| {
+            child.layout == Some(LayoutTreeLayout::SplitV) && child.focused
+        }),
+        "first focus_parent should expose the nested SplitV as the focused node in the layout tree",
+    );
+
+    f.niri().layout.focus_parent();
+    f.double_roundtrip(id);
+
+    let after_second_parent = layout_root(&mut f);
+    assert_eq!(after_second_parent.layout, Some(LayoutTreeLayout::SplitH));
+    assert_eq!(focused_node_count(&after_second_parent), 1);
+    assert_eq!(focused_leaf_count(&after_second_parent), 0);
+    assert_eq!(focused_node_path(&after_second_parent), Some(Vec::new()));
+    assert!(after_second_parent.focused);
+    assert_eq!(
+        active_window_id(&mut f),
+        focused_window_before,
+        "bubbling container focus must keep the active surface on the same leaf",
+    );
 }
 
 #[test]

@@ -759,7 +759,7 @@ fn print_window(window: &Window) {
     }
 
     let WindowLayout {
-        pos_in_scrolling_layout,
+        pos_in_tiling_layout,
         tile_size,
         window_size,
         tile_pos_in_workspace_view,
@@ -775,7 +775,7 @@ fn print_window(window: &Window) {
         fmt_rounded(tile_size.1)
     );
 
-    if let Some(pos) = pos_in_scrolling_layout {
+    if let Some(pos) = pos_in_tiling_layout {
         println!("    Scrolling position: column {}, tile {}", pos.0, pos.1);
     }
 

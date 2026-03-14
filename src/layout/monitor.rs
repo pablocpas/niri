@@ -2412,7 +2412,7 @@ impl<W: LayoutElement> Monitor<W> {
                 }
             }
 
-            ws.render_scrolling(renderer, target, focus_ring, push!());
+            ws.render_tiling(renderer, target, focus_ring, push!());
         }
     }
 

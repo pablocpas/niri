@@ -1350,6 +1350,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         };
 
         self.containers[idx].wrapper_selected = false;
+        self.containers[idx].tree.clear_selection();
         let _ = self.containers[idx].tree.focus_window_by_id(id);
         self.active_window_id = Some(id.clone());
         true
@@ -1365,6 +1366,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.bring_up_descendants_of(0);
         if let Some(idx) = self.idx_of(id) {
             self.containers[idx].wrapper_selected = false;
+            self.containers[idx].tree.clear_selection();
             let _ = self.containers[idx].tree.focus_window_by_id(id);
         }
 
@@ -1926,6 +1928,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         };
 
         self.containers[idx].wrapper_selected = false;
+        self.containers[idx].tree.clear_selection();
         let _ = self.containers[idx].tree.focus_window_by_id(id);
         self.active_window_id = Some(id.clone());
         true

@@ -1241,7 +1241,7 @@ impl<W: LayoutElement> Tile<W> {
     /// Only the sizing properties that a [`Tile`] can fill are filled.
     pub fn ipc_layout_template(&self) -> WindowLayout {
         WindowLayout {
-            pos_in_scrolling_layout: None,
+            pos_in_tiling_layout: None,
             tile_size: self.tile_size().into(),
             window_size: self.window().size().into(),
             tile_pos_in_workspace_view: None,
