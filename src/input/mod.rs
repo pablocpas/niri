@@ -7,7 +7,7 @@ use std::time::Duration;
 use calloop::timer::{TimeoutAction, Timer};
 use input::event::gesture::GestureEventCoordinates as _;
 use tiri_config::{
-    Action, Bind, Binds, Config, Key, ModKey, Modifiers, MruDirection, SwitchBinds, Trigger, Xkb,
+    Action, Bind, Binds, Config, Key, ModKey, Modifiers, MruDirection, SwitchBinds, Trigger,
 };
 use tiri_ipc::LayoutSwitchTarget;
 use smithay::backend::input::{
@@ -49,7 +49,6 @@ use crate::layout::tiling::ScrollDirection;
 use crate::cursor::CursorOverride;
 use crate::layout::{ActivateWindow, ContainerLayout, LayoutElement as _};
 use crate::tiri::{CastTarget, PointerVisibility, State};
-use crate::protocols::virtual_keyboard::VirtualKeyboard;
 use crate::ui::mru::{WindowMru, WindowMruUi};
 use crate::ui::screenshot_ui::ScreenshotUi;
 use crate::utils::spawning::{spawn, spawn_sh};

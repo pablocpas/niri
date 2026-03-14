@@ -1,13 +1,6 @@
 use smithay::backend::input::{
-    Device, DeviceCapability, Event, InputBackend, InputEvent, KeyState, KeyboardKeyEvent, Keycode,
-    UnusedEvent,
+    Device, DeviceCapability, Event, InputBackend, KeyState, KeyboardKeyEvent, Keycode, UnusedEvent,
 };
-use smithay::delegate_virtual_keyboard_manager;
-use smithay::input::keyboard::xkb::ModMask;
-use smithay::input::keyboard::KeyboardHandle;
-use smithay::wayland::virtual_keyboard::VirtualKeyboardHandler;
-
-use crate::tiri::State;
 
 pub struct VirtualKeyboardInputBackend;
 
@@ -62,7 +55,7 @@ impl KeyboardKeyEvent<VirtualKeyboardInputBackend> for VirtualKeyboardKeyEvent {
     }
 
     fn count(&self) -> u32 {
-        0 // Not used by niri
+        0 // Not used by tiri
     }
 }
 
@@ -99,34 +92,3 @@ impl InputBackend for VirtualKeyboardInputBackend {
     type SpecialEvent = UnusedEvent;
 }
 
-impl VirtualKeyboardHandler for State {
-    fn on_keyboard_event(
-        &mut self,
-        keycode: Keycode,
-        state: KeyState,
-        time: u32,
-        _keyboard: KeyboardHandle<Self>,
-    ) {
-        // The virtual keyboard impl in Smithay changes the keymap, so we'll need to reset it on
-        // the next real keyboard event.
-        self.niri.reset_keymap = true;
-
-        let event = VirtualKeyboardKeyEvent {
-            keycode,
-            state,
-            time,
-        };
-        self.process_input_event(InputEvent::<VirtualKeyboardInputBackend>::Keyboard { event });
-    }
-
-    // We handle modifiers when the key event is sent.
-    fn on_keyboard_modifiers(
-        &mut self,
-        _depressed_mods: ModMask,
-        _latched_mods: ModMask,
-        _locked_mods: ModMask,
-        _keyboard: KeyboardHandle<Self>,
-    ) {
-    }
-}
-delegate_virtual_keyboard_manager!(State);
