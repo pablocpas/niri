@@ -658,7 +658,7 @@ impl<W: LayoutElement> Tile<W> {
         let mut draw_border_with_background = rules
             .draw_border_with_background
             .unwrap_or_else(|| !self.window.has_ssd());
-        if self.tab_bar_offset > 0.0 || self.in_tabbed_context {
+        if self.tab_bar_offset > 0.0 {
             draw_border_with_background = false;
         }
         let mut draw_focus_ring_with_background = if self.border.is_off() {
@@ -666,7 +666,7 @@ impl<W: LayoutElement> Tile<W> {
         } else {
             false
         };
-        if self.tab_bar_offset > 0.0 || self.in_tabbed_context {
+        if self.tab_bar_offset > 0.0 {
             draw_focus_ring_with_background = false;
         }
         let border_is_border = !draw_border_with_background && !self.border.is_off();
