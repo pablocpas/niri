@@ -86,6 +86,9 @@ pub struct FloatingSpace<W: LayoutElement> {
     /// Whether this workspace is active (for tab bar styling).
     is_active: bool,
 
+    /// Currently fullscreened floating window, if any.
+    fullscreen_window: Option<W::Id>,
+
     /// Cached tab bar textures keyed by container id and path.
     tab_bar_cache: RefCell<HashMap<(u64, Vec<usize>), TabBarCacheEntry>>,
 
@@ -364,6 +367,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             tab_bar_cache: RefCell::new(HashMap::new()),
             tab_bar_cache_alt: RefCell::new(HashMap::new()),
             is_active: false,
+            fullscreen_window: None,
         }
     }
 
@@ -435,14 +439,26 @@ impl<W: LayoutElement> FloatingSpace<W> {
             let layouts = Self::display_layouts(&container.tree).to_vec();
             for info in layouts {
                 if let Some(tile) = container.tree.get_tile_mut(info.key) {
-                    let mut pos = container.data.logical_pos + info.rect.loc + tile.render_offset();
-                    pos = pos.to_physical_precise_round(scale).to_logical(scale);
+                    let is_fullscreen_tile = self
+                        .fullscreen_window
+                        .as_ref()
+                        .is_some_and(|id| id == tile.window().id());
 
-                    let mut tile_view_rect = view_rect;
-                    tile_view_rect.loc -= pos;
+                    let tile_view_rect = if is_fullscreen_tile {
+                        view_rect
+                    } else {
+                        let mut pos = container.data.logical_pos + info.rect.loc + tile.render_offset();
+                        pos = pos.to_physical_precise_round(scale).to_logical(scale);
+                        let mut r = view_rect;
+                        r.loc -= pos;
+                        r
+                    };
 
-                    let is_focused =
-                        is_active && Some(tile.window().id()) == active.as_ref() && !selection_is_container;
+                    let is_focused = if is_fullscreen_tile {
+                        is_active
+                    } else {
+                        is_active && Some(tile.window().id()) == active.as_ref() && !selection_is_container
+                    };
                     tile.update_render_elements(
                         is_active,
                         is_focused,
@@ -480,6 +496,10 @@ impl<W: LayoutElement> FloatingSpace<W> {
         &self,
         pos: Point<f64, Logical>,
     ) -> FloatingResizeResult<W::Id> {
+        if self.fullscreen_window.is_some() {
+            return FloatingResizeResult::None;
+        }
+
         let scale = Scale::from(self.scale);
         let gap = self.container_gap();
         for container in &self.containers {
@@ -719,6 +739,12 @@ impl<W: LayoutElement> FloatingSpace<W> {
     }
 
     pub fn window_under(&self, pos: Point<f64, Logical>) -> Option<(&W, super::HitType)> {
+        if let Some(fullscreen_id) = &self.fullscreen_window {
+            let tile = self.tiles().find(|t| t.window().id() == fullscreen_id)?;
+            return super::HitType::hit_tile(tile, Point::from((0.0, 0.0)), pos)
+                .map(|(w, ht)| (w, ht));
+        }
+
         if let Some(hit) = self.tab_bar_hit(pos) {
             return Some(hit);
         }
@@ -855,6 +881,42 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
     pub fn is_empty(&self) -> bool {
         self.containers.is_empty()
+    }
+
+    pub fn set_fullscreen(&mut self, window: &W::Id, is_fullscreen: bool) {
+        if is_fullscreen {
+            if self.fullscreen_window.as_ref().is_some_and(|id| id == window) {
+                return;
+            }
+
+            // Store the floating size before going fullscreen.
+            if let Some(tile) = self.tiles_mut().find(|t| t.window().id() == window) {
+                Self::store_floating_size_for_restore(tile);
+                tile.request_fullscreen(true, None);
+            }
+
+            self.fullscreen_window = Some(window.clone());
+        } else {
+            if !self.fullscreen_window.as_ref().is_some_and(|id| id == window) {
+                return;
+            }
+
+            // Restore the floating size.
+            if let Some(tile) = self.tiles_mut().find(|t| t.window().id() == window) {
+                let size = tile.floating_window_size.unwrap_or_default();
+                tile.window_mut().request_size_once(size, true);
+            }
+
+            self.fullscreen_window = None;
+        }
+    }
+
+    pub fn is_fullscreen(&self, window: &W::Id) -> bool {
+        self.fullscreen_window.as_ref().is_some_and(|id| id == window)
+    }
+
+    pub fn has_fullscreen_window(&self) -> bool {
+        self.fullscreen_window.is_some()
     }
 
     pub fn selected_is_container(&self, id: Option<&W::Id>) -> bool {
@@ -1240,11 +1302,21 @@ impl<W: LayoutElement> FloatingSpace<W> {
         &mut self,
         id: &W::Id,
     ) -> Option<(DetachedNode<W>, Option<InsertParentInfo>, Rectangle<f64, Logical>)> {
+        // Clear fullscreen if the subtree contains the fullscreen window.
+        if let Some(fs_id) = &self.fullscreen_window {
+            if self.idx_of(fs_id) == self.idx_of(id) {
+                self.fullscreen_window = None;
+            }
+        }
+
         let idx = self.idx_of(id)?;
         let mut container = self.containers.remove(idx);
         let rect = Rectangle::new(container.data.logical_pos, container.data.size);
         let origin = container.origin.take();
-        let (subtree, _insert_info) = container.tree.take_subtree_at_path(&[])?;
+        let (mut subtree, _insert_info) = container.tree.take_subtree_at_path(&[])?;
+        subtree.for_each_tile_mut(&mut |tile| {
+            Self::store_floating_size_for_restore(tile);
+        });
         // Sway's container_set_floating(false) does NOT collapse/normalize the tree.
         // Insert directly using the inactive tiling reference.
 
@@ -1285,6 +1357,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
             self.active_window_id = None;
         }
 
+        // Clear fullscreen if this was the fullscreen window.
+        if self.fullscreen_window.as_ref() == Some(tile.window().id()) {
+            self.fullscreen_window = None;
+        }
+
         // Stop interactive resize.
         if let Some(resize) = &self.interactive_resize {
             if tile.window().id() == &resize.window {
@@ -1303,10 +1380,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 .and_then(|container| container.tree.focused_window().map(|win| win.id().clone()));
         }
 
-        // Store the floating size if we have one.
-        if let Some(size) = tile.window().expected_size() {
-            tile.floating_window_size = Some(size);
-        }
+        Self::store_floating_size_for_restore(&mut tile);
         // Store the floating position.
         tile.floating_pos = Some(container_pos);
         tile.floating_reinsert_hint = insert_hint.map(|info| (container_id, info));
@@ -1317,6 +1391,14 @@ impl<W: LayoutElement> FloatingSpace<W> {
             width,
             is_full_width: false,
             is_floating: true,
+        }
+    }
+
+    fn store_floating_size_for_restore(tile: &mut Tile<W>) {
+        let window = tile.window();
+        let can_restore_current_size = window.pending_sizing_mode().is_normal();
+        if can_restore_current_size {
+            tile.floating_window_size = Some(tile.window_expected_or_current_size().to_i32_round());
         }
     }
 
@@ -2530,6 +2612,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             }
 
             tile.update_window();
+
         }
 
         let container = &mut self.containers[container_idx];
@@ -2577,7 +2660,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         // Like tiling, push container selection before the regular window
         // contents so it stays visually on top after the global reverse-order
         // composition pass in the renderer.
-        if (focus_ring || self.is_active) && selection_is_container {
+        if (focus_ring || self.is_active) && selection_is_container && self.fullscreen_window.is_none() {
             if let Some(idx) = self.active_container_idx() {
                 let path = self.selected_path_in(idx);
                 if let Some((_, local_rect, _)) = self.containers[idx].tree.container_info(&path) {
@@ -2602,7 +2685,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             }
         }
 
-        if !self.options.layout.tab_bar.off {
+        if !self.options.layout.tab_bar.off && self.fullscreen_window.is_none() {
             let mut cache = self.tab_bar_cache.borrow_mut();
             let mut next_cache = self.tab_bar_cache_alt.borrow_mut();
             next_cache.clear();
@@ -2684,25 +2767,43 @@ impl<W: LayoutElement> FloatingSpace<W> {
             self.tab_bar_cache.borrow_mut().clear();
         }
 
-        for (tile, tile_pos) in self.tiles_with_render_positions() {
-            // Skip tiles entirely outside the viewport (culling)
-            let tile_rect = Rectangle::new(tile_pos, tile.tile_size());
-            if !tile_rect.overlaps(view_rect) {
-                continue;
+        if let Some(fullscreen_id) = &self.fullscreen_window {
+            // Only render the fullscreen tile at (0, 0).
+            if let Some(tile) = self
+                .tiles()
+                .find(|t| t.window().id() == fullscreen_id)
+            {
+                let is_focused = self.is_active;
+                tile.render(
+                    renderer,
+                    Point::from((0.0, 0.0)),
+                    focus_ring && is_focused,
+                    is_focused,
+                    target,
+                    &mut |elem| elements.push(elem.into()),
+                );
             }
+        } else {
+            for (tile, tile_pos) in self.tiles_with_render_positions() {
+                // Skip tiles entirely outside the viewport (culling)
+                let tile_rect = Rectangle::new(tile_pos, tile.tile_size());
+                if !tile_rect.overlaps(view_rect) {
+                    continue;
+                }
 
-            let is_focused =
-                self.is_active && Some(tile.window().id()) == active.as_ref() && !selection_is_container;
-            let draw_focus = focus_ring && is_focused;
+                let is_focused =
+                    self.is_active && Some(tile.window().id()) == active.as_ref() && !selection_is_container;
+                let draw_focus = focus_ring && is_focused;
 
-            tile.render(
-                renderer,
-                tile_pos,
-                draw_focus,
-                is_focused,
-                target,
-                &mut |elem| elements.push(elem.into()),
-            );
+                tile.render(
+                    renderer,
+                    tile_pos,
+                    draw_focus,
+                    is_focused,
+                    target,
+                    &mut |elem| elements.push(elem.into()),
+                );
+            }
         }
 
         elements
@@ -3146,11 +3247,17 @@ impl<W: LayoutElement> FloatingSpace<W> {
                     assert!(idx < self.options.layout.preset_window_heights.len());
                 }
 
-                assert_eq!(
-                    tile.window().pending_sizing_mode(),
-                    SizingMode::Normal,
-                    "floating windows cannot be maximized or fullscreen"
-                );
+                let is_fullscreen_tile = self
+                    .fullscreen_window
+                    .as_ref()
+                    .is_some_and(|id| id == tile.window().id());
+                if !is_fullscreen_tile {
+                    assert_eq!(
+                        tile.window().pending_sizing_mode(),
+                        SizingMode::Normal,
+                        "floating windows cannot be maximized or fullscreen"
+                    );
+                }
             }
         }
 

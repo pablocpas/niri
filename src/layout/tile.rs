@@ -1379,6 +1379,21 @@ impl<W: LayoutElement> Tile<W> {
         );
     }
 
+    pub fn request_windowed_fullscreen(&mut self, animate: bool, transaction: Option<Transaction>) {
+        self.record_pending_resize(transaction.as_ref());
+        let mode = if self.pending_maximized {
+            SizingMode::Maximized
+        } else {
+            SizingMode::Normal
+        };
+        self.window.request_size(
+            self.view_size.to_i32_round(),
+            mode,
+            animate,
+            transaction,
+        );
+    }
+
     pub fn min_size_nonfullscreen(&self) -> Size<f64, Logical> {
         let mut size = self.window.min_size().to_f64();
 

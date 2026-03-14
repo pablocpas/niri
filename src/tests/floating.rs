@@ -1030,6 +1030,9 @@ fn unmaximize_to_floating_doesnt_send_extra_configure() {
 fn unfullscreen_to_same_size_floating() {
     let (mut f, id, surface) = set_up();
 
+    let mapped = f.niri().layout.windows().next().unwrap().1;
+    let window_id = mapped.window.clone();
+
     // Make it floating.
     f.niri().layout.toggle_window_floating(None);
     f.double_roundtrip(id);
@@ -1053,8 +1056,8 @@ fn unfullscreen_to_same_size_floating() {
         @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
     );
 
-    // Unfullscreen into floating.
-    f.niri().layout.toggle_window_floating(None);
+    // Unfullscreen back to floating.
+    f.niri().layout.set_fullscreen(&window_id, false);
     f.double_roundtrip(id);
 
     // We should see a configure with the same size and no Fullscreen state.
@@ -1103,7 +1106,7 @@ fn unmaximize_to_same_size_floating() {
 }
 
 #[test]
-fn unfullscreen_to_same_size_windowed_fullscreen_floating() {
+fn legacy_fullscreen_alias_unfullscreens_to_same_size_floating() {
     let (mut f, id, surface) = set_up();
 
     let mapped = f.niri().layout.windows().next().unwrap().1;
@@ -1132,19 +1135,19 @@ fn unfullscreen_to_same_size_windowed_fullscreen_floating() {
         @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
     );
 
-    // Unfullscreen into windowed-fullscreen floating.
+    // The legacy entrypoint now exits fullscreen back to floating.
     f.niri().layout.toggle_windowed_fullscreen(&window_id);
     f.double_roundtrip(id);
 
-    // Should send configure because the bounds have changed.
+    // The fullscreen state is dropped while preserving the floating size.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
+        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated]"
     );
 }
 
 #[test]
-fn unmaximize_to_same_size_windowed_fullscreen_floating() {
+fn legacy_fullscreen_alias_on_floating_maximized_window_roundtrips() {
     let (mut f, id, surface) = set_up();
 
     let mapped = f.niri().layout.windows().next().unwrap().1;
@@ -1173,34 +1176,24 @@ fn unmaximize_to_same_size_windowed_fullscreen_floating() {
         @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
     );
 
-    // Enable windowed-fullscreen.
+    // The legacy entrypoint now maps to real fullscreen.
     f.niri().layout.toggle_windowed_fullscreen(&window_id);
     f.double_roundtrip(id);
 
-    // The windowed-fullscreen configure.
-    assert_snapshot!(
-        f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
-    );
-
-    // Go back to windowed-fullscreen floating.
-    f.niri().layout.toggle_window_floating(None);
-    f.double_roundtrip(id);
-
-    // Should send configure because the bounds have changed.
+    // The fullscreen configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
         @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
     );
 
-    // Disable windowed-fullscreen.
+    // Toggling the alias again should restore floating with the remembered size.
     f.niri().layout.toggle_windowed_fullscreen(&window_id);
     f.double_roundtrip(id);
 
-    // Should send configure dropping the Fullscreen state.
+    // Should restore the remembered maximized floating state.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"
     );
 }
 
@@ -1213,6 +1206,9 @@ layout {
 "##;
     let config = Config::parse_mem(config).unwrap();
     let (mut f, id, surface) = set_up_with_config(config);
+
+    let mapped = f.niri().layout.windows().next().unwrap().1;
+    let window_id = mapped.window.clone();
 
     // Make it floating.
     f.niri().layout.toggle_window_floating(None);
@@ -1237,8 +1233,8 @@ layout {
         @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
     );
 
-    // Unfullscreen into floating.
-    f.niri().layout.toggle_window_floating(None);
+    // Unfullscreen back to floating.
+    f.niri().layout.set_fullscreen(&window_id, false);
     f.double_roundtrip(id);
 
     // We should see a configure with the same size and no Fullscreen state.

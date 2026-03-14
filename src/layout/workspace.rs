@@ -2246,19 +2246,12 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn set_fullscreen(&mut self, window: &W::Id, is_fullscreen: bool) {
-        let restore_to_floating = false;
         if self.floating.has_window(window) {
-            if let Some(tile) = self
-                .floating
-                .tiles_mut()
-                .find(|tile| tile.window().id() == window)
-            {
-                // Match sway semantics: toggling fullscreen on a floating window keeps it in
-                // floating mode and toggles the windowed-fullscreen state.
-                tile.window_mut().request_windowed_fullscreen(is_fullscreen);
-            }
+            self.floating.set_fullscreen(window, is_fullscreen);
             return;
-        } else if !is_fullscreen {
+        }
+
+        if !is_fullscreen {
             // The window is in the tiling layout and we're requesting an unfullscreen. If it is
             // indeed fullscreen (i.e. this isn't a duplicate unfullscreen request), then we may
             // need to unfullscreen into floating.
@@ -2284,33 +2277,12 @@ impl<W: LayoutElement> Workspace<W> {
             }
         }
 
-        let tile = self
-            .tiling
-            .tiles()
-            .find(|tile| tile.window().id() == window)
-            .unwrap();
-        let was_normal = tile.window().pending_sizing_mode().is_normal();
-
         self.tiling.set_fullscreen(window, is_fullscreen);
-
-        // When going from normal to fullscreen, remember if we should unfullscreen to floating.
-        let tile = self
-            .tiling
-            .tiles_mut()
-            .find(|tile| tile.window().id() == window)
-            .unwrap();
-        if was_normal && !tile.window().pending_sizing_mode().is_normal() {
-            tile.restore_to_floating = restore_to_floating;
-        }
     }
 
     pub fn toggle_fullscreen(&mut self, window: &W::Id) {
         if self.floating.has_window(window) {
-            let current = self
-                .floating
-                .tiles()
-                .find(|tile| tile.window().id() == window)
-                .is_some_and(|tile| tile.window().is_pending_windowed_fullscreen());
+            let current = self.floating.is_fullscreen(window);
             self.set_fullscreen(window, !current);
             return;
         }
@@ -2323,6 +2295,10 @@ impl<W: LayoutElement> Workspace<W> {
         // because pending_sizing_mode() updates asynchronously after animations complete.
         let current = self.tiling.is_fullscreen(tile.window());
         self.set_fullscreen(window, !current);
+    }
+
+    pub fn set_windowed_fullscreen(&mut self, window: &W::Id, is_fullscreen: bool) {
+        self.set_fullscreen(window, is_fullscreen);
     }
 
     pub fn set_maximized(&mut self, window: &W::Id, maximize: bool) {
@@ -2426,6 +2402,11 @@ impl<W: LayoutElement> Workspace<W> {
         } else {
             None
         };
+
+        // Clear floating fullscreen before unfloating.
+        if self.floating.is_fullscreen(&id) {
+            self.floating.set_fullscreen(&id, false);
+        }
 
         if !explicit_window
             && target_is_active
@@ -2555,10 +2536,6 @@ impl<W: LayoutElement> Workspace<W> {
             let removed = self.floating.remove_tile(&id);
             let mut tile = removed.tile;
             tile.set_scratchpad(false);
-            // Match sway: leaving floating mode clears floating windowed-fullscreen state.
-            if tile.window().is_pending_windowed_fullscreen() {
-                tile.window_mut().request_windowed_fullscreen(false);
-            }
             if !self.tiling.is_empty() {
                 if let Some((info, _)) = tiling_restore_target.as_ref() {
                 self.tiling.insert_subtree_with_parent_info(
@@ -2587,14 +2564,6 @@ impl<W: LayoutElement> Workspace<W> {
             }
         } else {
             // Tiling → Floating
-            let was_fullscreen = self
-                .tiling
-                .tiles()
-                .find(|tile| tile.window().id() == &id)
-                .is_some_and(|tile| {
-                    self.tiling.is_fullscreen(tile.window())
-                        || tile.window().pending_sizing_mode().is_fullscreen()
-                });
             let old_parent_ref = if target_is_active {
                 self.tiling
                     .inactive_tiling_reference_for_parent_of_window(&id)
@@ -2627,17 +2596,6 @@ impl<W: LayoutElement> Workspace<W> {
             self.floating
                 .add_tile_with_restore_hint(removed.tile, target_is_active);
             if target_is_active {
-                if was_fullscreen {
-                    // Match sway fullscreen semantics: a toggled floating window remains
-                    // fullscreen-like in floating mode.
-                    if let Some(tile) = self
-                        .floating
-                        .tiles_mut()
-                        .find(|tile| tile.window().id() == &id)
-                    {
-                        tile.window_mut().request_windowed_fullscreen(true);
-                    }
-                }
                 self.floating_is_active = FloatingActive::Yes;
                 self.tiling_workspace_context = false;
                 self.floating_workspace_context = false;

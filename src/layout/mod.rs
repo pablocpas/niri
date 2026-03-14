@@ -5150,8 +5150,26 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
 
-        // Keep WM fullscreen independent from client windowed fullscreen requests.
-        if window.pending_sizing_mode().is_fullscreen() {
+        if !is_fullscreen && window.is_pending_windowed_fullscreen() {
+            self.with_windows_mut(|window, _| {
+                if window.id() == id {
+                    window.request_windowed_fullscreen(false);
+                }
+            });
+            return;
+        }
+
+        if is_fullscreen {
+            let is_floating = self
+                .workspaces()
+                .find(|(_, _, ws)| ws.has_window(id))
+                .is_some_and(|(_, _, ws)| ws.is_floating(id));
+            if is_floating {
+                self.set_fullscreen(id, true);
+                return;
+            }
+        } else if window.pending_sizing_mode().is_fullscreen() || window.sizing_mode().is_fullscreen() {
+            self.set_fullscreen(id, false);
             return;
         }
 
@@ -5163,23 +5181,7 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn toggle_windowed_fullscreen(&mut self, id: &W::Id) {
-        let (_, window) = self.windows().find(|(_, win)| win.id() == id).unwrap();
-        if window.pending_sizing_mode().is_fullscreen() {
-            // Remove the real fullscreen.
-            for ws in self.workspaces_mut() {
-                if ws.has_window(id) {
-                    ws.set_fullscreen(id, false);
-                    break;
-                }
-            }
-        }
-
-        // This will switch is_pending_fullscreen() to false right away.
-        self.with_windows_mut(|window, _| {
-            if window.id() == id {
-                window.request_windowed_fullscreen(!window.is_pending_windowed_fullscreen());
-            }
-        });
+        self.toggle_fullscreen(id);
     }
 
     pub fn set_maximized(&mut self, id: &W::Id, maximize: bool) {

@@ -37,19 +37,19 @@ fn windowed_fullscreen() {
     let mapped = niri.layout.windows().next().unwrap().1;
     let window_id = mapped.window.clone();
 
-    // Enable windowed fullscreen.
+    // Legacy entrypoint now maps to real fullscreen.
     niri.layout.toggle_windowed_fullscreen(&window_id);
     f.double_roundtrip(id);
 
-    // Should request fullscreen state with the tiled size.
+    // Should request real fullscreen.
     let window = f.client(id).window(&surface);
     assert_snapshot!(
         window.format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
+        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
     );
 
     let mapped = f.niri().layout.windows().next().unwrap().1;
-    // Not committed yet.
+    // The legacy entrypoint no longer flips a separate client-side mode.
     assert!(!mapped.is_windowed_fullscreen());
 
     // Commit in response.
@@ -58,10 +58,10 @@ fn windowed_fullscreen() {
     f.roundtrip(id);
 
     let mapped = f.niri().layout.windows().next().unwrap().1;
-    // Now it is committed.
-    assert!(mapped.is_windowed_fullscreen());
+    assert!(mapped.sizing_mode().is_fullscreen());
+    assert!(!mapped.is_windowed_fullscreen());
 
-    // Disable windowed fullscreen.
+    // Disable fullscreen.
     f.niri().layout.toggle_windowed_fullscreen(&window_id);
     f.double_roundtrip(id);
 
@@ -73,8 +73,7 @@ fn windowed_fullscreen() {
     );
 
     let mapped = f.niri().layout.windows().next().unwrap().1;
-    // Not committed yet.
-    assert!(mapped.is_windowed_fullscreen());
+    assert!(!mapped.is_windowed_fullscreen());
 
     // Commit in response.
     let window = f.client(id).window(&surface);
@@ -82,7 +81,7 @@ fn windowed_fullscreen() {
     f.roundtrip(id);
 
     let mapped = f.niri().layout.windows().next().unwrap().1;
-    // Now it is committed.
+    assert!(!mapped.sizing_mode().is_fullscreen());
     assert!(!mapped.is_windowed_fullscreen());
 }
 
@@ -109,10 +108,10 @@ fn windowed_fullscreen_chain() {
     assert_snapshot!(
         window.format_recent_configures(),
         @"
-    size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]
-    size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]
-    size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]
-    size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]
+    size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]
+    size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated]
+    size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]
+    size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated]
     "
     );
 
@@ -141,22 +140,21 @@ fn windowed_fullscreen_chain() {
         states.push(get_state(&mut f));
     }
 
-    // We expect fs to always be false (because each Fullscreen state request corresponded to a
-    // windowed fullscreen), and wfs to toggle on and off.
+    // The legacy entrypoint now aliases real fullscreen.
     assert_snapshot!(
         states.join("\n"),
         @"
     fs false, wfs false
-    fs false, wfs true
+    fs true, wfs false
     fs false, wfs false
-    fs false, wfs true
+    fs true, wfs false
     fs false, wfs false
     "
     );
 }
 
 #[test]
-fn client_fullscreen_request_uses_windowed_fullscreen() {
+fn client_fullscreen_request_uses_client_fullscreen_path() {
     let (mut f, id, surface) = set_up();
 
     let _ = f.client(id).window(&surface).recent_configures();
@@ -165,16 +163,14 @@ fn client_fullscreen_request_uses_windowed_fullscreen() {
     f.client(id).window(&surface).set_fullscreen(None);
     f.double_roundtrip(id);
 
-    // It should receive fullscreen state with tiled size (windowed fullscreen), not WM fullscreen.
+    // Client fullscreen should keep the window on the client-fullscreen path.
     let window = f.client(id).window(&surface);
     assert_snapshot!(
         window.format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated, Fullscreen]"
+        @"size: 1888 × 1048, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
     );
 
     let mapped = f.niri().layout.windows().next().unwrap().1;
-    assert!(!mapped.sizing_mode().is_fullscreen());
-    // The client hasn't committed the configure yet.
     assert!(!mapped.is_windowed_fullscreen());
 
     // Commit client fullscreen configure.
@@ -193,12 +189,13 @@ fn client_fullscreen_request_uses_windowed_fullscreen() {
     let window = f.client(id).window(&surface);
     assert_snapshot!(
         window.format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @"
+    size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]
+    size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]
+    "
     );
 
     let mapped = f.niri().layout.windows().next().unwrap().1;
-    assert!(!mapped.sizing_mode().is_fullscreen());
-    // Not committed yet.
     assert!(mapped.is_windowed_fullscreen());
 
     let window = f.client(id).window(&surface);
@@ -208,6 +205,42 @@ fn client_fullscreen_request_uses_windowed_fullscreen() {
     let mapped = f.niri().layout.windows().next().unwrap().1;
     assert!(!mapped.sizing_mode().is_fullscreen());
     assert!(!mapped.is_windowed_fullscreen());
+}
+
+#[test]
+fn client_fullscreen_request_reconfigures_while_wm_fullscreen_is_active() {
+    let (mut f, id, surface) = set_up();
+
+    let _ = f.client(id).window(&surface).recent_configures();
+
+    let niri = f.niri();
+    let mapped = niri.layout.windows().next().unwrap().1;
+    let window_id = mapped.window.clone();
+
+    niri.layout.set_fullscreen(&window_id, true);
+    f.double_roundtrip(id);
+
+    let window = f.client(id).window(&surface);
+    assert_snapshot!(
+        window.format_recent_configures(),
+        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
+    );
+    let window = f.client(id).window(&surface);
+    window.ack_last_and_commit();
+    f.roundtrip(id);
+
+    let _ = f.client(id).window(&surface).recent_configures();
+
+    // Client requests fullscreen again, e.g. video fullscreen inside an already-fullscreen window.
+    f.client(id).window(&surface).set_fullscreen(None);
+    f.double_roundtrip(id);
+
+    // This still needs to produce a fullscreen configure for the client path.
+    let window = f.client(id).window(&surface);
+    assert_snapshot!(
+        window.format_recent_configures(),
+        @"size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
+    );
 }
 
 #[test]
