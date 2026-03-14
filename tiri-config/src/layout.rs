@@ -50,7 +50,7 @@ impl Default for Layout {
             default_column_width: Some(PresetSize::Proportion(0.5)),
             empty_workspace_above_first: false,
             default_column_display: ColumnDisplay::Normal,
-            gaps: 16.,
+            gaps: 8.,
             struts: Struts::default(),
             preset_window_heights: vec![
                 PresetSize::Proportion(1. / 3.),

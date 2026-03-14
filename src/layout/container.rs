@@ -1118,13 +1118,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                 }
             }
             Layout::Tabbed | Layout::Stacked => {
-                let mut inner_rect = rect;
-                if gap > 0.0 {
-                    inner_rect.loc.x += gap;
-                    inner_rect.loc.y += gap;
-                    inner_rect.size.w = (inner_rect.size.w - gap * 2.0).max(0.0);
-                    inner_rect.size.h = (inner_rect.size.h - gap * 2.0).max(0.0);
-                }
+                // No gap padding for tabbed/stacked.
+                let inner_rect = rect;
 
                 let bar_row_height = self.tab_bar_row_height();
                 let mut tab_offset = 0.0;
@@ -2349,13 +2344,9 @@ impl<W: LayoutElement> ContainerTree<W> {
                 }
             }
             Layout::Tabbed | Layout::Stacked => {
-                let mut inner_rect = rect;
-                if gap > 0.0 {
-                    inner_rect.loc.x += gap;
-                    inner_rect.loc.y += gap;
-                    inner_rect.size.w = (inner_rect.size.w - gap * 2.0).max(0.0);
-                    inner_rect.size.h = (inner_rect.size.h - gap * 2.0).max(0.0);
-                }
+                // No gap padding for tabbed/stacked: children overlap,
+                // and outer gaps are already provided by the parent layout.
+                let inner_rect = rect;
 
                 let bar_row_height = self.tab_bar_row_height();
                 let mut tab_offset = 0.0;
@@ -2628,13 +2619,21 @@ impl<W: LayoutElement> ContainerTree<W> {
             return None;
         }
 
-        let gap = self.options.layout.gaps;
-        let mut inner_rect = rect;
-        if gap > 0.0 {
-            inner_rect.loc.x += gap;
-            inner_rect.loc.y += gap;
-            inner_rect.size.w = (inner_rect.size.w - gap * 2.0).max(0.0);
-            inner_rect.size.h = (inner_rect.size.h - gap * 2.0).max(0.0);
+        // No gap padding: tabbed/stacked containers don't apply internal gap,
+        // outer gaps are handled by the parent layout.
+
+        // Extend the tab bar to align with the focus ring edges.
+        let ring_ext = if !self.options.layout.focus_ring.off {
+            self.options.layout.focus_ring.width
+        } else {
+            0.0
+        };
+        let mut bar_rect = rect;
+        if ring_ext > 0.0 {
+            bar_rect.loc.x -= ring_ext;
+            bar_rect.loc.y -= ring_ext;
+            bar_rect.size.w += ring_ext * 2.0;
+            bar_rect.size.h += ring_ext; // only top extension for height
         }
 
         let spacing = self.tab_bar_spacing();
@@ -2643,23 +2642,19 @@ impl<W: LayoutElement> ContainerTree<W> {
             Layout::Stacked => row_height * tab_count as f64,
             _ => 0.0,
         };
-        let bar_height = (base_height + spacing).min(inner_rect.size.h).max(0.0);
+        let bar_height = (base_height + ring_ext + spacing)
+            .min(bar_rect.size.h)
+            .max(0.0);
         if bar_height <= 0.0 {
             return None;
         }
 
         let bar_rect = Rectangle::new(
-            inner_rect.loc,
-            Size::from((inner_rect.size.w, bar_height)),
+            bar_rect.loc,
+            Size::from((bar_rect.size.w, bar_height)),
         );
 
-        let actual_row_height = if layout == Layout::Stacked {
-            row_height
-        } else {
-            row_height
-        };
-
-        Some((bar_rect, actual_row_height))
+        Some((bar_rect, row_height))
     }
 
     /// Get all windows in the tree (depth-first traversal)
