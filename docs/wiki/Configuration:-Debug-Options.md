@@ -33,6 +33,7 @@ debug {
     honor-xdg-activation-with-invalid-serial
     skip-cursor-only-updates-during-vrr
     deactivate-unfocused-windows
+    disable-frame-scheduling
 }
 
 binds {
@@ -319,6 +320,24 @@ It will cause niri to drop the Activated state for all unfocused windows.
 ```kdl
 debug {
     deactivate-unfocused-windows
+}
+```
+
+### `disable-frame-scheduling`
+
+Disables frame scheduling, a latency optimization that only applies on the TTY backend with fixed-refresh (non-VRR) outputs.
+
+When frame scheduling is enabled (the default), niri delays rendering until just before the estimated vblank deadline instead of rendering immediately when damage arrives.
+This reduces the time the rendered frame sits in the KMS buffer waiting for vblank, lowering input-to-presentation latency.
+The deadline is computed from an adaptive estimator of render+commit time that adjusts automatically based on measured GPU render times and detected frame drops.
+
+Frame scheduling does not activate in the following cases: Winit/Headless backends, VRR-enabled outputs, or when the output has no presentation time history (e.g. first frame after idle or resume from suspend).
+
+Set this debug flag if you experience issues like missed frames or visual glitches that you suspect may be related to frame scheduling.
+
+```kdl
+debug {
+    disable-frame-scheduling
 }
 ```
 

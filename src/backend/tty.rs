@@ -1698,6 +1698,7 @@ impl Tty {
             RedrawState::WaitingForVBlank { redraw_needed } => redraw_needed,
             state @ (RedrawState::Idle
             | RedrawState::Queued
+            | RedrawState::WaitingForRenderDeadline(_)
             | RedrawState::WaitingForEstimatedVBlank(_)
             | RedrawState::WaitingForEstimatedVBlankAndQueued(_)) => {
                 // This is an error!() because it shouldn't happen, but on some systems it somehow
@@ -1763,6 +1764,9 @@ impl Tty {
 
         output_state.frame_clock.presented(presentation_time);
 
+        // Update the render time estimator for frame drop detection.
+        output_state.render_time_estimator.on_vblank(meta.sequence);
+
         if redraw_needed || output_state.unfinished_animations_remain {
             let vblank_frame = tracy_client::Client::running()
                 .unwrap()
@@ -1792,6 +1796,7 @@ impl Tty {
         match mem::replace(&mut output_state.redraw_state, RedrawState::Idle) {
             RedrawState::Idle => unreachable!(),
             RedrawState::Queued => unreachable!(),
+            RedrawState::WaitingForRenderDeadline(_) => unreachable!(),
             RedrawState::WaitingForVBlank { .. } => unreachable!(),
             RedrawState::WaitingForEstimatedVBlank(_) => (),
             // The timer fired just in front of a redraw.
@@ -1830,6 +1835,7 @@ impl Tty {
         target_presentation_time: Duration,
     ) -> RenderResult {
         let span = tracy_client::span!("Tty::render");
+        let render_start = std::time::Instant::now();
 
         let mut rv = RenderResult::Skipped;
 
@@ -1937,13 +1943,22 @@ impl Tty {
 
                     match drm_compositor.queue_frame(data) {
                         Ok(()) => {
+                            let render_elapsed = render_start.elapsed();
+
                             let output_state = niri.output_state.get_mut(output).unwrap();
+
+                            // Record render+commit time for frame scheduling.
+                            output_state
+                                .render_time_estimator
+                                .record_render_time(render_elapsed);
+
                             let new_state = RedrawState::WaitingForVBlank {
                                 redraw_needed: false,
                             };
                             match mem::replace(&mut output_state.redraw_state, new_state) {
                                 RedrawState::Idle => unreachable!(),
                                 RedrawState::Queued => (),
+                                RedrawState::WaitingForRenderDeadline(_) => unreachable!(),
                                 RedrawState::WaitingForVBlank { .. } => unreachable!(),
                                 RedrawState::WaitingForEstimatedVBlank(_) => unreachable!(),
                                 RedrawState::WaitingForEstimatedVBlankAndQueued(token) => {
@@ -2470,10 +2485,12 @@ impl Tty {
                     let wl_mode = Mode::from(mode);
                     output.change_current_state(Some(wl_mode), None, None, None);
                     output.set_preferred(wl_mode);
+                    let interval = refresh_interval(mode);
                     output_state.frame_clock = FrameClock::new(
-                        Some(refresh_interval(mode)),
+                        Some(interval),
                         surface.compositor.vrr_enabled(),
                     );
+                    output_state.render_time_estimator.set_refresh_interval(interval);
                     niri.output_resized(&output);
                 }
             }
@@ -2915,6 +2932,7 @@ fn queue_estimated_vblank_timer(
     match mem::take(&mut output_state.redraw_state) {
         RedrawState::Idle => unreachable!(),
         RedrawState::Queued => (),
+        RedrawState::WaitingForRenderDeadline(_) => unreachable!(),
         RedrawState::WaitingForVBlank { .. } => unreachable!(),
         RedrawState::WaitingForEstimatedVBlank(token)
         | RedrawState::WaitingForEstimatedVBlankAndQueued(token) => {

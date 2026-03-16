@@ -443,6 +443,7 @@ pub struct OutputState {
     pub global: GlobalId,
     pub frame_clock: FrameClock,
     pub redraw_state: RedrawState,
+    pub render_time_estimator: crate::render_time_estimator::RenderTimeEstimator,
     pub on_demand_vrr_enabled: bool,
     // After the last redraw, some ongoing animations still remain.
     pub unfinished_animations_remain: bool,
@@ -487,6 +488,8 @@ pub enum RedrawState {
     Idle,
     /// A redraw is queued.
     Queued,
+    /// Waiting for the render deadline (just before vblank) to render with the latest input.
+    WaitingForRenderDeadline(RegistrationToken),
     /// We submitted a frame to the KMS and waiting for it to be presented.
     WaitingForVBlank { redraw_needed: bool },
     /// We did not submit anything to KMS and made a timer to fire at the estimated VBlank.
@@ -632,16 +635,86 @@ impl RedrawState {
                 RedrawState::WaitingForEstimatedVBlankAndQueued(token)
             }
 
-            // A redraw is already queued.
-            value @ (RedrawState::Queued | RedrawState::WaitingForEstimatedVBlankAndQueued(_)) => {
-                value
-            }
+            // A redraw is already queued or batched behind a render deadline timer.
+            value @ (RedrawState::Queued
+            | RedrawState::WaitingForRenderDeadline(_)
+            | RedrawState::WaitingForEstimatedVBlankAndQueued(_)) => value,
 
             // We're waiting for VBlank, request a redraw afterwards.
             RedrawState::WaitingForVBlank { .. } => RedrawState::WaitingForVBlank {
                 redraw_needed: true,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod redraw_state_tests {
+    use super::*;
+    use calloop::EventLoop;
+
+    fn make_token() -> RegistrationToken {
+        let event_loop: EventLoop<()> = EventLoop::try_new().unwrap();
+        let handle = event_loop.handle();
+        handle
+            .insert_source(
+                calloop::timer::Timer::from_duration(std::time::Duration::from_secs(9999)),
+                |_, _, _| calloop::timer::TimeoutAction::Drop,
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn idle_to_queued() {
+        let state = RedrawState::Idle.queue_redraw();
+        assert!(matches!(state, RedrawState::Queued));
+    }
+
+    #[test]
+    fn queued_stays_queued() {
+        let state = RedrawState::Queued.queue_redraw();
+        assert!(matches!(state, RedrawState::Queued));
+    }
+
+    #[test]
+    fn waiting_for_render_deadline_is_noop() {
+        let token = make_token();
+        let state = RedrawState::WaitingForRenderDeadline(token).queue_redraw();
+        assert!(matches!(state, RedrawState::WaitingForRenderDeadline(_)));
+    }
+
+    #[test]
+    fn waiting_for_vblank_sets_redraw_needed() {
+        let state = RedrawState::WaitingForVBlank {
+            redraw_needed: false,
+        }
+        .queue_redraw();
+        assert!(matches!(
+            state,
+            RedrawState::WaitingForVBlank {
+                redraw_needed: true
+            }
+        ));
+    }
+
+    #[test]
+    fn waiting_for_estimated_vblank_becomes_and_queued() {
+        let token = make_token();
+        let state = RedrawState::WaitingForEstimatedVBlank(token).queue_redraw();
+        assert!(matches!(
+            state,
+            RedrawState::WaitingForEstimatedVBlankAndQueued(_)
+        ));
+    }
+
+    #[test]
+    fn and_queued_stays_and_queued() {
+        let token = make_token();
+        let state = RedrawState::WaitingForEstimatedVBlankAndQueued(token).queue_redraw();
+        assert!(matches!(
+            state,
+            RedrawState::WaitingForEstimatedVBlankAndQueued(_)
+        ));
     }
 }
 
@@ -2823,9 +2896,15 @@ impl Niri {
         };
 
         let size = output_size(&output);
+        let mut render_time_estimator = crate::render_time_estimator::RenderTimeEstimator::new();
+        if let Some(interval) = refresh_interval {
+            render_time_estimator.set_refresh_interval(interval);
+        }
+
         let state = OutputState {
             global,
             redraw_state: RedrawState::Idle,
+            render_time_estimator,
             on_demand_vrr_enabled: false,
             unfinished_animations_remain: false,
             frame_clock: FrameClock::new(refresh_interval, vrr),
@@ -2861,6 +2940,7 @@ impl Niri {
         match state.redraw_state {
             RedrawState::Idle => (),
             RedrawState::Queued => (),
+            RedrawState::WaitingForRenderDeadline(token) => self.event_loop.remove(token),
             RedrawState::WaitingForVBlank { .. } => (),
             RedrawState::WaitingForEstimatedVBlank(token) => self.event_loop.remove(token),
             RedrawState::WaitingForEstimatedVBlankAndQueued(token) => self.event_loop.remove(token),
@@ -3619,14 +3699,64 @@ impl Niri {
     pub fn redraw_queued_outputs(&mut self, backend: &mut Backend) {
         let _span = tracy_client::span!("Niri::redraw_queued_outputs");
 
-        while let Some((output, _)) = self.output_state.iter().find(|(_, state)| {
-            matches!(
-                state.redraw_state,
-                RedrawState::Queued | RedrawState::WaitingForEstimatedVBlankAndQueued(_)
-            )
-        }) {
-            trace!("redrawing output");
+        let is_tty = matches!(backend, Backend::Tty(_));
+        let disable_frame_scheduling = self.config.borrow().debug.disable_frame_scheduling;
+
+        loop {
+            let Some((output, _)) = self.output_state.iter().find(|(_, state)| {
+                matches!(
+                    state.redraw_state,
+                    RedrawState::Queued | RedrawState::WaitingForEstimatedVBlankAndQueued(_)
+                )
+            }) else {
+                break;
+            };
             let output = output.clone();
+
+            // Try frame scheduling: delay render until just before vblank.
+            let state = self.output_state.get_mut(&output).unwrap();
+            let should_schedule = is_tty
+                && !disable_frame_scheduling
+                && !state.frame_clock.vrr()
+                && matches!(state.redraw_state, RedrawState::Queued);
+
+            if should_schedule {
+                let now = crate::utils::get_monotonic_time();
+                let next_vblank = state.frame_clock.next_presentation_time();
+
+                if let Some(deadline) = state.render_time_estimator.deadline(next_vblank, now) {
+                    let delay = deadline.saturating_sub(now);
+                    trace!("scheduling render deadline in {delay:?}");
+
+                    let output_clone = output.clone();
+                    let timer = calloop::timer::Timer::from_duration(delay);
+                    let token = self
+                        .event_loop
+                        .insert_source(timer, move |_, _, data| {
+                            let output_state =
+                                data.niri.output_state.get_mut(&output_clone).unwrap();
+                            match mem::take(&mut output_state.redraw_state) {
+                                RedrawState::WaitingForRenderDeadline(_) => {
+                                    output_state.redraw_state = RedrawState::Queued;
+                                }
+                                other => {
+                                    error!(
+                                        "unexpected redraw state in render deadline timer: \
+                                         {other:?}"
+                                    );
+                                    output_state.redraw_state = RedrawState::Queued;
+                                }
+                            }
+                            data.niri.redraw_queued_outputs(&mut data.backend);
+                            calloop::timer::TimeoutAction::Drop
+                        })
+                        .unwrap();
+                    state.redraw_state = RedrawState::WaitingForRenderDeadline(token);
+                    continue;
+                }
+            }
+
+            trace!("redrawing output");
             self.redraw(backend, &output);
         }
     }
