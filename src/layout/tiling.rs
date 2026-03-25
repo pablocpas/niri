@@ -3513,10 +3513,6 @@ impl<W: LayoutElement> TilingSpace<W> {
         window: &W::Id,
         blocker: crate::utils::transaction::TransactionBlocker,
     ) {
-        if self.options.animations.window_close.anim.off || self.clock.should_complete_instantly() {
-            return;
-        }
-
         let Some(path) = self.tree.find_window(window) else {
             return;
         };
