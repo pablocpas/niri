@@ -2076,10 +2076,14 @@ impl State {
             }
             Action::FocusParent => {
                 self.niri.layout.focus_parent();
+                self.maybe_warp_cursor_to_focus();
+                self.niri.layer_shell_on_demand_focus = None;
                 self.niri.queue_redraw_all();
             }
             Action::FocusChild => {
                 self.niri.layout.focus_child();
+                self.maybe_warp_cursor_to_focus();
+                self.niri.layer_shell_on_demand_focus = None;
                 self.niri.queue_redraw_all();
             }
             Action::SplitHorizontal => {
@@ -2311,18 +2315,21 @@ impl State {
             Action::FocusFloating => {
                 self.niri.layout.focus_floating();
                 self.maybe_warp_cursor_to_focus();
+                self.niri.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
             Action::FocusTiling => {
                 self.niri.layout.focus_tiling();
                 self.maybe_warp_cursor_to_focus();
+                self.niri.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
             Action::SwitchFocusBetweenFloatingAndTiling => {
                 self.niri.layout.switch_focus_floating_tiling();
                 self.maybe_warp_cursor_to_focus();
+                self.niri.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }

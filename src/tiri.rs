@@ -1061,6 +1061,8 @@ impl State {
             self.maybe_warp_cursor_to_focus();
         }
 
+        self.niri.layer_shell_on_demand_focus = None;
+
         // FIXME: granular
         self.niri.queue_redraw_all();
     }
