@@ -59,7 +59,7 @@ pub struct OffscreenRenderElement {
     kind: Kind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OffscreenData {
     /// Id of the offscreen element.
     pub id: Id,

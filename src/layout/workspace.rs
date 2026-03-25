@@ -33,6 +33,7 @@ use super::{
 };
 use crate::animation::Clock;
 use crate::niri_render_elements;
+use crate::render_helpers::offscreen::OffscreenRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
@@ -160,6 +161,7 @@ niri_render_elements! {
     WorkspaceRenderElement<R> => {
         Tiling = TilingSpaceRenderElement<R>,
         Floating = FloatingSpaceRenderElement<R>,
+        Offscreen = OffscreenRenderElement,
     }
 }
 
@@ -2868,6 +2870,22 @@ impl<W: LayoutElement> Workspace<W> {
             .render(renderer, target, tiling_focus_ring, &mut |elem| {
                 push(elem.into())
             });
+    }
+
+    pub fn render_tiling_as_offscreen<R: NiriRenderer>(
+        &self,
+        renderer: &mut GlesRenderer,
+        target: RenderTarget,
+        focus_ring: bool,
+        push: &mut dyn FnMut(WorkspaceRenderElement<R>),
+    ) {
+        let tiling_focus_ring = focus_ring && !self.floating_is_active();
+        if let Some(elem) = self
+            .tiling
+            .render_as_offscreen(renderer, target, tiling_focus_ring)
+        {
+            push(elem.into());
+        }
     }
 
     pub fn render_floating<R: NiriRenderer>(

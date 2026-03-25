@@ -2419,7 +2419,11 @@ impl<W: LayoutElement> Monitor<W> {
                 }
             }
 
-            ws.render_tiling(renderer, target, focus_ring, push!());
+            if self.overview_progress.is_some() {
+                ws.render_tiling_as_offscreen(renderer.as_gles_renderer(), target, focus_ring, push!());
+            } else {
+                ws.render_tiling(renderer, target, focus_ring, push!());
+            }
         }
     }
 

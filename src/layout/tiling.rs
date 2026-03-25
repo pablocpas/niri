@@ -17,6 +17,7 @@ use std::time::Duration;
 use tiri_config::utils::MergeWith as _;
 use tiri_config::{Border, HideEdgeBorders, PresetSize, TabBar};
 use tiri_ipc::{ColumnDisplay, LayoutTreeNode, SizeChange};
+use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::element::Kind;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
 
@@ -34,8 +35,10 @@ use super::tile::{Tile, TileRenderElement};
 use super::{ConfigureIntent, InteractiveResizeData, LayoutElement, Options, RemovedTile, ResizeHit};
 use crate::animation::{Animation, Clock};
 use crate::niri_render_elements;
+use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenRenderElement};
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::RenderTarget;
 use crate::render_helpers::texture::TextureRenderElement;
 use crate::utils::transaction::Transaction;
@@ -83,6 +86,10 @@ pub struct TilingSpace<W: LayoutElement> {
     fullscreen_window: Option<W::Id>,
     /// Windows in the closing animation.
     closing_windows: Vec<ClosingWindow>,
+    /// Cached offscreen texture for overview rendering.
+    overview_offscreen: OffscreenBuffer,
+    /// Stable workspace-sized background used under the overview offscreen.
+    overview_background: SolidColorBuffer,
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +141,8 @@ niri_render_elements! {
         TabBar = PrimaryGpuTextureRenderElement,
         ClosingWindow = ClosingWindowRenderElement,
         ContainerSelection = FocusRingRenderElement,
+        SolidColor = SolidColorRenderElement,
+        Offscreen = OffscreenRenderElement,
     }
 }
 
@@ -841,6 +850,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         options: Rc<Options>,
     ) -> Self {
         let tree = ContainerTree::new(view_size, working_area, scale, options.clone());
+        let background_color = options.layout.background_color;
 
         Self {
             tree,
@@ -857,6 +867,8 @@ impl<W: LayoutElement> TilingSpace<W> {
             is_active: false,
             fullscreen_window: None,
             closing_windows: Vec::new(),
+            overview_offscreen: OffscreenBuffer::default(),
+            overview_background: SolidColorBuffer::new(view_size, background_color),
         }
     }
 
@@ -1195,6 +1207,42 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
+    pub fn render_as_offscreen(
+        &self,
+        renderer: &mut GlesRenderer,
+        target: RenderTarget,
+        tiling_focus_ring: bool,
+    ) -> Option<OffscreenRenderElement> {
+        for tile in self.tiles() {
+            tile.window().set_offscreen_data(None);
+        }
+
+        let mut elements = self.render_elements(renderer, target, tiling_focus_ring);
+        if elements.is_empty() {
+            return None;
+        }
+
+        let background = SolidColorRenderElement::from_buffer(
+            &self.overview_background,
+            Point::from((0., 0.)),
+            1.,
+            Kind::Unspecified,
+        );
+        elements.push(background.into());
+
+        self.overview_offscreen
+            .render(renderer, Scale::from(self.scale), &elements)
+            .map(|(elem, _sync, data)| {
+                for tile in self.tiles() {
+                    tile.window().set_offscreen_data(Some(data.clone()));
+                }
+
+                elem
+            })
+            .map_err(|err| warn!("error rendering tiling space to offscreen: {err:?}"))
+            .ok()
+    }
+
     // Layout operations using ContainerTree
     pub fn update_config(
         &mut self,
@@ -1207,6 +1255,8 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.working_area = working_area;
         self.scale = scale;
         self.options = options.clone();
+        self.overview_background
+            .update(view_size, options.layout.background_color);
         self.tree
             .update_config(view_size, working_area, scale, options);
         self.tree.layout();
@@ -1219,6 +1269,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     ) {
         self.view_size = view_size;
         self.working_area = working_area;
+        self.overview_background.resize(view_size);
         self.tree.set_view_size(view_size, working_area);
         // Recalculate layout on resize
         self.tree.layout();
