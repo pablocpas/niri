@@ -180,6 +180,7 @@ use crate::window::mapped::MappedId;
 use crate::window::{InitialConfigureState, Mapped, ResolvedWindowRules, Unmapped, WindowRef};
 
 const CLEAR_COLOR_LOCKED: [f32; 4] = [0.3, 0.1, 0.1, 1.];
+const DEFAULT_FRAME_SCHEDULE_MARGIN_MS: u16 = 0;
 
 // We'll try to send frame callbacks at least once a second. We'll make a timer that fires once a
 // second, so with the worst timing the maximum interval between two frame callbacks for a surface
@@ -823,6 +824,13 @@ impl State {
 
         self.refresh();
 
+        // Clear the time so advance_animations() and any other code below always use real
+        // monotonic time, not a stale frozen clock from a previous render.  In particular, after
+        // frame-scheduling timer callbacks the clock can be left frozen at target_presentation_time
+        // (~5 ms in the future), which would make advance_animations() see a future time and
+        // prematurely complete animations.
+        self.niri.clock.clear();
+
         // Advance animations to the current time (not target render time) before rendering outputs
         // in order to clear completed animations and render elements. Even if we're not rendering,
         // it's good to advance every now and then so the workspace clean-up and animations don't
@@ -839,7 +847,8 @@ impl State {
         #[cfg(feature = "dbus")]
         self.niri.update_locked_hint();
 
-        // Clear the time so it's fetched afresh next iteration.
+        // redraw() freezes the clock at the target presentation time for rendering; clear it again
+        // before returning so non-render paths don't reuse that frozen future time.
         self.niri.clock.clear();
         self.niri.pointer_inactivity_timer_got_reset = false;
         self.niri.notified_activity_this_iteration = false;
@@ -1674,6 +1683,11 @@ impl State {
             xwls_changed = true;
         }
 
+        let frame_schedule_margin_ms = config
+            .debug
+            .frame_schedule_margin_ms
+            .unwrap_or(DEFAULT_FRAME_SCHEDULE_MARGIN_MS);
+
         *old_config = config;
 
         if let Some(outputs) = preserved_output_config {
@@ -1682,6 +1696,13 @@ impl State {
 
         // Release the borrow.
         drop(old_config);
+
+        let frame_schedule_margin = Duration::from_millis(frame_schedule_margin_ms.into());
+        for state in self.niri.output_state.values_mut() {
+            state
+                .render_time_estimator
+                .set_fixed_margin(frame_schedule_margin);
+        }
 
         // Now with a &mut self we can reload the xkb config.
         if let Some(mut xkb) = reload_xkb {
@@ -2900,6 +2921,14 @@ impl Niri {
         if let Some(interval) = refresh_interval {
             render_time_estimator.set_refresh_interval(interval);
         }
+        let frame_schedule_margin_ms = self
+            .config
+            .borrow()
+            .debug
+            .frame_schedule_margin_ms
+            .unwrap_or(DEFAULT_FRAME_SCHEDULE_MARGIN_MS);
+        render_time_estimator
+            .set_fixed_margin(Duration::from_millis(frame_schedule_margin_ms.into()));
 
         let state = OutputState {
             global,
@@ -3700,7 +3729,16 @@ impl Niri {
         let _span = tracy_client::span!("Niri::redraw_queued_outputs");
 
         let is_tty = matches!(backend, Backend::Tty(_));
-        let disable_frame_scheduling = self.config.borrow().debug.disable_frame_scheduling;
+        let (disable_frame_scheduling, frame_schedule_margin_ms) = {
+            let config = self.config.borrow();
+            (
+                config.debug.disable_frame_scheduling,
+                config
+                    .debug
+                    .frame_schedule_margin_ms
+                    .unwrap_or(DEFAULT_FRAME_SCHEDULE_MARGIN_MS),
+            )
+        };
 
         loop {
             let Some((output, _)) = self.output_state.iter().find(|(_, state)| {
@@ -3717,6 +3755,7 @@ impl Niri {
             let state = self.output_state.get_mut(&output).unwrap();
             let should_schedule = is_tty
                 && !disable_frame_scheduling
+                && frame_schedule_margin_ms > 0
                 && !state.frame_clock.vrr()
                 && matches!(state.redraw_state, RedrawState::Queued);
 
@@ -3747,7 +3786,9 @@ impl Niri {
                                     output_state.redraw_state = RedrawState::Queued;
                                 }
                             }
-                            data.niri.redraw_queued_outputs(&mut data.backend);
+                            // The deadline timer is the last chance to pick up fresh client
+                            // commits and advance animations before rendering this frame.
+                            data.refresh_and_flush_clients();
                             calloop::timer::TimeoutAction::Drop
                         })
                         .unwrap();

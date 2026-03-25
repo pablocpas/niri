@@ -26,6 +26,7 @@ pub struct Debug {
     pub deactivate_unfocused_windows: bool,
     pub skip_cursor_only_updates_during_vrr: bool,
     pub disable_frame_scheduling: bool,
+    pub frame_schedule_margin_ms: Option<u16>,
 }
 
 #[derive(knuffel::Decode, Debug, Default, PartialEq)]
@@ -74,6 +75,8 @@ pub struct DebugPart {
     pub skip_cursor_only_updates_during_vrr: Option<Flag>,
     #[knuffel(child)]
     pub disable_frame_scheduling: Option<Flag>,
+    #[knuffel(child, unwrap(argument))]
+    pub frame_schedule_margin_ms: Option<u16>,
 }
 
 impl MergeWith<DebugPart> for Debug {
@@ -101,7 +104,12 @@ impl MergeWith<DebugPart> for Debug {
             disable_frame_scheduling,
         );
 
-        merge_clone_opt!((self, part), preview_render, render_drm_device);
+        merge_clone_opt!(
+            (self, part),
+            preview_render,
+            render_drm_device,
+            frame_schedule_margin_ms
+        );
 
         self.ignored_drm_devices
             .extend(part.ignored_drm_devices.iter().cloned());

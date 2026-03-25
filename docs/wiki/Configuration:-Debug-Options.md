@@ -33,6 +33,7 @@ debug {
     honor-xdg-activation-with-invalid-serial
     skip-cursor-only-updates-during-vrr
     deactivate-unfocused-windows
+    frame-schedule-margin-ms 0
     disable-frame-scheduling
 }
 
@@ -338,6 +339,23 @@ Set this debug flag if you experience issues like missed frames or visual glitch
 ```kdl
 debug {
     disable-frame-scheduling
+}
+```
+
+### `frame-schedule-margin-ms`
+
+Controls how many milliseconds before the next predicted refresh tiri starts compositing when frame
+scheduling is enabled.
+
+This is a fixed safety margin in the spirit of sway's `max_render_time`: smaller values reduce
+latency, but if set too low they can cause delayed frames, stutter, or cursor lag on some systems.
+Larger values are more stable, but reduce the latency benefit of frame scheduling.
+
+The default is `0`, which matches sway's `off`: no delayed repaint timer is used.
+
+```kdl
+debug {
+    frame-schedule-margin-ms 0
 }
 ```
 

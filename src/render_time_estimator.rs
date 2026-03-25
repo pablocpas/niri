@@ -45,6 +45,7 @@ impl GeometricDecay {
 #[derive(Debug)]
 pub struct RenderTimeEstimator {
     render_commit_decay: GeometricDecay,
+    fixed_margin_ns: Option<u64>,
     /// Extra margin added on frame drops, in nanoseconds.
     drop_bump_ns: f64,
     /// Last DRM sequence we saw (for drop detection).
@@ -56,12 +57,17 @@ pub struct RenderTimeEstimator {
 impl RenderTimeEstimator {
     /// Default render+commit margin: 5ms (conservative initial estimate).
     const DEFAULT_RENDER_COMMIT_NS: f64 = 5_000_000.0;
+    /// Extra slack for timer wakeup jitter and compositor work done before `Tty::render()`.
+    const PRE_RENDER_SLACK_NS: f64 = 2_000_000.0;
+    /// Ignore tiny presentation timing errors; they are usually just noise.
+    const PRESENTATION_LATE_TOLERANCE_NS: f64 = 250_000.0;
     /// Bump added to margin on frame drop: 500µs.
     const DROP_BUMP_NS: f64 = 500_000.0;
 
     pub fn new() -> Self {
         Self {
             render_commit_decay: GeometricDecay::new(0.5, Self::DEFAULT_RENDER_COMMIT_NS),
+            fixed_margin_ns: None,
             drop_bump_ns: 0.0,
             last_sequence: None,
             refresh_interval_ns: None,
@@ -73,9 +79,17 @@ impl RenderTimeEstimator {
         self.refresh_interval_ns = Some(interval.as_nanos() as u64);
     }
 
+    pub fn set_fixed_margin(&mut self, margin: Duration) {
+        self.fixed_margin_ns = Some(margin.as_nanos() as u64);
+    }
+
     /// Total estimated margin (render+commit EMA + drop bump).
     pub fn total_margin(&self) -> Duration {
-        let total_ns = self.render_commit_decay.get() + self.drop_bump_ns;
+        let total_ns = if let Some(fixed_margin_ns) = self.fixed_margin_ns {
+            fixed_margin_ns as f64
+        } else {
+            self.render_commit_decay.get() + self.drop_bump_ns + Self::PRE_RENDER_SLACK_NS
+        };
 
         // Cap at refresh interval if known.
         let capped_ns = if let Some(refresh_ns) = self.refresh_interval_ns {
@@ -110,6 +124,22 @@ impl RenderTimeEstimator {
         self.render_commit_decay.add(duration.as_nanos() as f64);
     }
 
+    /// Record that the frame presented later than predicted.
+    pub fn record_late_presentation(&mut self, late_by: Duration) {
+        let late_ns = late_by.as_nanos() as f64;
+        if late_ns <= Self::PRESENTATION_LATE_TOLERANCE_NS {
+            return;
+        }
+
+        self.drop_bump_ns = self
+            .drop_bump_ns
+            .max(late_ns + Self::PRESENTATION_LATE_TOLERANCE_NS);
+
+        if let Some(refresh_ns) = self.refresh_interval_ns {
+            self.drop_bump_ns = self.drop_bump_ns.min(refresh_ns as f64);
+        }
+    }
+
     /// Called on vblank with the DRM sequence number to detect frame drops.
     pub fn on_vblank(&mut self, sequence: u32) {
         if let Some(last) = self.last_sequence {
@@ -142,9 +172,9 @@ mod tests {
     fn default_margin() {
         let estimator = RenderTimeEstimator::new();
         let margin = estimator.total_margin();
-        // Default: 5ms render+commit
-        assert!(margin.as_micros() >= 4900 && margin.as_micros() <= 5100,
-            "expected ~5ms, got {:?}", margin);
+        // Default: 5ms render+commit + 2ms pre-render slack
+        assert!(margin.as_micros() >= 6900 && margin.as_micros() <= 7100,
+            "expected ~7ms, got {:?}", margin);
     }
 
     #[test]
@@ -156,7 +186,7 @@ mod tests {
         let deadline = estimator.deadline(next_vblank, now);
         assert!(deadline.is_some());
         let d = deadline.unwrap();
-        // Should be ~111ms (116 - 5)
+        // Should be ~109ms (116 - 7)
         assert!(d > now + Duration::from_micros(500));
         assert!(d < next_vblank);
     }
@@ -165,7 +195,7 @@ mod tests {
     fn deadline_too_close_renders_immediately() {
         let estimator = RenderTimeEstimator::new();
         let now = Duration::from_millis(112);
-        let next_vblank = Duration::from_millis(116); // Only 4ms away, margin is 5ms
+        let next_vblank = Duration::from_millis(116); // Only 4ms away, margin is 7ms
 
         let deadline = estimator.deadline(next_vblank, now);
         assert!(deadline.is_none());
@@ -190,14 +220,14 @@ mod tests {
     fn render_time_converges_down() {
         let mut estimator = RenderTimeEstimator::new();
 
-        // Feed small render times — margin should drop below the 5ms default.
+        // Feed small render times — margin should drop below the 7ms default.
         for _ in 0..100 {
             estimator.record_render_time(Duration::from_micros(500));
         }
 
         let margin = estimator.total_margin();
-        assert!(margin < Duration::from_millis(1),
-            "margin should converge to ~0.5ms, got {:?}", margin);
+        assert!(margin < Duration::from_millis(3),
+            "margin should converge to ~2.5ms, got {:?}", margin);
     }
 
     #[test]
@@ -213,6 +243,44 @@ mod tests {
         let after_drop = estimator.total_margin();
         assert!(after_drop > initial_margin,
             "margin should increase after drop: {:?} vs {:?}", after_drop, initial_margin);
+    }
+
+    #[test]
+    fn late_presentation_bumps_margin() {
+        let mut estimator = RenderTimeEstimator::new();
+        let initial_margin = estimator.total_margin();
+
+        estimator.record_late_presentation(Duration::from_micros(800));
+
+        let bumped = estimator.total_margin();
+        assert!(bumped > initial_margin,
+            "margin should increase after late presentation: {:?} vs {:?}", bumped, initial_margin);
+    }
+
+    #[test]
+    fn tiny_presentation_error_is_ignored() {
+        let mut estimator = RenderTimeEstimator::new();
+        let initial_margin = estimator.total_margin();
+
+        estimator.record_late_presentation(Duration::from_micros(100));
+
+        let bumped = estimator.total_margin();
+        assert_eq!(bumped, initial_margin);
+    }
+
+    #[test]
+    fn fixed_margin_overrides_adaptive_estimate() {
+        let mut estimator = RenderTimeEstimator::new();
+        estimator.set_fixed_margin(Duration::from_millis(3));
+
+        for _ in 0..20 {
+            estimator.record_render_time(Duration::from_millis(8));
+        }
+        estimator.record_late_presentation(Duration::from_millis(4));
+        estimator.on_vblank(1);
+        estimator.on_vblank(3);
+
+        assert_eq!(estimator.total_margin(), Duration::from_millis(3));
     }
 
     #[test]
@@ -322,7 +390,7 @@ mod tests {
 
         // After 60 frames of 0.5ms renders, margin should have converged down.
         let final_margin = estimator.total_margin();
-        assert!(final_margin < Duration::from_millis(2),
-            "margin should converge to ~0.5ms after 60 frames, got {:?}", final_margin);
+        assert!(final_margin < Duration::from_millis(3),
+            "margin should converge to ~2.5ms after 60 frames, got {:?}", final_margin);
     }
 }
