@@ -660,7 +660,10 @@ impl LayoutElement for Mapped {
                 buf_pos.to_physical_precise_round(scale),
                 scale,
                 alpha,
-                Kind::ScanoutCandidate,
+                // Do not advertise regular window surfaces as overlay candidates by default.
+                // Browsers and Electron apps often use complex subsurface trees for animations,
+                // and promoting those buffers can lead to intermittent flicker on some setups.
+                Kind::Unspecified,
                 &mut push,
             )
         }
@@ -691,7 +694,7 @@ impl LayoutElement for Mapped {
                 (buf_pos + offset.to_f64()).to_physical_precise_round(scale),
                 scale,
                 alpha,
-                Kind::ScanoutCandidate,
+                Kind::Unspecified,
                 &mut push,
             );
         }
