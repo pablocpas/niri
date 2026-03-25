@@ -4499,6 +4499,46 @@ fn fullscreen_directional_focus_stays_on_active_window_like_sway() {
 }
 
 #[test]
+fn fullscreen_focus_parent_is_noop_like_sway() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(2),
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(3),
+        Op::FullscreenWindow(3),
+    ]);
+
+    check_ops_on_layout(&mut layout, [Op::FocusParent]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(3));
+    assert_eq!(workspace.debug_handler_context(), "tiling_window");
+    assert!(
+        !workspace.is_tiling_workspace_context_active(),
+        "focus_parent should not enter workspace context while fullscreen is active"
+    );
+    assert!(
+        !workspace.tiling().selected_is_container(),
+        "focus_parent should not select a tiling container while fullscreen is active"
+    );
+
+    let tree = workspace.tiling().debug_tree();
+    assert!(
+        tree.contains("Window 3 *"),
+        "focus should remain on the fullscreen window after focus_parent:\n{tree}"
+    );
+}
+
+#[test]
 fn fullscreen_open_window_does_not_steal_focus_like_sway() {
     let mut layout = check_ops([
         Op::AddOutput(1),
@@ -8479,6 +8519,127 @@ fn floating_fullscreen_roundtrip_restores_size_and_position() {
         "h mismatch: before={} after={}",
         before.size.h,
         after.size.h
+    );
+}
+
+#[test]
+fn floating_fullscreen_move_window_preserves_restored_position() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(1)
+            },
+        },
+        Op::Communicate(1),
+        Op::MoveFloatingWindow {
+            id: Some(1),
+            x: PositionChange::SetFixed(137.),
+            y: PositionChange::SetFixed(91.),
+            animate: false,
+        },
+        Op::Communicate(1),
+        Op::CompleteAnimations,
+    ]);
+
+    let before = tile_rect(&layout, 1);
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::SetFullscreenWindow {
+                window: 1,
+                is_fullscreen: true,
+            },
+            Op::Communicate(1),
+            Op::MoveFloatingWindow {
+                id: Some(1),
+                x: PositionChange::AdjustFixed(200.),
+                y: PositionChange::AdjustFixed(150.),
+                animate: false,
+            },
+            Op::SetFullscreenWindow {
+                window: 1,
+                is_fullscreen: false,
+            },
+            Op::Communicate(1),
+            Op::CompleteAnimations,
+        ],
+    );
+
+    let after = tile_rect(&layout, 1);
+    let close = |a: f64, b: f64| (a - b).abs() <= 1.0;
+
+    assert!(
+        close(before.loc.x, after.loc.x),
+        "fullscreen move should not change restored x position: before={} after={}",
+        before.loc.x,
+        after.loc.x
+    );
+    assert!(
+        close(before.loc.y, after.loc.y),
+        "fullscreen move should not change restored y position: before={} after={}",
+        before.loc.y,
+        after.loc.y
+    );
+}
+
+#[test]
+fn floating_fullscreen_center_window_preserves_restored_position() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(1)
+            },
+        },
+        Op::Communicate(1),
+        Op::MoveFloatingWindow {
+            id: Some(1),
+            x: PositionChange::SetFixed(137.),
+            y: PositionChange::SetFixed(91.),
+            animate: false,
+        },
+        Op::Communicate(1),
+        Op::CompleteAnimations,
+    ]);
+
+    let before = tile_rect(&layout, 1);
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::SetFullscreenWindow {
+                window: 1,
+                is_fullscreen: true,
+            },
+            Op::Communicate(1),
+            Op::CenterWindow { id: Some(1) },
+            Op::SetFullscreenWindow {
+                window: 1,
+                is_fullscreen: false,
+            },
+            Op::Communicate(1),
+            Op::CompleteAnimations,
+        ],
+    );
+
+    let after = tile_rect(&layout, 1);
+    let close = |a: f64, b: f64| (a - b).abs() <= 1.0;
+
+    assert!(
+        close(before.loc.x, after.loc.x),
+        "fullscreen center should not change restored x position: before={} after={}",
+        before.loc.x,
+        after.loc.x
+    );
+    assert!(
+        close(before.loc.y, after.loc.y),
+        "fullscreen center should not change restored y position: before={} after={}",
+        before.loc.y,
+        after.loc.y
     );
 }
 

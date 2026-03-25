@@ -1746,6 +1746,7 @@ impl Tty {
                         surface.presentation_misprediction_plot_name,
                         misprediction_s * 1000.,
                     );
+
                 }
             }
             Ok(None) => (),

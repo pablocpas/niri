@@ -1728,6 +1728,10 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn focus_parent(&mut self) -> bool {
+        if self.fullscreen_window.is_some() {
+            return false;
+        }
+
         let selected = self.tree.select_parent();
         if selected {
             // Force immediate redraw for container-selection visuals.
@@ -1745,6 +1749,10 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn focus_parent_targets_workspace(&self) -> bool {
+        if self.fullscreen_window.is_some() {
+            return false;
+        }
+
         if self.tree.selected_is_container() {
             return self.tree.selected_container_is_root();
         }

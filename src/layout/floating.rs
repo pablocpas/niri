@@ -2488,6 +2488,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let Some(active_id) = &self.active_window_id else {
             return;
         };
+        if self.fullscreen_window.as_ref() == Some(active_id) {
+            return;
+        }
         let idx = self.idx_of(active_id).unwrap();
 
         let new_pos = self.containers[idx].data.logical_pos + amount;
@@ -2520,6 +2523,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let Some(id) = self.resolve_target_id(id) else {
             return;
         };
+        if self.fullscreen_window.as_ref() == Some(&id) {
+            return;
+        }
         let idx = self.idx_of(&id).unwrap();
 
         let mut pos = self.containers[idx].data.logical_pos;
@@ -2564,6 +2570,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let Some(id) = id.or(self.active_window_id.as_ref()).cloned() else {
             return;
         };
+        if self.fullscreen_window.as_ref() == Some(&id) {
+            return;
+        }
         let idx = self.idx_of(&id).unwrap();
 
         let new_pos =
