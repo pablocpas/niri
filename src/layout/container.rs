@@ -3412,12 +3412,6 @@ impl<W: LayoutElement> ContainerTree<W> {
                         direction,
                         target_container.focused_child_index().unwrap_or(0),
                     );
-                    if moved
-                        && ancestor_parent_path.is_empty()
-                        && self.root == Some(target_key)
-                    {
-                        let _ = self.wrap_root_node_with_layout(ancestor_parent_layout, false);
-                    }
                     if moved && preserve_selected_container {
                         self.selected_key = Some(node_key);
                     }
@@ -3802,10 +3796,10 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
 
         if Some(selected_key) == self.root {
-            // Floating trees model top-level containers directly, so splitting the
-            // selected root wraps that node (container_split semantics), rather
-            // than recording workspace-level pending layout intent.
-            return self.wrap_root_node_with_layout(layout, true);
+            // Floating roots are first-class containers. Match sway by mutating
+            // the selected root container itself instead of recording workspace
+            // intent or wrapping it in an extra parent.
+            return self.split_root_like_sway_floating(layout);
         }
 
         self.split_selected_container_like_sway(selected_key, layout)
@@ -3864,6 +3858,19 @@ impl<W: LayoutElement> ContainerTree<W> {
     /// context on the original root node.
     pub fn split_root_like_sway_floating(&mut self, layout: Layout) -> bool {
         self.clear_focus_history();
+        let Some(root_key) = self.root else {
+            return false;
+        };
+
+        if let Some(container) = self.get_container_mut(root_key) {
+            container.set_layout_explicit(layout);
+            self.selected_key = Some(root_key);
+            if let Some(focused_key) = self.focused_key {
+                self.sync_container_focus_from_key(focused_key);
+            }
+            return true;
+        }
+
         self.wrap_root_node_with_layout(layout, true)
     }
 
@@ -3895,10 +3902,28 @@ impl<W: LayoutElement> ContainerTree<W> {
             return false;
         };
 
-        let parent_layout = match self.get_container(parent_key) {
-            Some(container) => container.layout(),
+        let (parent_layout, parent_child_count, parent_preserve_on_single) =
+            match self.get_container(parent_key) {
+            Some(container) => (
+                container.layout(),
+                container.child_count(),
+                container.preserve_on_single(),
+            ),
             None => return false,
         };
+
+        if matches!(parent_layout, Layout::SplitH | Layout::SplitV)
+            && parent_layout == layout
+            && (parent_child_count == 1
+                || (parent_preserve_on_single && Some(parent_key) != self.root))
+        {
+            if let Some(container) = self.get_container_mut(parent_key) {
+                // Repeating the same split direction should only refresh explicit intent, not
+                // introduce an extra one-child wrapper around the focused leaf.
+                container.set_layout_explicit(layout);
+            }
+            return true;
+        }
 
         // Get the focused child key
         let focused_child_key = if let Some(container) = self.get_container(parent_key) {

@@ -677,7 +677,26 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     fn route_domain_for_family(&self, family: CommandFamily) -> RouteDomain {
-        self.resolved_command_route().domain_for_family(family)
+        let resolved = self.resolved_command_route();
+        if matches!(resolved.handler_context, HandlerContext::Workspace)
+            && self.floating.active_command_container_path().is_some()
+        {
+            return match family {
+                CommandFamily::Focus => RouteDomain::Workspace,
+                CommandFamily::Split | CommandFamily::Layout => RouteDomain::Floating,
+                CommandFamily::MoveDirectional | CommandFamily::MoveContainer => {
+                    resolved.domain_for_family(family)
+                }
+            };
+        }
+
+        resolved.domain_for_family(family)
+    }
+
+    fn preserves_floating_workspace_context_for_family(&self, family: CommandFamily) -> bool {
+        matches!(self.handler_context(), HandlerContext::Workspace)
+            && self.floating.active_command_container_path().is_some()
+            && matches!(family, CommandFamily::Split | CommandFamily::Layout)
     }
 
     pub fn focus_mode_toggle_target_is_floating_like_sway(&self) -> bool {
@@ -2188,7 +2207,9 @@ impl<W: LayoutElement> Workspace<W> {
                 self.tiling.split_horizontal()
             }
             RouteDomain::Floating => {
-                self.floating_workspace_context = false;
+                if !self.preserves_floating_workspace_context_for_family(CommandFamily::Split) {
+                    self.floating_workspace_context = false;
+                }
                 self.floating.split_horizontal();
             }
         }
@@ -2202,7 +2223,9 @@ impl<W: LayoutElement> Workspace<W> {
                 self.tiling.split_vertical()
             }
             RouteDomain::Floating => {
-                self.floating_workspace_context = false;
+                if !self.preserves_floating_workspace_context_for_family(CommandFamily::Split) {
+                    self.floating_workspace_context = false;
+                }
                 self.floating.split_vertical();
             }
         }
@@ -2215,7 +2238,9 @@ impl<W: LayoutElement> Workspace<W> {
                 self.tiling.set_layout_mode(layout)
             }
             RouteDomain::Floating => {
-                self.floating_workspace_context = false;
+                if !self.preserves_floating_workspace_context_for_family(CommandFamily::Layout) {
+                    self.floating_workspace_context = false;
+                }
                 self.floating.set_layout_mode(layout);
             }
         }
@@ -2228,7 +2253,9 @@ impl<W: LayoutElement> Workspace<W> {
                 self.tiling.toggle_split_layout()
             }
             RouteDomain::Floating => {
-                self.floating_workspace_context = false;
+                if !self.preserves_floating_workspace_context_for_family(CommandFamily::Layout) {
+                    self.floating_workspace_context = false;
+                }
                 self.floating.toggle_split_layout();
             }
         }

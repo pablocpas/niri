@@ -4999,6 +4999,7 @@ fn floating_split_with_wrapper_selected_changes_root_layout() {
         Op::ToggleWindowFloating { id: None },
         Op::SplitVertical,
         Op::AddWindow { params: params2 },
+        Op::FocusWindow(1),
         Op::FocusParent,
         Op::FocusParent,
         Op::SplitHorizontal,
@@ -9298,10 +9299,11 @@ fn move_right_enters_container_with_different_layout() {
     assert_snapshot!(
         tree.as_str(),
         @"
-    SplitV
-      Window 2
-      Window 1 *
-      Window 3
+    SplitH
+      SplitV
+        Window 2
+        Window 1 *
+        Window 3
     "
     );
 }
@@ -10551,10 +10553,11 @@ fn i3_124_move_window_into_adjacent_split_container() {
     assert_snapshot!(
         tree.as_str(),
         @"
-    SplitV
-      Window 2
-      Window 1 *
-      Window 3
+    SplitH
+      SplitV
+        Window 2
+        Window 1 *
+        Window 3
     "
     );
 }
@@ -11966,8 +11969,8 @@ fn handler_context_routing_matrix_for_core_command_families() {
                 handler: "workspace",
                 command: "workspace",
                 focus: "workspace",
-                split: "workspace",
-                layout: "workspace",
+                split: "floating",
+                layout: "floating",
                 move_directional: "workspace",
                 move_container: "workspace",
             },

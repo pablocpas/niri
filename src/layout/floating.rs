@@ -2121,7 +2121,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
             if !root_meaningful || (root_child_count <= 1 && !preserve_on_single) {
                 container.wrapper_selected = false;
                 container.tree.clear_selection();
+                return false;
             }
+            // Match sway: once the floating wrapper is selected, the next
+            // focus-parent step reaches workspace context while keeping the
+            // floating command target available.
             return false;
         }
 
@@ -2133,9 +2137,13 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 // to tiling focus (sway behavior for redundant single-child wrappers).
                 let root_child_count = tree.container_info(&[]).map(|(_, _, count)| count).unwrap_or(0);
                 let root_meaningful = tree.container_is_meaningful_parent(&[]).unwrap_or(false);
-                if root_meaningful && root_child_count > 1 {
+                let preserve_on_single = tree
+                    .root_container()
+                    .is_some_and(|container| container.preserve_on_single())
+                    && !container.workspace_floated;
+                if root_meaningful && (root_child_count > 1 || preserve_on_single) {
                     container.wrapper_selected = true;
-                    return true;
+                    return false;
                 }
                 tree.clear_selection();
                 return false;
@@ -2164,7 +2172,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
                         return false;
                     }
                 }
-                container.wrapper_selected = root_selected;
+                container.wrapper_selected = false;
                 return true;
             }
 
