@@ -1,5 +1,5 @@
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use arrayvec::ArrayVec;
 use smithay::output::Output;
@@ -45,6 +45,7 @@ struct ToplevelData {
     title: Option<String>,
     app_id: Option<String>,
     states: ArrayVec<u32, 3>,
+    state_bytes: Vec<u8>,
     output: Option<Output>,
     instances: HashMap<ZwlrForeignToplevelHandleV1, Vec<WlOutput>>,
     // FIXME: parent.
@@ -79,9 +80,36 @@ pub fn refresh(state: &mut State) {
 
     let protocol_state = &mut state.niri.foreign_toplevel_state;
 
+    // Collect the current surfaces once so closed-window detection doesn't repeatedly rescan the
+    // layout, then refresh non-focused windows before the focused one.
+    let mut surfaces = HashSet::new();
+    let mut windows = Vec::new();
+    let mut focused = None;
+    state.niri.layout.with_windows(|mapped, output, _, _| {
+        let toplevel = mapped.toplevel();
+        let wl_surface = toplevel.wl_surface();
+        surfaces.insert(wl_surface.clone());
+
+        let window = mapped.window.clone();
+        let output = output.cloned();
+        with_toplevel_role_and_current(toplevel, |_, cur| {
+            let Some(cur) = cur else {
+                error!("mapped must have had initial commit");
+                return;
+            };
+
+            if state.niri.keyboard_focus.surface() == Some(wl_surface) {
+                focused = Some((window.clone(), output.clone()));
+            } else {
+                let _ = cur;
+                windows.push((window, output));
+            }
+        });
+    });
+
     // Handle closed windows.
     protocol_state.toplevels.retain(|surface, data| {
-        if state.niri.layout.find_window_and_output(surface).is_some() {
+        if surfaces.contains(surface) {
             return true;
         }
 
@@ -96,9 +124,8 @@ pub fn refresh(state: &mut State) {
     //
     // Save the focused window for last, this way when the focus changes, we will first deactivate
     // the previous window and only then activate the newly focused window.
-    let mut focused = None;
-    state.niri.layout.with_windows(|mapped, output, _, _| {
-        let toplevel = mapped.toplevel();
+    for (window, output) in windows {
+        let toplevel = window.toplevel().expect("no X11 support");
         let wl_surface = toplevel.wl_surface();
         with_toplevel_role_and_current(toplevel, |role, cur| {
             let Some(cur) = cur else {
@@ -106,13 +133,9 @@ pub fn refresh(state: &mut State) {
                 return;
             };
 
-            if state.niri.keyboard_focus.surface() == Some(wl_surface) {
-                focused = Some((mapped.window.clone(), output.cloned()));
-            } else {
-                refresh_toplevel(protocol_state, wl_surface, role, cur, output, false);
-            }
+            refresh_toplevel(protocol_state, wl_surface, role, cur, output.as_ref(), false);
         });
-    });
+    }
 
     // Finally, refresh the focused window.
     if let Some((window, output)) = focused {
@@ -163,6 +186,7 @@ fn refresh_toplevel(
     has_focus: bool,
 ) {
     let states = to_state_vec(&current.states, has_focus);
+    let state_bytes = serialize_states(&states);
 
     match protocol_state.toplevels.entry(wl_surface.clone()) {
         Entry::Occupied(entry) => {
@@ -192,6 +216,7 @@ fn refresh_toplevel(
             let mut states_changed = false;
             if data.states != states {
                 data.states = states;
+                data.state_bytes = state_bytes;
                 states_changed = true;
             }
 
@@ -213,7 +238,7 @@ fn refresh_toplevel(
                         instance.app_id(new_app_id.to_owned());
                     }
                     if states_changed {
-                        instance.state(data.states.iter().flat_map(|x| x.to_ne_bytes()).collect());
+                        instance.state(data.state_bytes.clone());
                     }
                     if output_changed {
                         for wl_output in outputs.drain(..) {
@@ -243,6 +268,7 @@ fn refresh_toplevel(
                 title: role.title.clone(),
                 app_id: role.app_id.clone(),
                 states,
+                state_bytes,
                 output: output.cloned(),
                 instances: HashMap::new(),
             };
@@ -280,7 +306,7 @@ impl ToplevelData {
             toplevel.app_id(app_id.clone());
         }
 
-        toplevel.state(self.states.iter().flat_map(|x| x.to_ne_bytes()).collect());
+        toplevel.state(self.state_bytes.clone());
 
         let mut outputs = Vec::new();
         if let Some(output) = &self.output {
@@ -449,6 +475,10 @@ fn to_state_vec(states: &ToplevelStateSet, has_focus: bool) -> ArrayVec<u32, 3> 
     }
 
     rv
+}
+
+fn serialize_states(states: &ArrayVec<u32, 3>) -> Vec<u8> {
+    states.iter().flat_map(|x| x.to_ne_bytes()).collect()
 }
 
 #[macro_export]
