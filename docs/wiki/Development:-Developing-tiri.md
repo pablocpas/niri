@@ -80,3 +80,5 @@ pub fn some_function() {
 ```
 
 You can also enable Rust memory allocation profiling with `--features=profile-with-tracy-allocations`.
+
+For the local scripted workflow used to compare performance changes on a real session, see [Performance Profiling](Development:-Performance-Profiling.md).

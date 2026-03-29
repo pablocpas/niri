@@ -1,0 +1,73 @@
+{
+  "name": "layout-mutations",
+  "initial_windows": 3,
+  "steps": [
+    {
+      "kind": "action",
+      "name": "SetLayoutSplitH",
+      "label": "split_h"
+    },
+    {
+      "kind": "action",
+      "name": "SetLayoutStacked",
+      "label": "stacked"
+    },
+    {
+      "kind": "action",
+      "name": "SetLayoutTabbed",
+      "label": "tabbed"
+    },
+    {
+      "kind": "action",
+      "name": "ToggleLayoutAll",
+      "label": "toggle_layout_all"
+    },
+    {
+      "kind": "action",
+      "name": "ToggleSplitLayout",
+      "label": "toggle_split"
+    },
+    {
+      "kind": "action",
+      "name": "FullscreenWindow",
+      "args": {
+        "id": null
+      },
+      "label": "fullscreen_on"
+    },
+    {
+      "kind": "action",
+      "name": "FullscreenWindow",
+      "args": {
+        "id": null
+      },
+      "label": "fullscreen_off"
+    },
+    {
+      "kind": "action",
+      "name": "ToggleWindowFloating",
+      "args": {
+        "id": null
+      },
+      "label": "float_on"
+    },
+    {
+      "kind": "action",
+      "name": "SwitchFocusBetweenFloatingAndTiling",
+      "label": "switch_focus_layer"
+    },
+    {
+      "kind": "action",
+      "name": "ToggleWindowFloating",
+      "args": {
+        "id": null
+      },
+      "label": "float_off"
+    },
+    {
+      "kind": "action",
+      "name": "SetLayoutSplitV",
+      "label": "split_v"
+    }
+  ]
+}

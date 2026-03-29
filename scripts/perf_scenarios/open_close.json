@@ -1,0 +1,69 @@
+{
+  "name": "open-close",
+  "initial_windows": 0,
+  "steps": [
+    {
+      "kind": "spawn_window",
+      "label": "open_1"
+    },
+    {
+      "kind": "spawn_window",
+      "label": "open_2"
+    },
+    {
+      "kind": "spawn_window",
+      "label": "open_3"
+    },
+    {
+      "kind": "spawn_window",
+      "label": "open_4"
+    },
+    {
+      "kind": "action",
+      "name": "FocusColumnRight",
+      "label": "focus_right"
+    },
+    {
+      "kind": "action",
+      "name": "FocusColumnLeft",
+      "label": "focus_left"
+    },
+    {
+      "kind": "action",
+      "name": "FocusWindowPrevious",
+      "label": "focus_previous"
+    },
+    {
+      "kind": "action",
+      "name": "CloseWindow",
+      "args": {
+        "id": null
+      },
+      "label": "close_1"
+    },
+    {
+      "kind": "action",
+      "name": "CloseWindow",
+      "args": {
+        "id": null
+      },
+      "label": "close_2"
+    },
+    {
+      "kind": "action",
+      "name": "CloseWindow",
+      "args": {
+        "id": null
+      },
+      "label": "close_3"
+    },
+    {
+      "kind": "action",
+      "name": "CloseWindow",
+      "args": {
+        "id": null
+      },
+      "label": "close_4"
+    }
+  ]
+}

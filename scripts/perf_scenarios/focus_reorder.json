@@ -1,0 +1,61 @@
+{
+  "name": "focus-reorder",
+  "initial_windows": 4,
+  "steps": [
+    {
+      "kind": "action",
+      "name": "FocusColumnRight",
+      "label": "focus_right_1"
+    },
+    {
+      "kind": "action",
+      "name": "FocusColumnRightOrFirst",
+      "label": "focus_right_or_first"
+    },
+    {
+      "kind": "action",
+      "name": "MoveColumnLeft",
+      "label": "move_left"
+    },
+    {
+      "kind": "action",
+      "name": "FocusColumnLast",
+      "label": "focus_last"
+    },
+    {
+      "kind": "action",
+      "name": "MoveColumnToFirst",
+      "label": "move_to_first"
+    },
+    {
+      "kind": "action",
+      "name": "FocusColumnFirst",
+      "label": "focus_first"
+    },
+    {
+      "kind": "action",
+      "name": "MoveColumnRight",
+      "label": "move_right"
+    },
+    {
+      "kind": "action",
+      "name": "FocusWindowPrevious",
+      "label": "focus_previous"
+    },
+    {
+      "kind": "action",
+      "name": "CenterColumn",
+      "label": "center_column"
+    },
+    {
+      "kind": "action",
+      "name": "MoveColumnToLast",
+      "label": "move_to_last"
+    },
+    {
+      "kind": "action",
+      "name": "FocusColumnLeftOrLast",
+      "label": "focus_left_or_last"
+    }
+  ]
+}

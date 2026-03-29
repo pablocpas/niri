@@ -80,7 +80,6 @@ nav:
     - Screencasting: Screencasting.md
     - Layer‐Shell Components: Layer‐Shell-Components.md
     - IPC, tiri msg: IPC.md
-    - i3/sway Parity Matrix: i3-sway-parity.md
     - Application-Specific Issues: Application-Issues.md
     - Nvidia: Nvidia.md
     - Xwayland: Xwayland.md
@@ -110,6 +109,7 @@ nav:
   - Development:
     - Design Principles: Development:-Design-Principles.md
     - Developing tiri: Development:-Developing-tiri.md
+    - Performance Profiling: Development:-Performance-Profiling.md
     - Documenting tiri: Development:-Documenting-tiri.md
     - Fractional Layout: Development:-Fractional-Layout.md
     - Redraw Loop: Development:-Redraw-Loop.md

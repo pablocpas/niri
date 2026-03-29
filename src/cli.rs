@@ -28,7 +28,7 @@ pub struct Cli {
     pub session: bool,
     /// Run with the internal headless backend.
     ///
-    /// Intended for automated testing and parity harnesses.
+    /// Intended for automated testing and profiling harnesses.
     #[arg(long)]
     pub headless: bool,
     /// Number of virtual outputs to create in headless mode.
