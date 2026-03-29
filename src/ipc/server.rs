@@ -384,9 +384,19 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
             validate_action(&action)?;
 
             let (tx, rx) = async_channel::bounded(1);
+            let action_name = ipc_action_name(&action);
 
             let action = tiri_config::Action::from(action);
             ctx.event_loop.insert_idle(move |state| {
+                let span = tracy_client::Client::running()
+                    .map(|client| {
+                        client.span_alloc(Some(&action_name), "IPC::Action", file!(), line!(), 0)
+                    })
+                    .unwrap_or_else(|| tracy_client::span!("IPC::Action"));
+                span.emit_text(&action_name);
+                if let Some(client) = tracy_client::Client::running() {
+                    client.message(&format!("IPC::Action {action_name}"), 0);
+                }
                 // Make sure some logic like workspace clean-up has a chance to run before doing
                 // actions.
                 state.niri.advance_animations();
@@ -495,6 +505,18 @@ fn validate_action(action: &Action) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn ipc_action_name(action: &Action) -> String {
+    match serde_json::to_value(action) {
+        Ok(serde_json::Value::String(name)) => name,
+        Ok(serde_json::Value::Object(obj)) if obj.len() == 1 => obj
+            .into_iter()
+            .next()
+            .map(|(name, _)| name)
+            .unwrap_or_else(|| format!("{action:?}")),
+        _ => format!("{action:?}"),
+    }
 }
 
 async fn handle_event_stream_client(client: EventStreamClient) -> anyhow::Result<()> {

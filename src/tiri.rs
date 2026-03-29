@@ -822,7 +822,10 @@ impl State {
     pub fn refresh_and_flush_clients(&mut self) {
         let _span = tracy_client::span!("State::refresh_and_flush_clients");
 
-        self.refresh();
+        {
+            let _span = tracy_client::span!("State::refresh_and_flush_clients::refresh");
+            self.refresh();
+        }
 
         // Clear the time so advance_animations() and any other code below always use real
         // monotonic time, not a stale frozen clock from a previous render.  In particular, after
@@ -835,17 +838,26 @@ impl State {
         // in order to clear completed animations and render elements. Even if we're not rendering,
         // it's good to advance every now and then so the workspace clean-up and animations don't
         // build up (the 1 second frame callback timer will call this line).
-        self.niri.advance_animations();
-
-        self.niri.redraw_queued_outputs(&mut self.backend);
+        {
+            let _span = tracy_client::span!("State::refresh_and_flush_clients::advance_animations");
+            self.niri.advance_animations();
+        }
 
         {
-            let _span = tracy_client::span!("flush_clients");
+            let _span = tracy_client::span!("State::refresh_and_flush_clients::redraw_queued_outputs");
+            self.niri.redraw_queued_outputs(&mut self.backend);
+        }
+
+        {
+            let _span = tracy_client::span!("State::refresh_and_flush_clients::flush_clients");
             self.niri.display_handle.flush_clients().unwrap();
         }
 
         #[cfg(feature = "dbus")]
-        self.niri.update_locked_hint();
+        {
+            let _span = tracy_client::span!("State::refresh_and_flush_clients::update_locked_hint");
+            self.niri.update_locked_hint();
+        }
 
         // redraw() freezes the clock at the target presentation time for rendering; clear it again
         // before returning so non-render paths don't reuse that frozen future time.
@@ -871,44 +883,78 @@ impl State {
 
         // Handle commits for surfaces whose blockers cleared this cycle. This should happen before
         // layout.refresh() since this is where these surfaces handle commits.
-        self.notify_blocker_cleared();
+        {
+            let _span = tracy_client::span!("State::refresh::notify_blocker_cleared");
+            self.notify_blocker_cleared();
+        }
 
         // These should be called periodically, before flushing the clients.
-        self.niri.popups.cleanup();
-        self.refresh_popup_grab();
-        self.update_keyboard_focus();
+        {
+            let _span = tracy_client::span!("State::refresh::input_and_popups");
+            self.niri.popups.cleanup();
+            self.refresh_popup_grab();
+            self.update_keyboard_focus();
+        }
 
         // Should be called before refresh_layout() because that one will refresh other window
         // states and then send a pending configure.
-        self.niri.refresh_window_states();
+        {
+            let _span = tracy_client::span!("State::refresh::refresh_window_states");
+            self.niri.refresh_window_states();
+        }
 
         // Needs to be called after updating the keyboard focus.
-        self.niri.refresh_layout();
+        {
+            let _span = tracy_client::span!("State::refresh::refresh_layout");
+            self.niri.refresh_layout();
+        }
 
-        self.niri.cursor_manager.check_cursor_image_surface_alive();
-        self.niri.refresh_pointer_outputs();
-        self.niri.global_space.refresh();
-        self.niri.refresh_idle_inhibit();
-        self.refresh_pointer_contents();
-        foreign_toplevel::refresh(self);
-        ext_workspace::refresh(self);
+        {
+            let _span = tracy_client::span!("State::refresh::pointer_and_space");
+            self.niri.cursor_manager.check_cursor_image_surface_alive();
+            self.niri.refresh_pointer_outputs();
+            self.niri.global_space.refresh();
+            self.niri.refresh_idle_inhibit();
+            self.refresh_pointer_contents();
+        }
+
+        {
+            let _span = tracy_client::span!("State::refresh::protocols");
+            foreign_toplevel::refresh(self);
+            ext_workspace::refresh(self);
+        }
 
         #[cfg(feature = "xdp-gnome-screencast")]
-        self.niri.refresh_mapped_cast_outputs();
+        {
+            let _span = tracy_client::span!("State::refresh::refresh_mapped_cast_outputs");
+            self.niri.refresh_mapped_cast_outputs();
+        }
         // Should happen before refresh_window_rules(), but after anything that can start or stop
         // screencasts.
         #[cfg(feature = "xdp-gnome-screencast")]
-        self.niri.refresh_mapped_cast_window_rules();
-        self.ipc_refresh_casts();
+        {
+            let _span = tracy_client::span!("State::refresh::refresh_mapped_cast_window_rules");
+            self.niri.refresh_mapped_cast_window_rules();
+        }
+        {
+            let _span = tracy_client::span!("State::refresh::ipc_refresh_casts");
+            self.ipc_refresh_casts();
+        }
 
-        self.niri.refresh_window_rules();
-        self.refresh_ipc_outputs();
-        self.ipc_refresh_layout();
-        self.ipc_refresh_keyboard_layout_index();
+        {
+            let _span = tracy_client::span!("State::refresh::window_rules_and_ipc");
+            self.niri.refresh_window_rules();
+            self.refresh_ipc_outputs();
+            self.ipc_refresh_layout();
+            self.ipc_refresh_keyboard_layout_index();
+        }
 
         // Needs to be called after updating the keyboard focus.
         #[cfg(feature = "dbus")]
-        self.niri.refresh_a11y();
+        {
+            let _span = tracy_client::span!("State::refresh::refresh_a11y");
+            self.niri.refresh_a11y();
+        }
     }
 
     fn notify_blocker_cleared(&mut self) {
