@@ -69,7 +69,7 @@ fn windowed_fullscreen() {
     let window = f.client(id).window(&surface);
     assert_snapshot!(
         window.format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @"size: 1904 × 1064, bounds: 1904 × 1064, states: [Activated]"
     );
 
     let mapped = f.niri().layout.windows().next().unwrap().1;
@@ -109,9 +109,9 @@ fn windowed_fullscreen_chain() {
         window.format_recent_configures(),
         @"
     size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]
-    size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated]
+    size: 1920 × 1080, bounds: 1904 × 1064, states: [Activated]
     size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]
-    size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated]
+    size: 1920 × 1080, bounds: 1904 × 1064, states: [Activated]
     "
     );
 
@@ -167,7 +167,7 @@ fn client_fullscreen_request_uses_client_fullscreen_path() {
     let window = f.client(id).window(&surface);
     assert_snapshot!(
         window.format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
+        @"size: 1904 × 1064, bounds: 1920 × 1080, states: [Activated, Fullscreen]"
     );
 
     let mapped = f.niri().layout.windows().next().unwrap().1;
@@ -191,7 +191,7 @@ fn client_fullscreen_request_uses_client_fullscreen_path() {
         window.format_recent_configures(),
         @"
     size: 1920 × 1080, bounds: 1920 × 1080, states: [Activated, Fullscreen]
-    size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]
+    size: 1904 × 1064, bounds: 1904 × 1064, states: [Activated]
     "
     );
 
@@ -386,6 +386,6 @@ fn interactive_move_unmaximize_to_scrolling_restores_size() {
     // This should request the tiled size.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 1904 × 1064, bounds: 1920 × 1080, states: [Activated]"
     );
 }

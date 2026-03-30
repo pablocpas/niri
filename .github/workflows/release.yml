@@ -39,11 +39,60 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Validate release version
+        run: |
+          cargo metadata --no-deps --format-version 1 > metadata.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          expected = "${{ github.event.inputs.version }}"
+          metadata = json.loads(Path("metadata.json").read_text())
+          package = next(pkg for pkg in metadata["packages"] if pkg["name"] == "tiri")
+          actual = package["version"]
+          if actual != expected:
+              raise SystemExit(
+                  f"release input version {expected!r} does not match Cargo.toml version {actual!r}"
+              )
+          PY
+
+      - name: Install packaging tools
+        run: cargo install --locked cargo-deb cargo-generate-rpm
+
       - name: Create vendored dependencies archive
         run: |
           mkdir .cargo
           cargo vendor --locked > .cargo/config.toml
-          tar cJf tiri-${{ github.event.inputs.version }}-vendored-dependencies.tar.xz vendor/
+          tar cJf tiri-${{ github.event.inputs.version }}-vendored-dependencies.tar.xz .cargo/config.toml vendor/
+
+      - name: Create source archive
+        run: |
+          git archive \
+            --format=tar.gz \
+            --prefix=tiri-${{ github.event.inputs.version }}/ \
+            -o tiri-${{ github.event.inputs.version }}.tar.gz \
+            HEAD
+
+      - name: Sync RPM metadata version
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          version = "${{ github.event.inputs.version }}"
+          path = Path("Cargo.toml")
+          text = path.read_text()
+          text, count = re.subn(
+              r'(^\[package\.metadata\.generate-rpm\]\nversion = ")[^"]+(")',
+              rf'\g<1>{version}\2',
+              text,
+              count=1,
+              flags=re.MULTILINE,
+          )
+          if count != 1:
+              raise SystemExit("failed to update [package.metadata.generate-rpm] version")
+          path.write_text(text)
+          PY
 
       - name: Build
         run: cargo build --all --frozen --release
@@ -54,10 +103,24 @@ jobs:
       - name: Test
         run: cargo test --all --frozen --release -- --nocapture
 
+      - name: Build Debian package
+        run: cargo deb --no-build
+
+      - name: Build RPM package
+        run: cargo generate-rpm
+
+      - name: Collect release artifacts
+        run: |
+          mkdir -p release-artifacts
+          cp tiri-${{ github.event.inputs.version }}.tar.gz release-artifacts/
+          cp tiri-${{ github.event.inputs.version }}-vendored-dependencies.tar.xz release-artifacts/
+          cp target/debian/*.deb release-artifacts/
+          cp target/generate-rpm/*.rpm release-artifacts/
+
       - name: Draft release
         uses: softprops/action-gh-release@v2
         with:
           draft: true
           tag_name: v${{ github.event.inputs.version }}
-          files: tiri-${{ github.event.inputs.version }}-vendored-dependencies.tar.xz
+          files: release-artifacts/*
           fail_on_unmatched_files: true

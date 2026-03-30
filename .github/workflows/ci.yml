@@ -98,6 +98,8 @@ jobs:
       - name: Install Deps
         run: apk add --no-cache ${{ env.DEPS_APK }}
 
+      - uses: dtolnay/rust-toolchain@1.94.0
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
@@ -244,6 +246,8 @@ jobs:
         run: |
           dnf update -y
           dnf install -y ${{ env.DEPS_DNF }} libadwaita-devel
+
+      - uses: dtolnay/rust-toolchain@1.94.0
 
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --all

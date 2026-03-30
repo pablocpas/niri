@@ -1,0 +1,80 @@
+Name:           tiri
+Version:        0.1.0
+Release:        1%{?dist}
+Summary:        A tiling Wayland compositor
+
+License:        GPL-3.0-or-later
+URL:            https://github.com/pablocpas/tiri
+Source0:        %{url}/releases/download/v%{version}/%{name}-%{version}.tar.gz
+Source1:        %{url}/releases/download/v%{version}/%{name}-%{version}-vendored-dependencies.tar.xz
+
+BuildRequires:  cargo
+BuildRequires:  clang
+BuildRequires:  gcc
+BuildRequires:  pkgconfig
+BuildRequires:  cairo-gobject-devel
+BuildRequires:  dbus-devel
+BuildRequires:  libdisplay-info-devel
+BuildRequires:  libgbm-devel
+BuildRequires:  libinput-devel
+BuildRequires:  libseat-devel
+BuildRequires:  libudev-devel
+BuildRequires:  libxkbcommon-devel
+BuildRequires:  mesa-libEGL-devel
+BuildRequires:  pango-devel
+BuildRequires:  pipewire-devel
+BuildRequires:  systemd-devel
+BuildRequires:  wayland-devel
+
+Requires:       libwayland-server
+Recommends:     alacritty
+Recommends:     fuzzel
+Recommends:     mako
+Recommends:     xdg-desktop-portal-gnome
+Recommends:     xdg-desktop-portal-gtk
+Recommends:     xwayland-satellite
+
+%description
+tiri is a tiling Wayland compositor derived from niri.
+
+This spec is intended for COPR builds from GitHub release assets:
+- Source0 is the release source tarball.
+- Source1 is the vendored Rust dependencies archive published alongside the release.
+
+%prep
+%autosetup -n %{name}-%{version}
+tar -xJf %{SOURCE1}
+mkdir -p .cargo
+cat > .cargo/config.toml <<'EOF'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+EOF
+
+%build
+export TIRI_BUILD_VERSION_STRING="%{version}"
+cargo build --release --frozen
+
+%install
+install -Dpm0755 target/release/tiri %{buildroot}%{_bindir}/tiri
+install -Dpm0755 resources/tiri-session %{buildroot}%{_bindir}/tiri-session
+install -Dpm0644 resources/tiri.desktop %{buildroot}%{_datadir}/wayland-sessions/tiri.desktop
+install -Dpm0644 resources/tiri-portals.conf %{buildroot}%{_datadir}/xdg-desktop-portal/tiri-portals.conf
+install -Dpm0644 resources/tiri.service %{buildroot}%{_userunitdir}/tiri.service
+install -Dpm0644 resources/tiri-shutdown.target %{buildroot}%{_userunitdir}/tiri-shutdown.target
+
+%files
+%license LICENSE
+%doc README.md
+%{_bindir}/tiri
+%{_bindir}/tiri-session
+%{_datadir}/wayland-sessions/tiri.desktop
+%{_datadir}/xdg-desktop-portal/tiri-portals.conf
+%{_userunitdir}/tiri.service
+%{_userunitdir}/tiri-shutdown.target
+
+%changelog
+* Mon Mar 30 2026 Pablo Pascual <pablocpascual@gmail.com> - 0.1.0-1
+- Initial COPR packaging template for tiri

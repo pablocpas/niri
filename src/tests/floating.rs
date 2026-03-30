@@ -305,7 +305,7 @@ fn restore_floating_size() {
     // We should get a tiling size configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @"size: 1904 × 1064, bounds: 1904 × 1064, states: [Activated]"
     );
 
     // Resize as requested.
@@ -482,7 +482,7 @@ fn interactive_move_unmaximize_to_floating_restores_size() {
     // This should request a maximized size.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @"size: 1904 × 1064, bounds: 1904 × 1064, states: [Activated]"
     );
 
     // Start an interactive move which causes an unmaximize into floating.
@@ -728,7 +728,7 @@ fn interactive_move_restores_floating_size_when_set_to_floating() {
     // We should get a tiled size configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @"size: 1904 × 1064, bounds: 1904 × 1064, states: [Activated]"
     );
 
     // Resize as requested.
@@ -756,7 +756,7 @@ fn interactive_move_restores_floating_size_when_set_to_floating() {
     // This shouldn't request any new size because interactive move targets tiling.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1920 × 1080, states: [Activated]"
+        @"size: 1904 × 1064, bounds: 1920 × 1080, states: [Activated]"
     );
 
     // Change interactive move to target floating.
@@ -836,7 +836,7 @@ fn floating_doesnt_store_fullscreen_size() {
     // This shouldn't request any size change from the floating preset.
     assert_eq!(
         f.client(id).window(&surface).format_recent_configures(),
-        "size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]\n\
+        "size: 1904 × 1064, bounds: 1904 × 1064, states: [Activated]\n\
          size: 960 × 810, bounds: 1920 × 1080, states: [Activated]"
     );
 }
@@ -897,7 +897,7 @@ fn floating_doesnt_store_maximized_size() {
     // This shouldn't request any size change from the floating preset.
     assert_eq!(
         f.client(id).window(&surface).format_recent_configures(),
-        "size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]\n\
+        "size: 1904 × 1064, bounds: 1904 × 1064, states: [Activated]\n\
          size: 960 × 810, bounds: 1920 × 1080, states: [Activated]"
     );
 }
@@ -1091,7 +1091,7 @@ fn unmaximize_to_same_size_floating() {
     // The maximize configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @"size: 1904 × 1064, bounds: 1904 × 1064, states: [Activated]"
     );
 
     // Unmaximize into floating.
@@ -1173,7 +1173,7 @@ fn legacy_fullscreen_alias_on_floating_maximized_window_roundtrips() {
     // The maximize configure.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1888 × 1048, bounds: 1888 × 1048, states: [Activated]"
+        @"size: 1904 × 1064, bounds: 1904 × 1064, states: [Activated]"
     );
 
     // The legacy entrypoint now maps to real fullscreen.
@@ -1193,7 +1193,7 @@ fn legacy_fullscreen_alias_on_floating_maximized_window_roundtrips() {
     // Should restore the remembered maximized floating state.
     assert_snapshot!(
         f.client(id).window(&surface).format_recent_configures(),
-        @"size: 1920 × 1080, bounds: 1888 × 1048, states: [Activated, Maximized]"
+        @"size: 1920 × 1080, bounds: 1904 × 1064, states: [Activated, Maximized]"
     );
 }
 

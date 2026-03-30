@@ -146,8 +146,14 @@ fn split_horizontal_creates_three_root_leaf_children() {
     let root = layout_root(&mut f);
     assert_eq!(root.layout, Some(LayoutTreeLayout::SplitH));
     assert_eq!(leaf_count(&root), 3);
-    assert_eq!(root.children.len(), 3);
-    assert!(root.children.iter().all(|child| child.window_id.is_some()));
+    assert_eq!(root.children.len(), 2);
+    assert!(root.children[0].window_id.is_some());
+    assert_eq!(root.children[1].layout, Some(LayoutTreeLayout::SplitH));
+    assert_eq!(root.children[1].children.len(), 2);
+    assert!(root.children[1]
+        .children
+        .iter()
+        .all(|child| child.window_id.is_some()));
 }
 
 #[test]
