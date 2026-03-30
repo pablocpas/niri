@@ -1472,14 +1472,29 @@ mod tests {
     }
 
     #[test]
-    fn tab_bar_defaults_match_focus_ring_palette() {
-        let focus_ring = FocusRing::default();
+    fn tab_bar_defaults_match_current_palette() {
         let tab_bar = TabBar::default();
 
-        assert_eq!(tab_bar.border_width, 1.0);
-        assert_eq!(tab_bar.active_bg, focus_ring.active_color);
-        assert_eq!(tab_bar.inactive_bg, focus_ring.inactive_color);
-        assert_eq!(tab_bar.urgent_bg, focus_ring.urgent_color);
-        assert_eq!(tab_bar.active_border, focus_ring.active_indicator_color);
+        assert_eq!(tab_bar.height, 0.0);
+        assert_eq!(tab_bar.padding_x, 8.0);
+        assert_eq!(tab_bar.padding_y, 3.0);
+        assert_eq!(tab_bar.border_width, 0.0);
+        assert_eq!(tab_bar.font, "sans 12px");
+        assert_eq!(
+            tab_bar.active_bg,
+            Color::from_rgba8_unpremul(0x7f, 0xc8, 0xff, 0xff)
+        );
+        assert_eq!(
+            tab_bar.inactive_bg,
+            Color::from_rgba8_unpremul(0x3c, 0x3c, 0x3c, 0xff)
+        );
+        assert_eq!(
+            tab_bar.urgent_bg,
+            Color::from_rgba8_unpremul(0x9b, 0x00, 0x00, 0xff)
+        );
+        assert_eq!(
+            tab_bar.active_border,
+            Color::from_rgba8_unpremul(0x2e, 0x9e, 0xf4, 0xff)
+        );
     }
 }
