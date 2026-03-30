@@ -93,6 +93,8 @@ jobs:
     name: alpine musl
     runs-on: ubuntu-24.04
     container: alpine:3
+    env:
+      RUSTFLAGS: -C target-feature=-crt-static
     steps:
       - uses: actions/checkout@v4
         with:
