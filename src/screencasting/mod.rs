@@ -481,6 +481,11 @@ impl Niri {
     }
 
     pub fn refresh_mapped_cast_outputs(&mut self) {
+        if self.casting.casts.is_empty() {
+            self.casting.mapped_cast_output.clear();
+            return;
+        }
+
         let mut seen = HashSet::new();
         let mut output_changed = vec![];
 

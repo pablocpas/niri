@@ -6710,6 +6710,7 @@ impl<W: LayoutElement> Layout<W> {
         blocker: TransactionBlocker,
     ) {
         let _span = tracy_client::span!("Layout::start_close_animation_for_window");
+
         let zoom = self.overview_zoom();
 
         if let Some(InteractiveMoveState::Moving(move_)) = &mut self.interactive_move {
@@ -6878,6 +6879,10 @@ impl<W: LayoutElement> Layout<W> {
                 }
             }
         }
+    }
+
+    pub fn are_window_resize_animations_enabled(&self) -> bool {
+        !self.options.animations.off && !self.options.animations.window_resize.anim.off
     }
 
     pub fn workspaces(

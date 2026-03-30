@@ -350,6 +350,8 @@ pub struct Niri {
     /// taking grabs into account is expected, because we pass the information to pointer.motion()
     /// which passes it down through grabs, which decide what to do with it as they see fit.
     pub pointer_contents: PointContents,
+    pub pointer_contents_dirty: bool,
+    pub pointer_contents_last_location: Option<Point<f64, Logical>>,
     pub pointer_visibility: PointerVisibility,
     pub pointer_inactivity_timer: Option<RegistrationToken>,
     /// Whether the pointer inactivity timer got reset this event loop iteration.
@@ -1002,6 +1004,8 @@ impl State {
 
         // FIXME: granular
         self.niri.queue_redraw_all();
+        self.niri.pointer_contents_dirty = false;
+        self.niri.pointer_contents_last_location = Some(location);
     }
 
     /// Moves cursor within the specified rectangle, only adjusting coordinates if needed.
@@ -1149,6 +1153,12 @@ impl State {
         let pointer = &self.niri.seat.get_pointer().unwrap();
         let location = pointer.current_location();
 
+        if !self.niri.pointer_contents_dirty
+            && self.niri.pointer_contents_last_location == Some(location)
+        {
+            return;
+        }
+
         if !self.niri.exit_confirm_dialog.is_open()
             && !self.niri.is_locked()
             && !self.niri.screenshot_ui.is_open()
@@ -1163,6 +1173,8 @@ impl State {
         }
 
         if !self.update_pointer_contents() {
+            self.niri.pointer_contents_dirty = false;
+            self.niri.pointer_contents_last_location = Some(location);
             return;
         }
 
@@ -1173,6 +1185,8 @@ impl State {
 
         // FIXME: granular
         self.niri.queue_redraw_all();
+        self.niri.pointer_contents_dirty = false;
+        self.niri.pointer_contents_last_location = Some(location);
     }
 
     pub fn update_pointer_contents(&mut self) -> bool {
@@ -2679,6 +2693,8 @@ impl Niri {
             cursor_shape_manager_state,
             dnd_icon: None,
             pointer_contents: PointContents::default(),
+            pointer_contents_dirty: true,
+            pointer_contents_last_location: None,
             pointer_visibility: PointerVisibility::Visible,
             pointer_inactivity_timer: None,
             pointer_inactivity_timer_got_reset: false,
@@ -3762,6 +3778,7 @@ impl Niri {
 
     /// Schedules an immediate redraw on all outputs if one is not already scheduled.
     pub fn queue_redraw_all(&mut self) {
+        self.pointer_contents_dirty = true;
         for state in self.output_state.values_mut() {
             state.redraw_state = mem::take(&mut state.redraw_state).queue_redraw();
         }
@@ -3769,6 +3786,7 @@ impl Niri {
 
     /// Schedules an immediate redraw if one is not already scheduled.
     pub fn queue_redraw(&mut self, output: &Output) {
+        self.pointer_contents_dirty = true;
         let state = self.output_state.get_mut(output).unwrap();
         state.redraw_state = mem::take(&mut state.redraw_state).queue_redraw();
     }
@@ -4186,6 +4204,9 @@ impl Niri {
 
         let config = self.config.borrow();
         let window_rules = &config.window_rules;
+        if window_rules.is_empty() {
+            return;
+        }
 
         let mut windows = vec![];
         let mut outputs = HashSet::new();

@@ -1374,6 +1374,7 @@ pub fn add_mapped_toplevel_pre_commit_hook(toplevel: &ToplevelSurface) -> HookId
         let _span = tracy_client::span!("mapped toplevel pre-commit");
         let span =
             trace_span!("toplevel pre-commit", surface = %surface.id(), serial = Empty).entered();
+        let resize_animations_enabled = state.niri.layout.are_window_resize_animations_enabled();
 
         let Some((mapped, _)) = state.niri.layout.find_window_and_output_mut(surface) else {
             error!("pre-commit hook for mapped surfaces must be removed upon unmapping");
@@ -1444,7 +1445,8 @@ pub fn add_mapped_toplevel_pre_commit_hook(toplevel: &ToplevelSurface) -> HookId
                 }
             }
 
-            animate = mapped.should_animate_commit(serial);
+            let should_animate = mapped.should_animate_commit(serial);
+            animate = should_animate && resize_animations_enabled;
         } else if !got_unmapped {
             error!("commit on a mapped surface without a configured serial");
         };
