@@ -2,11 +2,6 @@ use std::cmp::max;
 use std::rc::Rc;
 use std::time::Duration;
 
-use tiri_config::utils::MergeWith as _;
-use tiri_config::{
-    CornerRadius, OutputName, PresetSize, Workspace as WorkspaceConfig,
-};
-use tiri_ipc::{ColumnDisplay, LayoutTreeNode, PositionChange, SizeChange, WindowLayout};
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::{layer_map_for_output, Window};
@@ -17,6 +12,9 @@ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Serial, Size, Transform};
 use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::SurfaceCachedState;
+use tiri_config::utils::MergeWith as _;
+use tiri_config::{CornerRadius, OutputName, PresetSize, Workspace as WorkspaceConfig};
+use tiri_ipc::{ColumnDisplay, LayoutTreeNode, PositionChange, SizeChange, WindowLayout};
 
 use super::container::{
     DetachedNode, Direction, InactiveTilingReference, InsertParentInfo, Layout,
@@ -272,7 +270,9 @@ impl FloatingActive {
 impl HandlerContext {
     fn command_context(self) -> CommandContext {
         match self {
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => CommandContext::Tiling,
+            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+                CommandContext::Tiling
+            }
             HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
                 CommandContext::Floating
             }
@@ -920,9 +920,8 @@ impl<W: LayoutElement> Workspace<W> {
                 // Match sway: when a floating container is selected (focus-parent context),
                 // opening a new floating window inserts into that container without stealing
                 // selection/focus from the container command target.
-                let keep_floating_container_selection = floating_active
-                    && wants_floating
-                    && self.floating.selected_is_container(None);
+                let keep_floating_container_selection =
+                    floating_active && wants_floating && self.floating.selected_is_container(None);
                 let activate = if keep_floating_focus {
                     false
                 } else if keep_floating_container_selection {
@@ -955,7 +954,6 @@ impl<W: LayoutElement> Workspace<W> {
                     let tiling_was_empty = self.tiling.is_empty();
                     self.tiling
                         .add_tile(None, tile, activate, width, is_full_width, None);
-
 
                     if activate
                         || (floating_active
@@ -990,9 +988,8 @@ impl<W: LayoutElement> Workspace<W> {
                 }
                 tile.restore_to_floating = wants_floating;
 
-                let activate = activate.map_smart(|| {
-                    self.active_window().is_some_and(|win| win.id() == next_to)
-                });
+                let activate = activate
+                    .map_smart(|| self.active_window().is_some_and(|win| win.id() == next_to));
 
                 if wants_floating
                     && tile.window().pending_sizing_mode().is_normal()
@@ -1041,9 +1038,18 @@ impl<W: LayoutElement> Workspace<W> {
                         self.floating_is_active = FloatingActive::No;
                     }
                 } else {
-                    if self.tiling.tiles().any(|tile| tile.window().id() == next_to) {
-                        self.tiling
-                            .add_tile_right_of(next_to, tile, activate, width, is_full_width);
+                    if self
+                        .tiling
+                        .tiles()
+                        .any(|tile| tile.window().id() == next_to)
+                    {
+                        self.tiling.add_tile_right_of(
+                            next_to,
+                            tile,
+                            activate,
+                            width,
+                            is_full_width,
+                        );
                     } else {
                         error!("next_to target disappeared while placing a new tiled window");
                         self.tiling
@@ -1077,10 +1083,7 @@ impl<W: LayoutElement> Workspace<W> {
         }
     }
 
-    pub(super) fn tiling_insert_parent_info(
-        &self,
-        window: &W::Id,
-    ) -> Option<InsertParentInfo> {
+    pub(super) fn tiling_insert_parent_info(&self, window: &W::Id) -> Option<InsertParentInfo> {
         self.tiling.insert_parent_info_for_window(window)
     }
 
@@ -1180,7 +1183,10 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     fn remember_current_tiling_reference(&mut self) {
-        if matches!(self.resolved_command_route().handler_context, HandlerContext::Workspace) {
+        if matches!(
+            self.resolved_command_route().handler_context,
+            HandlerContext::Workspace
+        ) {
             return;
         }
 
@@ -1206,9 +1212,7 @@ impl<W: LayoutElement> Workspace<W> {
         self.remember_current_tiling_reference();
     }
 
-    pub(super) fn seat_focus_tiling_chain(
-        &self,
-    ) -> Vec<super::container::InactiveTilingReference> {
+    pub(super) fn seat_focus_tiling_chain(&self) -> Vec<super::container::InactiveTilingReference> {
         self.tiling
             .inactive_tiling_reference_chain_for_focused_reference()
     }
@@ -2203,9 +2207,7 @@ impl<W: LayoutElement> Workspace<W> {
         match self.route_domain_for_family(CommandFamily::Split) {
             // Sway: cmd_split works in both floating and tiling.
             RouteDomain::Workspace => self.tiling.split_workspace_horizontal(),
-            RouteDomain::Tiling => {
-                self.tiling.split_horizontal()
-            }
+            RouteDomain::Tiling => self.tiling.split_horizontal(),
             RouteDomain::Floating => {
                 if !self.preserves_floating_workspace_context_for_family(CommandFamily::Split) {
                     self.floating_workspace_context = false;
@@ -2219,9 +2221,7 @@ impl<W: LayoutElement> Workspace<W> {
         match self.route_domain_for_family(CommandFamily::Split) {
             // Sway: cmd_split works in both floating and tiling.
             RouteDomain::Workspace => self.tiling.split_workspace_vertical(),
-            RouteDomain::Tiling => {
-                self.tiling.split_vertical()
-            }
+            RouteDomain::Tiling => self.tiling.split_vertical(),
             RouteDomain::Floating => {
                 if !self.preserves_floating_workspace_context_for_family(CommandFamily::Split) {
                     self.floating_workspace_context = false;
@@ -2234,9 +2234,7 @@ impl<W: LayoutElement> Workspace<W> {
     pub fn set_layout_mode(&mut self, layout: Layout) {
         match self.route_domain_for_family(CommandFamily::Layout) {
             RouteDomain::Workspace => self.tiling.set_workspace_layout_mode(layout),
-            RouteDomain::Tiling => {
-                self.tiling.set_layout_mode(layout)
-            }
+            RouteDomain::Tiling => self.tiling.set_layout_mode(layout),
             RouteDomain::Floating => {
                 if !self.preserves_floating_workspace_context_for_family(CommandFamily::Layout) {
                     self.floating_workspace_context = false;
@@ -2249,9 +2247,7 @@ impl<W: LayoutElement> Workspace<W> {
     pub fn toggle_split_layout(&mut self) {
         match self.route_domain_for_family(CommandFamily::Layout) {
             RouteDomain::Workspace => self.tiling.toggle_workspace_split_layout(),
-            RouteDomain::Tiling => {
-                self.tiling.toggle_split_layout()
-            }
+            RouteDomain::Tiling => self.tiling.toggle_split_layout(),
             RouteDomain::Floating => {
                 if !self.preserves_floating_workspace_context_for_family(CommandFamily::Layout) {
                     self.floating_workspace_context = false;
@@ -2293,9 +2289,8 @@ impl<W: LayoutElement> Workspace<W> {
             // When going from fullscreen to maximized, don't consider restore_to_floating yet.
             // pending_sizing_mode() is asynchronous, so also check scrolling.is_fullscreen() to
             // handle requests while the client is catching up.
-            let is_fullscreen_now =
-                self.tiling.is_fullscreen(tile.window())
-                    || tile.window().pending_sizing_mode().is_fullscreen();
+            let is_fullscreen_now = self.tiling.is_fullscreen(tile.window())
+                || tile.window().pending_sizing_mode().is_fullscreen();
             if is_fullscreen_now && !tile.pending_maximized {
                 if tile.restore_to_floating {
                     // Unfullscreen and float in one call so it has a chance to notice and request a
@@ -2393,9 +2388,7 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn toggle_window_floating(&mut self, id: Option<&W::Id>) {
-        let mut command_context = self
-            .resolved_command_route()
-            .command_context;
+        let mut command_context = self.resolved_command_route().command_context;
         let preserve_workspace_context_on_unfloat = command_context == CommandContext::Workspace;
 
         if id.is_none() && command_context == CommandContext::Workspace {
@@ -2413,16 +2406,18 @@ impl<W: LayoutElement> Workspace<W> {
         let explicit_window = id.is_some();
         let active_id = self.active_window().map(|win| win.id().clone());
         let target_is_active = id.is_none_or(|id| Some(id) == active_id.as_ref());
-        let preserve_selection_path_on_unfloat =
-            if !explicit_window && target_is_active && command_context == CommandContext::Floating {
-                self.floating
-                    .active_command_container_path()
-                    // Match sway: unfloating from a floating wrapper/root focus
-                    // must not restore a workspace-level container selection.
-                    .filter(|path| !path.is_empty())
-            } else {
-                None
-            };
+        let preserve_selection_path_on_unfloat = if !explicit_window
+            && target_is_active
+            && command_context == CommandContext::Floating
+        {
+            self.floating
+                .active_command_container_path()
+                // Match sway: unfloating from a floating wrapper/root focus
+                // must not restore a workspace-level container selection.
+                .filter(|path| !path.is_empty())
+        } else {
+            None
+        };
         let Some(id) = id.cloned().or(active_id) else {
             return;
         };
@@ -2487,8 +2482,14 @@ impl<W: LayoutElement> Workspace<W> {
                         self.remember_inactive_tiling_reference(reference);
                     }
                 }
-                self.floating
-                    .add_subtree(subtree, rect, origin, target_is_active, focus_id.as_ref(), false);
+                self.floating.add_subtree(
+                    subtree,
+                    rect,
+                    origin,
+                    target_is_active,
+                    focus_id.as_ref(),
+                    false,
+                );
                 if target_is_active {
                     if let Some(focus_id) = focus_id.as_ref() {
                         self.floating.select_wrapper_for_window(focus_id);
@@ -2505,8 +2506,7 @@ impl<W: LayoutElement> Workspace<W> {
             // Floating → Tiling: sway's container_set_floating(false) inserts directly
             // using the inactive tiling reference. No tree collapse/normalization.
             if !explicit_window {
-                if let Some((subtree, origin, _rect)) = self.floating.take_container_subtree(&id)
-                {
+                if let Some((subtree, origin, _rect)) = self.floating.take_container_subtree(&id) {
                     // Match sway floating->tiling restore: internal implicit single-child
                     // split wrappers from floating must not materialize in tiling.
                     let subtree = subtree.collapse_implicit_single_child_split_root();
@@ -2526,8 +2526,11 @@ impl<W: LayoutElement> Workspace<W> {
                         }
                     };
                     if let Some(info) = restore_info {
-                        self.tiling
-                            .insert_subtree_with_parent_info(info, subtree, target_is_active);
+                        self.tiling.insert_subtree_with_parent_info(
+                            info,
+                            subtree,
+                            target_is_active,
+                        );
                     } else {
                         self.tiling
                             .add_subtree_as_workspace_tiling_fallback(subtree, target_is_active);
@@ -2567,11 +2570,11 @@ impl<W: LayoutElement> Workspace<W> {
             tile.set_scratchpad(false);
             if !self.tiling.is_empty() {
                 if let Some((info, _)) = tiling_restore_target.as_ref() {
-                self.tiling.insert_subtree_with_parent_info(
-                    info,
-                    DetachedNode::Leaf(tile),
-                    target_is_active,
-                );
+                    self.tiling.insert_subtree_with_parent_info(
+                        info,
+                        DetachedNode::Leaf(tile),
+                        target_is_active,
+                    );
                 } else {
                     self.tiling
                         .add_tile_as_workspace_tiling_fallback(tile, target_is_active);
@@ -2606,7 +2609,7 @@ impl<W: LayoutElement> Workspace<W> {
                     if self
                         .tiling
                         .insert_parent_info_from_inactive_tiling_reference(&reference)
-                    .is_some()
+                        .is_some()
                     {
                         self.remember_inactive_tiling_reference(reference);
                         remembered_old_parent_ref = true;
@@ -2670,7 +2673,11 @@ impl<W: LayoutElement> Workspace<W> {
                 let pos = center_preferring_top_left_in_area(self.floating.working_area(), size_f);
                 tile.floating_pos = Some(self.floating.logical_to_size_frac(pos));
 
-                let border_config = self.options.layout.border.merged_with(&tile.window().rules().border);
+                let border_config = self
+                    .options
+                    .layout
+                    .border
+                    .merged_with(&tile.window().rules().border);
                 let bounds = compute_toplevel_bounds(border_config, working_size);
                 let win = tile.window_mut();
                 win.set_bounds(bounds);
@@ -3181,8 +3188,7 @@ impl<W: LayoutElement> Workspace<W> {
         if self.floating.has_window(&window) {
             self.floating.interactive_resize_begin(window, edges)
         } else {
-            self.tiling
-                .interactive_resize_begin_at(window, edges, pos)
+            self.tiling.interactive_resize_begin_at(window, edges, pos)
         }
     }
 

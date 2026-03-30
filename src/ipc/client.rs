@@ -4,6 +4,7 @@ use std::path::Path;
 use std::{env, slice};
 
 use anyhow::{anyhow, bail, Context};
+use serde_json::json;
 use tiri_config::OutputName;
 use tiri_ipc::socket::Socket;
 use tiri_ipc::{
@@ -11,7 +12,6 @@ use tiri_ipc::{
     LogicalOutput, Mode, Output, OutputConfigChanged, Overview, Request, Response, Transform,
     Window, WindowLayout,
 };
-use serde_json::json;
 
 use crate::cli::Msg;
 use crate::utils::version;

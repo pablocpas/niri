@@ -14,42 +14,44 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 use std::time::Duration;
 
+use smithay::backend::renderer::element::Kind;
+use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
 use tiri_config::utils::MergeWith as _;
 use tiri_config::{Border, HideEdgeBorders, PresetSize, TabBar};
 use tiri_ipc::{ColumnDisplay, LayoutTreeNode, SizeChange};
-use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::renderer::element::Kind;
-use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size};
 
 use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
     ContainerTree, DetachedContainer, DetachedNode, Direction, InsertParentInfo, Layout,
     LeafLayoutInfo,
 };
-use super::monitor::{InsertPosition, SplitIndicator};
 use super::focus_ring::{
     render_container_selection, ContainerSelectionStyle, FocusRingEdges, FocusRingIndicatorEdge,
     FocusRingRenderElement,
 };
+use super::monitor::{InsertPosition, SplitIndicator};
 use super::tile::{Tile, TileRenderElement};
-use super::{ConfigureIntent, InteractiveResizeData, LayoutElement, Options, RemovedTile, ResizeHit};
+use super::tile::{TilePtrIter, TilePtrIterMut};
+use super::{
+    ConfigureIntent, InteractiveResizeData, LayoutElement, Options, RemovedTile, ResizeHit,
+};
 use crate::animation::{Animation, Clock};
+use crate::layout::tab_bar::{
+    render_tab_bar, tab_bar_state_from_info, TabBarCacheEntry, TabBarRenderOutput,
+};
 use crate::niri_render_elements;
 use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenRenderElement};
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
-use crate::render_helpers::RenderTarget;
 use crate::render_helpers::texture::TextureRenderElement;
+use crate::render_helpers::RenderTarget;
 use crate::utils::transaction::Transaction;
 use crate::utils::ResizeEdge;
-use crate::window::ResolvedWindowRules;
-use crate::layout::tab_bar::{
-    render_tab_bar, tab_bar_state_from_info, TabBarCacheEntry, TabBarRenderOutput,
-};
-use super::tile::{TilePtrIter, TilePtrIterMut};
-use log::warn;
 use crate::utils::{round_logical_in_physical_max1, to_physical_precise_round};
+use crate::window::ResolvedWindowRules;
+use log::warn;
 
 // ============================================================================
 // MAIN STRUCTURES - i3-style container tree implementation
@@ -177,7 +179,6 @@ pub enum ScrollDirection {
     Up,
     Down,
 }
-
 
 struct TileRenderPositions<'a, W: LayoutElement> {
     entries: Vec<(*const Tile<W>, Point<f64, Logical>, bool)>,
@@ -435,10 +436,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         } else {
             let selected_path = self.tree.selected_path();
             if selected_path.is_empty() {
-                self.tree
-                    .focused_window()
-                    .is_some()
-                    .then(|| selected_path)
+                self.tree.focused_window().is_some().then(|| selected_path)
             } else {
                 Some(selected_path)
             }
@@ -477,7 +475,10 @@ impl<W: LayoutElement> TilingSpace<W> {
         let path = self.tree.selected_path();
 
         if self.tree.is_leaf_at_path(&path) {
-            let info = self.display_layouts().iter().find(|info| info.path == path)?;
+            let info = self
+                .display_layouts()
+                .iter()
+                .find(|info| info.path == path)?;
             return Some(info.rect);
         }
 
@@ -495,9 +496,11 @@ impl<W: LayoutElement> TilingSpace<W> {
                     let left = acc.loc.x.min(info.rect.loc.x);
                     let top = acc.loc.y.min(info.rect.loc.y);
                     let right = (acc.loc.x + acc.size.w).max(info.rect.loc.x + info.rect.size.w);
-                    let bottom =
-                        (acc.loc.y + acc.size.h).max(info.rect.loc.y + info.rect.size.h);
-                    Rectangle::new(Point::from((left, top)), Size::from((right - left, bottom - top)))
+                    let bottom = (acc.loc.y + acc.size.h).max(info.rect.loc.y + info.rect.size.h);
+                    Rectangle::new(
+                        Point::from((left, top)),
+                        Size::from((right - left, bottom - top)),
+                    )
                 }
                 None => info.rect,
             });
@@ -524,7 +527,11 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub(super) fn take_selected_subtree(
         &mut self,
-    ) -> Option<(DetachedNode<W>, Option<InsertParentInfo>, Rectangle<f64, Logical>)> {
+    ) -> Option<(
+        DetachedNode<W>,
+        Option<InsertParentInfo>,
+        Rectangle<f64, Logical>,
+    )> {
         let path = self.tree.selected_path();
         let rect = self.selected_geometry()?;
         let (subtree, origin) = self.tree.take_subtree_at_path(&path)?;
@@ -629,7 +636,8 @@ impl<W: LayoutElement> TilingSpace<W> {
                             parent_path: parent_path.to_vec(),
                             child_idx,
                             neighbor_idx,
-                            original_span: if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT {
+                            original_span: if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT
+                            {
                                 child_rect.size.w
                             } else if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
                                 child_rect.size.h
@@ -682,38 +690,22 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT {
             let (left_edge, right_edge) = if neighbor_rect.loc.x < child_rect.loc.x {
-                (
-                    neighbor_rect.loc.x + neighbor_rect.size.w,
-                    child_rect.loc.x,
-                )
+                (neighbor_rect.loc.x + neighbor_rect.size.w, child_rect.loc.x)
             } else {
-                (
-                    child_rect.loc.x + child_rect.size.w,
-                    neighbor_rect.loc.x,
-                )
+                (child_rect.loc.x + child_rect.size.w, neighbor_rect.loc.x)
             };
             let coord = (left_edge + right_edge) / 2.0;
-            return Some(ResizeBoundary {
-                coord,
-            });
+            return Some(ResizeBoundary { coord });
         }
 
         if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
             let (top_edge, bottom_edge) = if neighbor_rect.loc.y < child_rect.loc.y {
-                (
-                    neighbor_rect.loc.y + neighbor_rect.size.h,
-                    child_rect.loc.y,
-                )
+                (neighbor_rect.loc.y + neighbor_rect.size.h, child_rect.loc.y)
             } else {
-                (
-                    child_rect.loc.y + child_rect.size.h,
-                    neighbor_rect.loc.y,
-                )
+                (child_rect.loc.y + child_rect.size.h, neighbor_rect.loc.y)
             };
             let coord = (top_edge + bottom_edge) / 2.0;
-            return Some(ResizeBoundary {
-                coord,
-            });
+            return Some(ResizeBoundary { coord });
         }
 
         None
@@ -753,7 +745,8 @@ impl<W: LayoutElement> TilingSpace<W> {
                             parent_path: parent_path.to_vec(),
                             child_idx,
                             neighbor_idx,
-                            original_span: if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT {
+                            original_span: if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT
+                            {
                                 child_rect.size.w
                             } else if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
                                 child_rect.size.h
@@ -890,12 +883,10 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn is_active_pending_fullscreen(&self) -> bool {
-        self.tree
-            .focused_tile()
-            .map_or(false, |tile| {
-                tile.window().pending_sizing_mode().is_fullscreen()
-                    || tile.window().is_pending_windowed_fullscreen()
-            })
+        self.tree.focused_tile().map_or(false, |tile| {
+            tile.window().pending_sizing_mode().is_fullscreen()
+                || tile.window().is_pending_windowed_fullscreen()
+        })
     }
 
     pub fn view_size(&self) -> Size<f64, Logical> {
@@ -1106,7 +1097,8 @@ impl<W: LayoutElement> TilingSpace<W> {
                     pos = Point::from((0.0, 0.0));
                 }
 
-                let is_focused = self.is_active && info.path == focus_path && !selection_is_container;
+                let is_focused =
+                    self.is_active && info.path == focus_path && !selection_is_container;
                 let draw_focus = tiling_focus_ring && is_focused;
                 let target_elements = if info.path == focus_path {
                     &mut active_elements
@@ -1287,8 +1279,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn are_animations_ongoing(&self) -> bool {
-        self.tiles().any(|tile| tile.are_animations_ongoing())
-            || !self.closing_windows.is_empty()
+        self.tiles().any(|tile| tile.are_animations_ongoing()) || !self.closing_windows.is_empty()
     }
 
     pub fn update_render_elements(&mut self, is_active: bool) {
@@ -1392,7 +1383,8 @@ impl<W: LayoutElement> TilingSpace<W> {
                     info.visible
                 };
                 if show_tile {
-                    let is_focused = is_active && info.path == focus_path && !selection_is_container;
+                    let is_focused =
+                        is_active && info.path == focus_path && !selection_is_container;
                     tile.update_render_elements(
                         is_active,
                         is_focused,
@@ -1428,8 +1420,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             return false;
         }
 
-        let Some((edges, horizontal, vertical)) =
-            self.compute_resize_targets(&window, edges, pos)
+        let Some((edges, horizontal, vertical)) = self.compute_resize_targets(&window, edges, pos)
         else {
             return false;
         };
@@ -1588,29 +1579,25 @@ impl<W: LayoutElement> TilingSpace<W> {
         let clamp_x = pos.x.clamp(rect.loc.x, rect.loc.x + rect.size.w);
         let clamp_y = pos.y.clamp(rect.loc.y, rect.loc.y + rect.size.h);
         let pos_within = Point::from((clamp_x - rect.loc.x, clamp_y - rect.loc.y));
-        let edges = super::resize_edges_for_point(
-            pos_within,
-            rect.size,
-            tile.effective_border_width(),
-        );
+        let edges =
+            super::resize_edges_for_point(pos_within, rect.size, tile.effective_border_width());
 
         let mut best: Option<(ResizeEdge, f64)> = None;
-        let mut consider_edge =
-            |edge: ResizeEdge, dist: f64, cross_ok: bool, layout: Layout| {
-                if !edges.contains(edge) || !cross_ok || dist > edge_threshold {
-                    return;
-                }
-                if self
-                    .resize_target_for_edge(&path, pos, edge, layout)
-                    .is_none()
-                {
-                    return;
-                }
-                let score = dist / edge_threshold.max(1.0);
-                if best.map_or(true, |(_, best_score)| score < best_score) {
-                    best = Some((edge, score));
-                }
-            };
+        let mut consider_edge = |edge: ResizeEdge, dist: f64, cross_ok: bool, layout: Layout| {
+            if !edges.contains(edge) || !cross_ok || dist > edge_threshold {
+                return;
+            }
+            if self
+                .resize_target_for_edge(&path, pos, edge, layout)
+                .is_none()
+            {
+                return;
+            }
+            let score = dist / edge_threshold.max(1.0);
+            if best.map_or(true, |(_, best_score)| score < best_score) {
+                best = Some((edge, score));
+            }
+        };
 
         let left_dist = (pos.x - rect.loc.x).abs();
         let right_dist = (pos.x - (rect.loc.x + rect.size.w)).abs();
@@ -1625,12 +1612,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         consider_edge(ResizeEdge::LEFT, left_dist, cross_ok_y, Layout::SplitH);
         consider_edge(ResizeEdge::RIGHT, right_dist, cross_ok_y, Layout::SplitH);
         consider_edge(ResizeEdge::TOP, top_dist, cross_ok_x, Layout::SplitV);
-        consider_edge(
-            ResizeEdge::BOTTOM,
-            bottom_dist,
-            cross_ok_x,
-            Layout::SplitV,
-        );
+        consider_edge(ResizeEdge::BOTTOM, bottom_dist, cross_ok_x, Layout::SplitV);
 
         let (edge, _) = best?;
 
@@ -1641,7 +1623,6 @@ impl<W: LayoutElement> TilingSpace<W> {
             is_floating: false,
         })
     }
-
 
     // Focus operations using ContainerTree
     pub fn activate_window(&mut self, window: &W::Id) -> bool {
@@ -1661,7 +1642,10 @@ impl<W: LayoutElement> TilingSpace<W> {
         // Match sway: with active fullscreen in tiling, directional focus can move inside the
         // fullscreen subtree, but must not escape to another root sibling.
         let fullscreen_scope = self.fullscreen_window.as_ref().map(|id| {
-            let root_idx = self.tree.find_window(id).and_then(|path| path.first().copied());
+            let root_idx = self
+                .tree
+                .find_window(id)
+                .and_then(|path| path.first().copied());
             (id.clone(), root_idx)
         });
 
@@ -1792,7 +1776,8 @@ impl<W: LayoutElement> TilingSpace<W> {
         &self,
         window: &W::Id,
     ) -> Option<super::container::InactiveTilingReference> {
-        self.tree.inactive_tiling_reference_for_parent_of_window(window)
+        self.tree
+            .inactive_tiling_reference_for_parent_of_window(window)
     }
 
     pub(super) fn inactive_tiling_reference_chain_for_focused_reference(
@@ -1910,9 +1895,9 @@ impl<W: LayoutElement> TilingSpace<W> {
             let next = match self.workspace_layout {
                 Layout::SplitH => Layout::SplitV,
                 Layout::SplitV => Layout::SplitH,
-                Layout::Tabbed | Layout::Stacked => self
-                    .workspace_prev_split_layout
-                    .unwrap_or(Layout::SplitH),
+                Layout::Tabbed | Layout::Stacked => {
+                    self.workspace_prev_split_layout.unwrap_or(Layout::SplitH)
+                }
             };
             return self.apply_workspace_layout_target(next);
         }
@@ -2125,9 +2110,9 @@ impl<W: LayoutElement> TilingSpace<W> {
         let next = match self.workspace_layout {
             Layout::SplitH => Layout::SplitV,
             Layout::SplitV => Layout::SplitH,
-            Layout::Tabbed | Layout::Stacked => self
-                .workspace_prev_split_layout
-                .unwrap_or(Layout::SplitH),
+            Layout::Tabbed | Layout::Stacked => {
+                self.workspace_prev_split_layout.unwrap_or(Layout::SplitH)
+            }
         };
         self.set_workspace_layout_hint(next);
     }
@@ -2258,10 +2243,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     const DROP_LAYOUT_BORDER: f64 = 30.0;
     const DROP_CENTER_RATIO: f64 = 0.3;
 
-    fn closest_edge(
-        rect: Rectangle<f64, Logical>,
-        pos: Point<f64, Logical>,
-    ) -> (Direction, f64) {
+    fn closest_edge(rect: Rectangle<f64, Logical>, pos: Point<f64, Logical>) -> (Direction, f64) {
         let left = (pos.x - rect.loc.x).abs();
         let right = (rect.loc.x + rect.size.w - pos.x).abs();
         let top = (pos.y - rect.loc.y).abs();
@@ -2288,7 +2270,10 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     fn leaf_rect_for_path(&self, path: &[usize]) -> Option<Rectangle<f64, Logical>> {
         let scale = Scale::from(self.scale);
-        let info = self.display_layouts().iter().find(|info| info.path == path)?;
+        let info = self
+            .display_layouts()
+            .iter()
+            .find(|info| info.path == path)?;
         let tile = self.tree.get_tile(info.key)?;
         let mut tile_pos = info.rect.loc + tile.render_offset();
         tile_pos = tile_pos.to_physical_precise_round(scale).to_logical(scale);
@@ -2400,10 +2385,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     fn inset_rect(rect: Rectangle<f64, Logical>, inset: f64) -> Rectangle<f64, Logical> {
-        let inset = inset
-            .min(rect.size.w / 2.0)
-            .min(rect.size.h / 2.0)
-            .max(0.0);
+        let inset = inset.min(rect.size.w / 2.0).min(rect.size.h / 2.0).max(0.0);
         Rectangle::new(
             Point::from((rect.loc.x + inset, rect.loc.y + inset)),
             Size::from((rect.size.w - 2.0 * inset, rect.size.h - 2.0 * inset)),
@@ -2510,7 +2492,10 @@ impl<W: LayoutElement> TilingSpace<W> {
                 };
                 Some(Self::indicator_rect(rect, *direction, thickness))
             }
-            InsertPosition::SplitRoot { direction, indicator } => {
+            InsertPosition::SplitRoot {
+                direction,
+                indicator,
+            } => {
                 let rect = self.layout_area();
                 let thickness = match indicator {
                     SplitIndicator::LayoutBorder => Self::DROP_LAYOUT_BORDER,
@@ -2554,11 +2539,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
             let row_height_px =
                 to_physical_precise_round::<i32>(self.scale, info.row_height).max(1);
-            let focused_idx = info
-                .tabs
-                .iter()
-                .position(|tab| tab.is_focused)
-                .unwrap_or(0);
+            let focused_idx = info.tabs.iter().position(|tab| tab.is_focused).unwrap_or(0);
 
             let tab_idx = match info.layout {
                 Layout::Tabbed => {
@@ -2777,8 +2758,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn are_transitions_ongoing(&self) -> bool {
-        self.tiles().any(|tile| tile.are_transitions_ongoing())
-            || !self.closing_windows.is_empty()
+        self.tiles().any(|tile| tile.are_transitions_ongoing()) || !self.closing_windows.is_empty()
     }
 
     pub fn update_shaders(&mut self) {
@@ -2881,7 +2861,11 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.layout();
     }
 
-    pub fn add_subtree_as_workspace_tiling_fallback(&mut self, subtree: DetachedNode<W>, focus: bool) {
+    pub fn add_subtree_as_workspace_tiling_fallback(
+        &mut self,
+        subtree: DetachedNode<W>,
+        focus: bool,
+    ) {
         if self.tree.is_empty() {
             self.tree.insert_subtree_with_focus(subtree, focus);
         } else {
@@ -2928,10 +2912,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         tile: Tile<W>,
         activate: bool,
     ) -> bool {
-        if self
-            .tree
-            .insert_leaf_with_parent_info(info, tile, activate)
-        {
+        if self.tree.insert_leaf_with_parent_info(info, tile, activate) {
             self.sync_fullscreen_window();
             self.tree.layout();
             return true;
@@ -2965,10 +2946,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         tile: Tile<W>,
         activate: bool,
     ) -> bool {
-        if self
-            .tree
-            .insert_leaf_split_root(direction, tile, activate)
-        {
+        if self.tree.insert_leaf_split_root(direction, tile, activate) {
             self.sync_fullscreen_window();
             self.tree.layout();
             return true;
@@ -3303,22 +3281,12 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn toggle_window_height(&mut self, window: Option<&W::Id>, forwards: bool) {
         let presets = self.options.layout.preset_window_heights.clone();
-        self.toggle_window_dimension(
-            window,
-            Layout::SplitV,
-            &presets,
-            forwards,
-        );
+        self.toggle_window_dimension(window, Layout::SplitV, &presets, forwards);
     }
 
     pub fn toggle_window_width(&mut self, window: Option<&W::Id>, forwards: bool) {
         let presets = self.options.layout.preset_column_widths.clone();
-        self.toggle_window_dimension(
-            window,
-            Layout::SplitH,
-            &presets,
-            forwards,
-        );
+        self.toggle_window_dimension(window, Layout::SplitH, &presets, forwards);
     }
 
     pub fn set_window_width(&mut self, window: Option<&W::Id>, change: SizeChange) {
@@ -3426,17 +3394,9 @@ impl<W: LayoutElement> TilingSpace<W> {
             }
 
             if tile.pending_maximized {
-                tile.request_maximized(
-                    self.working_area.size,
-                    !self.options.animations.off,
-                    None,
-                );
+                tile.request_maximized(self.working_area.size, !self.options.animations.off, None);
             } else {
-                tile.request_tile_size(
-                    self.working_area.size,
-                    !self.options.animations.off,
-                    None,
-                );
+                tile.request_tile_size(self.working_area.size, !self.options.animations.off, None);
             }
 
             self.fullscreen_window = None;
@@ -3780,7 +3740,10 @@ impl<W: LayoutElement> Column<W> {
     pub fn from_tiles(tiles: Vec<Tile<W>>) -> Self {
         if tiles.is_empty() {
             return Self {
-                subtree: DetachedNode::Container(DetachedContainer::new(Layout::SplitV, Vec::new())),
+                subtree: DetachedNode::Container(DetachedContainer::new(
+                    Layout::SplitV,
+                    Vec::new(),
+                )),
             };
         }
 
@@ -3873,17 +3836,18 @@ fn edge_visibility_for_tile(
 
     let eps = 0.5 / scale.max(1e-6);
     let left = (tile_rect.loc.x - layout_rect.loc.x).abs() <= eps;
-    let right = (tile_rect.loc.x + tile_rect.size.w
-        - (layout_rect.loc.x + layout_rect.size.w))
+    let right = (tile_rect.loc.x + tile_rect.size.w - (layout_rect.loc.x + layout_rect.size.w))
         .abs()
         <= eps;
     let top = (tile_rect.loc.y - layout_rect.loc.y).abs() <= eps;
-    let bottom = (tile_rect.loc.y + tile_rect.size.h
-        - (layout_rect.loc.y + layout_rect.size.h))
+    let bottom = (tile_rect.loc.y + tile_rect.size.h - (layout_rect.loc.y + layout_rect.size.h))
         .abs()
         <= eps;
 
-    let hide_horizontal = matches!(hide_mode, HideEdgeBorders::Horizontal | HideEdgeBorders::Both);
+    let hide_horizontal = matches!(
+        hide_mode,
+        HideEdgeBorders::Horizontal | HideEdgeBorders::Both
+    );
     let hide_vertical = matches!(hide_mode, HideEdgeBorders::Vertical | HideEdgeBorders::Both);
 
     if hide_horizontal {

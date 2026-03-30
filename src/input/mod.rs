@@ -6,10 +6,6 @@ use std::time::Duration;
 
 use calloop::timer::{TimeoutAction, Timer};
 use input::event::gesture::GestureEventCoordinates as _;
-use tiri_config::{
-    Action, Bind, Binds, Config, Key, ModKey, Modifiers, MruDirection, SwitchBinds, Trigger,
-};
-use tiri_ipc::LayoutSwitchTarget;
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Device, DeviceCapability, Event,
     GestureBeginEvent, GestureEndEvent, GesturePinchUpdateEvent as _, GestureSwipeUpdateEvent as _,
@@ -38,15 +34,19 @@ use smithay::utils::{Logical, Point, Rectangle, Transform, SERIAL_COUNTER};
 use smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitor;
 use smithay::wayland::pointer_constraints::{with_pointer_constraint, PointerConstraint};
 use smithay::wayland::tablet_manager::{TabletDescriptor, TabletSeatTrait};
+use tiri_config::{
+    Action, Bind, Binds, Config, Key, ModKey, Modifiers, MruDirection, SwitchBinds, Trigger,
+};
+use tiri_ipc::LayoutSwitchTarget;
 use touch_overview_grab::TouchOverviewGrab;
 
 use self::move_grab::MoveGrab;
 use self::resize_grab::ResizeGrab;
 use self::spatial_movement_grab::SpatialMovementGrab;
+use crate::cursor::CursorOverride;
 #[cfg(feature = "dbus")]
 use crate::dbus::freedesktop_a11y::KbMonBlock;
 use crate::layout::tiling::ScrollDirection;
-use crate::cursor::CursorOverride;
 use crate::layout::{ActivateWindow, ContainerLayout, LayoutElement as _};
 use crate::tiri::{CastTarget, PointerVisibility, State};
 use crate::ui::mru::{WindowMru, WindowMruUi};
@@ -1022,7 +1022,8 @@ impl State {
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
-            Action::MoveColumnRightOrToMonitorRight | Action::MoveContainerRightOrToMonitorRight => {
+            Action::MoveColumnRightOrToMonitorRight
+            | Action::MoveContainerRightOrToMonitorRight => {
                 if self.niri.screenshot_ui.is_open() {
                     self.niri.screenshot_ui.move_right();
                 } else if let Some(output) = self.niri.output_right() {
@@ -1471,10 +1472,10 @@ impl State {
             Action::MoveColumnToWorkspace(reference, focus)
             | Action::MoveContainerToWorkspace(reference, focus) => {
                 if let Some(workspace_id) = self.niri.find_workspace_id(reference) {
-                    if let Some(output) =
-                        self.niri
-                            .layout
-                            .move_container_to_workspace_by_id(workspace_id, focus)
+                    if let Some(output) = self
+                        .niri
+                        .layout
+                        .move_container_to_workspace_by_id(workspace_id, focus)
                     {
                         if let Some(output) = output {
                             if focus && !self.maybe_warp_cursor_to_focus_centered() {
@@ -1533,8 +1534,12 @@ impl State {
             }
             Action::FocusWorkspace(reference) => {
                 if let Some(workspace_id) = self.niri.find_workspace_id(reference) {
-                    let auto_back_and_forth =
-                        self.niri.config.borrow().input.workspace_auto_back_and_forth;
+                    let auto_back_and_forth = self
+                        .niri
+                        .config
+                        .borrow()
+                        .input
+                        .workspace_auto_back_and_forth;
                     if let Some(output) = self
                         .niri
                         .layout
@@ -1943,7 +1948,9 @@ impl State {
                         self.niri.screenshot_ui.move_to_output(target_output);
                     }
                 } else if let Some(output) = self.niri.output_left() {
-                    self.niri.layout.move_container_to_output(&output, None, true);
+                    self.niri
+                        .layout
+                        .move_container_to_output(&output, None, true);
                     self.niri.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
                         self.move_cursor_to_output(&output);
@@ -1957,7 +1964,9 @@ impl State {
                         self.niri.screenshot_ui.move_to_output(target_output);
                     }
                 } else if let Some(output) = self.niri.output_right() {
-                    self.niri.layout.move_container_to_output(&output, None, true);
+                    self.niri
+                        .layout
+                        .move_container_to_output(&output, None, true);
                     self.niri.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
                         self.move_cursor_to_output(&output);
@@ -1971,7 +1980,9 @@ impl State {
                         self.niri.screenshot_ui.move_to_output(target_output);
                     }
                 } else if let Some(output) = self.niri.output_down() {
-                    self.niri.layout.move_container_to_output(&output, None, true);
+                    self.niri
+                        .layout
+                        .move_container_to_output(&output, None, true);
                     self.niri.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
                         self.move_cursor_to_output(&output);
@@ -1985,7 +1996,9 @@ impl State {
                         self.niri.screenshot_ui.move_to_output(target_output);
                     }
                 } else if let Some(output) = self.niri.output_up() {
-                    self.niri.layout.move_container_to_output(&output, None, true);
+                    self.niri
+                        .layout
+                        .move_container_to_output(&output, None, true);
                     self.niri.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
                         self.move_cursor_to_output(&output);
@@ -1999,7 +2012,9 @@ impl State {
                         self.niri.screenshot_ui.move_to_output(target_output);
                     }
                 } else if let Some(output) = self.niri.output_previous() {
-                    self.niri.layout.move_container_to_output(&output, None, true);
+                    self.niri
+                        .layout
+                        .move_container_to_output(&output, None, true);
                     self.niri.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
                         self.move_cursor_to_output(&output);
@@ -2013,7 +2028,9 @@ impl State {
                         self.niri.screenshot_ui.move_to_output(target_output);
                     }
                 } else if let Some(output) = self.niri.output_next() {
-                    self.niri.layout.move_container_to_output(&output, None, true);
+                    self.niri
+                        .layout
+                        .move_container_to_output(&output, None, true);
                     self.niri.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
                         self.move_cursor_to_output(&output);
@@ -2026,7 +2043,9 @@ impl State {
                         self.move_cursor_to_output(&output);
                         self.niri.screenshot_ui.move_to_output(output);
                     } else {
-                        self.niri.layout.move_container_to_output(&output, None, true);
+                        self.niri
+                            .layout
+                            .move_container_to_output(&output, None, true);
                         self.niri.layout.focus_output(&output);
                         if !self.maybe_warp_cursor_to_focus_centered() {
                             self.move_cursor_to_output(&output);
@@ -2242,7 +2261,8 @@ impl State {
                 reference,
             } => {
                 if let Some(workspace_id) = self.niri.find_workspace_id(reference) {
-                    if let Some(new_output) = self.niri.output_by_name_match(&output_name).cloned() {
+                    if let Some(new_output) = self.niri.output_by_name_match(&output_name).cloned()
+                    {
                         if self
                             .niri
                             .layout
@@ -3047,13 +3067,12 @@ impl State {
                 }
                 .and_then(|trigger| {
                     let config = self.niri.config.borrow();
-                    let bindings =
-                        make_binds_iter(
-                            &config,
-                            &mut self.niri.window_mru_ui,
-                            modifiers,
-                            self.niri.binding_mode.as_str(),
-                        );
+                    let bindings = make_binds_iter(
+                        &config,
+                        &mut self.niri.window_mru_ui,
+                        modifiers,
+                        self.niri.binding_mode.as_str(),
+                    );
                     find_configured_bind(bindings, mod_key, trigger, mods)
                 }) {
                     self.niri.suppressed_buttons.insert(button_code);
@@ -3289,12 +3308,10 @@ impl State {
                             // In the overview, we click to activate window and close the overview,
                             // in this case setting the cursor right away would be distracting.
                             if !is_overview_open {
-                                self.niri
-                                    .cursor_manager
-                                    .set_override_cursor(
-                                        CursorOverride::PointerGrab,
-                                        CursorImageStatus::Named(icon),
-                                    );
+                                self.niri.cursor_manager.set_override_cursor(
+                                    CursorOverride::PointerGrab,
+                                    CursorImageStatus::Named(icon),
+                                );
                             }
                         }
                     }
@@ -3460,13 +3477,12 @@ impl State {
                             (bind_left, bind_right)
                         } else {
                             let config = self.niri.config.borrow();
-                            let bindings =
-                                make_binds_iter(
-                                    &config,
-                                    &mut self.niri.window_mru_ui,
-                                    modifiers,
-                                    self.niri.binding_mode.as_str(),
-                                );
+                            let bindings = make_binds_iter(
+                                &config,
+                                &mut self.niri.window_mru_ui,
+                                modifiers,
+                                self.niri.binding_mode.as_str(),
+                            );
                             let bind_left = find_configured_bind(
                                 bindings.clone(),
                                 mod_key,
@@ -3552,13 +3568,12 @@ impl State {
                         (bind_up, bind_down)
                     } else {
                         let config = self.niri.config.borrow();
-                        let bindings =
-                            make_binds_iter(
-                                &config,
-                                &mut self.niri.window_mru_ui,
-                                modifiers,
-                                self.niri.binding_mode.as_str(),
-                            );
+                        let bindings = make_binds_iter(
+                            &config,
+                            &mut self.niri.window_mru_ui,
+                            modifiers,
+                            self.niri.binding_mode.as_str(),
+                        );
                         let bind_up = find_configured_bind(
                             bindings.clone(),
                             mod_key,
@@ -3702,13 +3717,12 @@ impl State {
                     .accumulate(horizontal);
                 if ticks != 0 {
                     let config = self.niri.config.borrow();
-                    let bindings =
-                        make_binds_iter(
-                            &config,
-                            &mut self.niri.window_mru_ui,
-                            modifiers,
-                            self.niri.binding_mode.as_str(),
-                        );
+                    let bindings = make_binds_iter(
+                        &config,
+                        &mut self.niri.window_mru_ui,
+                        modifiers,
+                        self.niri.binding_mode.as_str(),
+                    );
                     let bind_left = find_configured_bind(
                         bindings.clone(),
                         mod_key,
@@ -3737,13 +3751,12 @@ impl State {
                     .accumulate(vertical);
                 if ticks != 0 {
                     let config = self.niri.config.borrow();
-                    let bindings =
-                        make_binds_iter(
-                            &config,
-                            &mut self.niri.window_mru_ui,
-                            modifiers,
-                            self.niri.binding_mode.as_str(),
-                        );
+                    let bindings = make_binds_iter(
+                        &config,
+                        &mut self.niri.window_mru_ui,
+                        modifiers,
+                        self.niri.binding_mode.as_str(),
+                    );
                     let bind_up = find_configured_bind(
                         bindings.clone(),
                         mod_key,
@@ -5410,9 +5423,8 @@ fn make_binds_iter<'a>(
     let general_binds = (!mru.is_open()).then_some(mode_binds.0.iter());
     let general_binds = general_binds.into_iter().flatten();
 
-    let mru_binds =
-        (is_default_mode && (config.recent_windows.on || mru.is_open()))
-            .then_some(config.recent_windows.binds.iter());
+    let mru_binds = (is_default_mode && (config.recent_windows.on || mru.is_open()))
+        .then_some(config.recent_windows.binds.iter());
     let mru_binds = mru_binds.into_iter().flatten();
 
     let mru_open_binds = (is_default_mode && mru.is_open()).then(|| mru.opened_bindings(mods));

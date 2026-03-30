@@ -4,7 +4,6 @@ use std::mem;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-use tiri_config::{Config, OutputName};
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -17,11 +16,12 @@ use smithay::reexports::winit::dpi::LogicalSize;
 use smithay::reexports::winit::platform::wayland::WindowAttributesExtWayland;
 use smithay::reexports::winit::window::Window;
 use smithay::wayland::presentation::Refresh;
+use tiri_config::{Config, OutputName};
 
 use super::{IpcOutputMap, OutputId, RenderResult};
-use crate::tiri::{Niri, RedrawState, State};
 use crate::render_helpers::debug::draw_damage;
 use crate::render_helpers::{resources, shaders, RenderTarget};
+use crate::tiri::{Niri, RedrawState, State};
 use crate::utils::{get_monotonic_time, logical_output};
 
 pub struct Winit {

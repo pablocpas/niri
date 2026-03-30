@@ -386,7 +386,10 @@ impl MergeWith<BorderRule> for Border {
             (active_color, active_gradient),
             (active_indicator_color, active_indicator_gradient),
             (focused_inactive_color, focused_inactive_gradient),
-            (focused_inactive_indicator_color, focused_inactive_indicator_gradient),
+            (
+                focused_inactive_indicator_color,
+                focused_inactive_indicator_gradient
+            ),
             (inactive_color, inactive_gradient),
             (inactive_indicator_color, inactive_indicator_gradient),
             (urgent_color, urgent_gradient),
@@ -898,7 +901,10 @@ impl MergeWith<Self> for BorderRule {
             (active_color, active_gradient),
             (active_indicator_color, active_indicator_gradient),
             (focused_inactive_color, focused_inactive_gradient),
-            (focused_inactive_indicator_color, focused_inactive_indicator_gradient),
+            (
+                focused_inactive_indicator_color,
+                focused_inactive_indicator_gradient
+            ),
             (inactive_color, inactive_gradient),
             (inactive_indicator_color, inactive_indicator_gradient),
             (urgent_color, urgent_gradient),

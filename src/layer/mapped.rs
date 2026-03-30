@@ -1,10 +1,10 @@
-use tiri_config::utils::MergeWith as _;
-use tiri_config::{Config, LayerRule};
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::Kind;
 use smithay::desktop::{LayerSurface, PopupManager};
 use smithay::utils::{Logical, Point, Scale, Size};
 use smithay::wayland::shell::wlr_layer::{ExclusiveZone, Layer};
+use tiri_config::utils::MergeWith as _;
+use tiri_config::{Config, LayerRule};
 
 use super::ResolvedLayerRules;
 use crate::animation::Clock;

@@ -173,8 +173,11 @@ mod tests {
         let estimator = RenderTimeEstimator::new();
         let margin = estimator.total_margin();
         // Default: 5ms render+commit + 2ms pre-render slack
-        assert!(margin.as_micros() >= 6900 && margin.as_micros() <= 7100,
-            "expected ~7ms, got {:?}", margin);
+        assert!(
+            margin.as_micros() >= 6900 && margin.as_micros() <= 7100,
+            "expected ~7ms, got {:?}",
+            margin
+        );
     }
 
     #[test]
@@ -212,8 +215,11 @@ mod tests {
 
         let margin = estimator.total_margin();
         // Should approach 8ms.
-        assert!(margin > Duration::from_micros(7900),
-            "margin should be > ~8ms, got {:?}", margin);
+        assert!(
+            margin > Duration::from_micros(7900),
+            "margin should be > ~8ms, got {:?}",
+            margin
+        );
     }
 
     #[test]
@@ -226,8 +232,11 @@ mod tests {
         }
 
         let margin = estimator.total_margin();
-        assert!(margin < Duration::from_millis(3),
-            "margin should converge to ~2.5ms, got {:?}", margin);
+        assert!(
+            margin < Duration::from_millis(3),
+            "margin should converge to ~2.5ms, got {:?}",
+            margin
+        );
     }
 
     #[test]
@@ -241,8 +250,12 @@ mod tests {
         estimator.on_vblank(3);
 
         let after_drop = estimator.total_margin();
-        assert!(after_drop > initial_margin,
-            "margin should increase after drop: {:?} vs {:?}", after_drop, initial_margin);
+        assert!(
+            after_drop > initial_margin,
+            "margin should increase after drop: {:?} vs {:?}",
+            after_drop,
+            initial_margin
+        );
     }
 
     #[test]
@@ -253,8 +266,12 @@ mod tests {
         estimator.record_late_presentation(Duration::from_micros(800));
 
         let bumped = estimator.total_margin();
-        assert!(bumped > initial_margin,
-            "margin should increase after late presentation: {:?} vs {:?}", bumped, initial_margin);
+        assert!(
+            bumped > initial_margin,
+            "margin should increase after late presentation: {:?} vs {:?}",
+            bumped,
+            initial_margin
+        );
     }
 
     #[test]
@@ -298,8 +315,12 @@ mod tests {
         }
 
         let after_recovery = estimator.total_margin();
-        assert!(after_recovery < after_drop,
-            "margin should decrease after recovery: {:?} vs {:?}", after_recovery, after_drop);
+        assert!(
+            after_recovery < after_drop,
+            "margin should decrease after recovery: {:?} vs {:?}",
+            after_recovery,
+            after_drop
+        );
     }
 
     #[test]
@@ -308,8 +329,11 @@ mod tests {
         estimator.set_refresh_interval(Duration::from_millis(4)); // Very short refresh
 
         let margin = estimator.total_margin();
-        assert!(margin <= Duration::from_millis(4),
-            "margin should be capped at 4ms, got {:?}", margin);
+        assert!(
+            margin <= Duration::from_millis(4),
+            "margin should be capped at 4ms, got {:?}",
+            margin
+        );
     }
 
     #[test]
@@ -323,8 +347,11 @@ mod tests {
 
         let value = decay.get();
         // Should converge close to 2ms.
-        assert!((value - 2_000_000.0).abs() < 100_000.0,
-            "expected ~2ms, got {:.0}ns", value);
+        assert!(
+            (value - 2_000_000.0).abs() < 100_000.0,
+            "expected ~2ms, got {:.0}ns",
+            value
+        );
     }
 
     #[test]
@@ -334,14 +361,20 @@ mod tests {
         // Default margin is ~5ms. Set refresh to 6.9ms (144Hz).
         estimator.set_refresh_interval(Duration::from_nanos(6_944_444));
         let margin_144 = estimator.total_margin();
-        assert!(margin_144 <= Duration::from_nanos(6_944_444),
-            "margin should be capped at 144Hz refresh: {:?}", margin_144);
+        assert!(
+            margin_144 <= Duration::from_nanos(6_944_444),
+            "margin should be capped at 144Hz refresh: {:?}",
+            margin_144
+        );
 
         // Switch to 60Hz (16.67ms) — margin should no longer be capped.
         estimator.set_refresh_interval(Duration::from_nanos(16_666_667));
         let margin_60 = estimator.total_margin();
-        assert!(margin_60 >= Duration::from_micros(4900),
-            "margin should not be capped at 60Hz: {:?}", margin_60);
+        assert!(
+            margin_60 >= Duration::from_micros(4900),
+            "margin should not be capped at 60Hz: {:?}",
+            margin_60
+        );
     }
 
     /// Simulates a full frame scheduling cycle:
@@ -367,10 +400,14 @@ mod tests {
 
             if let Some(d) = deadline {
                 // Deadline should be between input_time and next_vblank.
-                assert!(d > input_time,
-                    "frame {seq}: deadline {d:?} should be after input {input_time:?}");
-                assert!(d < next_vblank,
-                    "frame {seq}: deadline {d:?} should be before vblank {next_vblank:?}");
+                assert!(
+                    d > input_time,
+                    "frame {seq}: deadline {d:?} should be after input {input_time:?}"
+                );
+                assert!(
+                    d < next_vblank,
+                    "frame {seq}: deadline {d:?} should be before vblank {next_vblank:?}"
+                );
 
                 // Simulate render starting at deadline, taking ~0.5ms.
                 let render_duration = Duration::from_micros(500);
@@ -390,7 +427,10 @@ mod tests {
 
         // After 60 frames of 0.5ms renders, margin should have converged down.
         let final_margin = estimator.total_margin();
-        assert!(final_margin < Duration::from_millis(3),
-            "margin should converge to ~2.5ms after 60 frames, got {:?}", final_margin);
+        assert!(
+            final_margin < Duration::from_millis(3),
+            "margin should converge to ~2.5ms after 60 frames, got {:?}",
+            final_margin
+        );
     }
 }

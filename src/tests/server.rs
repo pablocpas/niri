@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use calloop::EventLoop;
-use tiri_config::Config;
 use smithay::reexports::wayland_server::Display;
+use tiri_config::Config;
 
 use crate::tiri::State;
 

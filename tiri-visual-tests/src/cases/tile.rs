@@ -1,12 +1,12 @@
 use std::rc::Rc;
 use std::time::Duration;
 
-use tiri::layout::Options;
-use tiri::render_helpers::RenderTarget;
-use tiri_config::Color;
 use smithay::backend::renderer::element::RenderElement;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Physical, Point, Rectangle, Size};
+use tiri::layout::Options;
+use tiri::render_helpers::RenderTarget;
+use tiri_config::Color;
 
 use super::{Args, TestCase};
 use crate::test_window::TestWindow;

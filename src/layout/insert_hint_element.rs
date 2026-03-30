@@ -1,5 +1,5 @@
-use tiri_config::CornerRadius;
 use smithay::utils::{Logical, Point, Rectangle, Size};
+use tiri_config::CornerRadius;
 
 use super::focus_ring::{FocusRing, FocusRingEdges, FocusRingRenderElement, FocusRingState};
 use crate::render_helpers::renderer::NiriRenderer;
@@ -71,18 +71,17 @@ impl InsertHintElement {
         radius: CornerRadius,
         scale: f64,
     ) {
-        self.inner
-            .update_render_elements(
-                size,
-                FocusRingState::Focused,
-                false,
-                FocusRingEdges::all(),
-                None,
-                view_rect,
-                radius,
-                scale,
-                1.,
-            );
+        self.inner.update_render_elements(
+            size,
+            FocusRingState::Focused,
+            false,
+            FocusRingEdges::all(),
+            None,
+            view_rect,
+            radius,
+            scale,
+            1.,
+        );
     }
 
     pub fn render(

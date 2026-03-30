@@ -16,11 +16,11 @@ use slotmap::{new_key_type, SecondaryMap, SlotMap};
 use smithay::utils::{Logical, Point, Rectangle, Size};
 use smithay::wayland::compositor::{Blocker, BlockerState};
 
+use super::tab_bar::tab_bar_row_height;
 use super::tile::Tile;
 use super::{LayoutElement, Options};
-use super::tab_bar::tab_bar_row_height;
-use crate::window::Mapped;
 use crate::utils::transaction::{Transaction, TransactionBlocker};
+use crate::window::Mapped;
 use tiri_config::BlockOutFrom;
 use tiri_ipc::{LayoutTreeLayout, LayoutTreeNode};
 
@@ -321,8 +321,7 @@ impl ContainerData {
     }
 
     fn ensure_focus_stack(&mut self) {
-        self.focus_stack
-            .retain(|key| self.children.contains(key));
+        self.focus_stack.retain(|key| self.children.contains(key));
         for child in &self.children {
             if !self.focus_stack.contains(child) {
                 self.focus_stack.push(*child);
@@ -513,7 +512,12 @@ impl ContainerData {
         self.normalize_child_percents();
     }
 
-    pub fn set_child_percent_pair(&mut self, idx: usize, neighbor_idx: usize, percent: f64) -> bool {
+    pub fn set_child_percent_pair(
+        &mut self,
+        idx: usize,
+        neighbor_idx: usize,
+        percent: f64,
+    ) -> bool {
         if self.child_percents.len() != self.children.len() {
             self.recalculate_percentages();
         }
@@ -727,8 +731,10 @@ impl<W: LayoutElement> DetachedNode<W> {
                     .copied()
                     .find(|idx| *idx < child_count)
                     .unwrap_or(0);
-                let focused_is_leaf =
-                    matches!(container.children.get(focused_idx), Some(DetachedNode::Leaf(_)));
+                let focused_is_leaf = matches!(
+                    container.children.get(focused_idx),
+                    Some(DetachedNode::Leaf(_))
+                );
                 let has_leaf = container
                     .children
                     .iter()
@@ -822,8 +828,7 @@ impl<W: LayoutElement> DetachedContainer<W> {
     }
 
     fn ensure_focus_stack(&mut self) {
-        self.focus_stack
-            .retain(|idx| *idx < self.children.len());
+        self.focus_stack.retain(|idx| *idx < self.children.len());
         let mut seen = vec![false; self.children.len()];
         self.focus_stack.retain(|idx| {
             if seen[*idx] {
@@ -958,7 +963,6 @@ impl<W: LayoutElement> ContainerTree<W> {
         })
     }
 
-
     fn preview_rect_for_path(
         &self,
         root_key: NodeKey,
@@ -972,11 +976,8 @@ impl<W: LayoutElement> ContainerTree<W> {
             let child_key = container.child_key(idx)?;
             let child_is_leaf = matches!(self.get_node(child_key), Some(NodeData::Leaf(_)));
             let percents_sum: f64 = container.child_percents_slice().iter().copied().sum();
-            let percents = self.get_normalized_child_percents(
-                node_key,
-                container.child_count(),
-                percents_sum,
-            );
+            let percents =
+                self.get_normalized_child_percents(node_key, container.child_count(), percents_sum);
             let (child_rect, _) = self.preview_child_rect(
                 container.layout(),
                 rect,
@@ -1321,35 +1322,35 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         // Prefer selected container/leaf target (focus-parent semantics),
         // then fall back to focused leaf.
-        let selected_target = self
-            .selected_key
-            .and_then(|selected_key| match self.get_node(selected_key) {
-                // Match sway/i3 semantics for focused containers:
-                // insert new windows as siblings of the selected container.
-                Some(NodeData::Container(_container)) => {
-                    if let Some(parent_key) = self.parent_of(selected_key) {
+        let selected_target =
+            self.selected_key
+                .and_then(|selected_key| match self.get_node(selected_key) {
+                    // Match sway/i3 semantics for focused containers:
+                    // insert new windows as siblings of the selected container.
+                    Some(NodeData::Container(_container)) => {
+                        if let Some(parent_key) = self.parent_of(selected_key) {
+                            let selected_idx = self.child_index(parent_key, selected_key)?;
+                            Some((parent_key, selected_idx + 1))
+                        } else {
+                            None
+                        }
+                    }
+                    Some(NodeData::Leaf(_)) => {
+                        let parent_key = self.parent_of(selected_key)?;
                         let selected_idx = self.child_index(parent_key, selected_key)?;
                         Some((parent_key, selected_idx + 1))
-                    } else {
-                        None
                     }
-                }
-                Some(NodeData::Leaf(_)) => {
-                    let parent_key = self.parent_of(selected_key)?;
-                    let selected_idx = self.child_index(parent_key, selected_key)?;
-                    Some((parent_key, selected_idx + 1))
-                }
-                None => None,
-            });
+                    None => None,
+                });
 
-        let focus_target = self
-            .focused_key
-            .or_else(|| self.first_leaf_key())
-            .and_then(|focused_key| {
-                let parent_key = self.parent_of(focused_key)?;
-                let focused_idx = self.child_index(parent_key, focused_key)?;
-                Some((parent_key, focused_idx + 1))
-            });
+        let focus_target =
+            self.focused_key
+                .or_else(|| self.first_leaf_key())
+                .and_then(|focused_key| {
+                    let parent_key = self.parent_of(focused_key)?;
+                    let focused_idx = self.child_index(parent_key, focused_key)?;
+                    Some((parent_key, focused_idx + 1))
+                });
 
         let insert_target = selected_target.or(focus_target).or_else(|| {
             let root_key = self.root?;
@@ -1442,33 +1443,33 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         // Prefer selected container/leaf target (focus-parent semantics),
         // then fall back to focused leaf.
-        let selected_target = self
-            .selected_key
-            .and_then(|selected_key| match self.get_node(selected_key) {
-                Some(NodeData::Container(_container)) => {
-                    if let Some(parent_key) = self.parent_of(selected_key) {
+        let selected_target =
+            self.selected_key
+                .and_then(|selected_key| match self.get_node(selected_key) {
+                    Some(NodeData::Container(_container)) => {
+                        if let Some(parent_key) = self.parent_of(selected_key) {
+                            let selected_idx = self.child_index(parent_key, selected_key)?;
+                            Some((parent_key, selected_idx + 1))
+                        } else {
+                            None
+                        }
+                    }
+                    Some(NodeData::Leaf(_)) => {
+                        let parent_key = self.parent_of(selected_key)?;
                         let selected_idx = self.child_index(parent_key, selected_key)?;
                         Some((parent_key, selected_idx + 1))
-                    } else {
-                        None
                     }
-                }
-                Some(NodeData::Leaf(_)) => {
-                    let parent_key = self.parent_of(selected_key)?;
-                    let selected_idx = self.child_index(parent_key, selected_key)?;
-                    Some((parent_key, selected_idx + 1))
-                }
-                None => None,
-            });
+                    None => None,
+                });
 
-        let focus_target = self
-            .focused_key
-            .or_else(|| self.first_leaf_key())
-            .and_then(|focused_key| {
-                let parent_key = self.parent_of(focused_key)?;
-                let focused_idx = self.child_index(parent_key, focused_key)?;
-                Some((parent_key, focused_idx + 1))
-            });
+        let focus_target =
+            self.focused_key
+                .or_else(|| self.first_leaf_key())
+                .and_then(|focused_key| {
+                    let parent_key = self.parent_of(focused_key)?;
+                    let focused_idx = self.child_index(parent_key, focused_key)?;
+                    Some((parent_key, focused_idx + 1))
+                });
 
         let insert_target = selected_target.or(focus_target).or_else(|| {
             let root_key = self.root?;
@@ -1778,9 +1779,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         if leaf_count == 0 && pending_leaf_count > 0 {
             debug!(
                 context = context,
-                window_count,
-                pending_leaf_count,
-                "layout has no leaf layouts but pending exists"
+                window_count, pending_leaf_count, "layout has no leaf layouts but pending exists"
             );
         }
         if window_count != leaf_count {
@@ -1857,7 +1856,8 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     pub fn selected_is_container(&self) -> bool {
-        self.selected_key.is_some_and(|key| matches!(self.get_node(key), Some(NodeData::Container(_))))
+        self.selected_key
+            .is_some_and(|key| matches!(self.get_node(key), Some(NodeData::Container(_))))
     }
 
     pub fn selected_container_key(&self) -> Option<NodeKey> {
@@ -2254,7 +2254,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                 let available_width = (rect.size.w - total_gap).max(0.0);
 
                 // Pre-compute normalized percentages
-                let percents: Vec<f64> = self.get_normalized_child_percents(node_key, child_count, child_percents_sum);
+                let percents: Vec<f64> =
+                    self.get_normalized_child_percents(node_key, child_count, child_percents_sum);
                 let widths = self.distribute_split_lengths(available_width, child_count, &percents);
 
                 let mut cursor_x = rect.loc.x;
@@ -2278,14 +2279,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                         draw_titlebar: child_titlebar,
                         in_tabbed_context: ctx.in_tabbed_context,
                     };
-                    self.collect_layout_node(
-                        child_key,
-                        child_rect,
-                        path,
-                        visible,
-                        child_ctx,
-                        data,
-                    );
+                    self.collect_layout_node(child_key, child_rect, path, visible, child_ctx, data);
                     path.pop();
 
                     if idx + 1 < child_count {
@@ -2303,7 +2297,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                 let available_height = (rect.size.h - total_gap).max(0.0);
 
                 // Pre-compute normalized percentages
-                let percents: Vec<f64> = self.get_normalized_child_percents(node_key, child_count, child_percents_sum);
+                let percents: Vec<f64> =
+                    self.get_normalized_child_percents(node_key, child_count, child_percents_sum);
                 let heights =
                     self.distribute_split_lengths(available_height, child_count, &percents);
 
@@ -2328,14 +2323,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                         draw_titlebar: child_titlebar,
                         in_tabbed_context: ctx.in_tabbed_context,
                     };
-                    self.collect_layout_node(
-                        child_key,
-                        child_rect,
-                        path,
-                        visible,
-                        child_ctx,
-                        data,
-                    );
+                    self.collect_layout_node(child_key, child_rect, path, visible, child_ctx, data);
                     path.pop();
 
                     if idx + 1 < child_count {
@@ -2400,8 +2388,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             let Some(tile) = self.get_tile(info.key) else {
                 continue;
             };
-            let request =
-                self.layout_request_for(tile, info.rect.size, tile.tab_bar_offset());
+            let request = self.layout_request_for(tile, info.rect.size, tile.tab_bar_offset());
             current.insert(info.key, request);
         }
 
@@ -2433,11 +2420,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 continue;
             };
             let offset = data.tab_bar_offsets.get(&info.key).copied().unwrap_or(0.0);
-            let show_titlebar = data
-                .titlebar_flags
-                .get(&info.key)
-                .copied()
-                .unwrap_or(false);
+            let show_titlebar = data.titlebar_flags.get(&info.key).copied().unwrap_or(false);
             let in_tabbed_context = data
                 .tabbed_context_flags
                 .get(&info.key)
@@ -2450,9 +2433,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             tile.set_draw_titlebar(show_titlebar);
             tile.set_in_tabbed_context(in_tabbed_context);
 
-            let tx = changed
-                .contains(&info.key)
-                .then(|| transaction.clone());
+            let tx = changed.contains(&info.key).then(|| transaction.clone());
             let size = Size::from((info.rect.size.w, info.rect.size.h));
             if tile.window().pending_sizing_mode().is_fullscreen() {
                 tile.request_fullscreen(animate_resize, tx);
@@ -2515,11 +2496,16 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     /// Get normalized child percentages from a container (avoids cloning by computing inline)
-    fn get_normalized_child_percents(&self, container_key: NodeKey, child_count: usize, percents_sum: f64) -> Vec<f64> {
+    fn get_normalized_child_percents(
+        &self,
+        container_key: NodeKey,
+        child_count: usize,
+        percents_sum: f64,
+    ) -> Vec<f64> {
         let Some(NodeData::Container(container)) = self.get_node(container_key) else {
             return vec![1.0 / child_count.max(1) as f64; child_count];
         };
-        
+
         let percents = container.child_percents_slice();
         if percents_sum > f64::EPSILON {
             percents.iter().map(|p| p / percents_sum).collect()
@@ -2583,11 +2569,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             .collect()
     }
 
-    fn split_child_titlebar(
-        &self,
-        child_key: NodeKey,
-        split_bar_height: f64,
-    ) -> (f64, bool) {
+    fn split_child_titlebar(&self, child_key: NodeKey, split_bar_height: f64) -> (f64, bool) {
         if split_bar_height <= 0.0 {
             return (0.0, false);
         }
@@ -2649,10 +2631,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             return None;
         }
 
-        let bar_rect = Rectangle::new(
-            bar_rect.loc,
-            Size::from((bar_rect.size.w, bar_height)),
-        );
+        let bar_rect = Rectangle::new(bar_rect.loc, Size::from((bar_rect.size.w, bar_height)));
 
         Some((bar_rect, row_height))
     }
@@ -2753,17 +2732,18 @@ impl<W: LayoutElement> ContainerTree<W> {
         };
 
         if visible && matches!(container.layout, Layout::Tabbed | Layout::Stacked) {
-            if let Some((rect, row_height)) =
-                self.tab_bar_rect(container.layout, container.geometry, container.children.len())
-            {
+            if let Some((rect, row_height)) = self.tab_bar_rect(
+                container.layout,
+                container.geometry,
+                container.children.len(),
+            ) {
                 let focused_idx = container.focused_child_index().unwrap_or(0);
                 let tabs = container
                     .children
                     .iter()
                     .enumerate()
                     .map(|(idx, &child_key)| {
-                        let (title, block_out_from) =
-                            self.focused_title_and_block_out(child_key);
+                        let (title, block_out_from) = self.focused_title_and_block_out(child_key);
                         TabBarTab {
                             title,
                             is_focused: idx == focused_idx,
@@ -2954,9 +2934,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                         (Layout::SplitH | Layout::Tabbed, Direction::Left | Direction::Right) => {
                             true
                         }
-                        (Layout::SplitV | Layout::Stacked, Direction::Up | Direction::Down) => {
-                            true
-                        }
+                        (Layout::SplitV | Layout::Stacked, Direction::Up | Direction::Down) => true,
                         _ => false,
                     };
 
@@ -3317,7 +3295,10 @@ impl<W: LayoutElement> ContainerTree<W> {
                 return moved;
             };
 
-            let target_key = match self.get_container(parent_key).and_then(|c| c.child_key(target_idx)) {
+            let target_key = match self
+                .get_container(parent_key)
+                .and_then(|c| c.child_key(target_idx))
+            {
                 Some(key) => key,
                 None => return false,
             };
@@ -3423,7 +3404,8 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
 
         if node_parent_path.is_empty() {
-            let moved = self.move_root_node_orthogonally_into_adjacent(node_key, node_idx, direction);
+            let moved =
+                self.move_root_node_orthogonally_into_adjacent(node_key, node_idx, direction);
             if moved && preserve_selected_container {
                 self.selected_key = Some(node_key);
             }
@@ -3531,13 +3513,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             return false;
         }
 
-        let (
-            old_layout,
-            old_children,
-            old_focus_stack,
-            old_child_percents,
-            root_geometry,
-        ) = {
+        let (old_layout, old_children, old_focus_stack, old_child_percents, root_geometry) = {
             let Some(root) = self.get_container_mut(root_key) else {
                 return false;
             };
@@ -3640,13 +3616,11 @@ impl<W: LayoutElement> ContainerTree<W> {
     /// when operating on a container with one child whose parent also has one
     /// child, remove the middle container and operate on its parent.
     fn flatten_layout_target_once_like_sway(&mut self, container_key: NodeKey) -> Option<NodeKey> {
-        let child_key = self
-            .get_container(container_key)
-            .and_then(|container| {
-                (container.child_count() == 1)
-                    .then(|| container.children().first().copied())
-                    .flatten()
-            })?;
+        let child_key = self.get_container(container_key).and_then(|container| {
+            (container.child_count() == 1)
+                .then(|| container.children().first().copied())
+                .flatten()
+        })?;
 
         let parent_key = self.parent_of(container_key)?;
         let parent_child_count = self
@@ -3904,13 +3878,13 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         let (parent_layout, parent_child_count, parent_preserve_on_single) =
             match self.get_container(parent_key) {
-            Some(container) => (
-                container.layout(),
-                container.child_count(),
-                container.preserve_on_single(),
-            ),
-            None => return false,
-        };
+                Some(container) => (
+                    container.layout(),
+                    container.child_count(),
+                    container.preserve_on_single(),
+                ),
+                None => return false,
+            };
 
         if matches!(parent_layout, Layout::SplitH | Layout::SplitV)
             && parent_layout == layout
@@ -5520,7 +5494,8 @@ impl<W: LayoutElement> ContainerTree<W> {
         };
 
         let parent_layout = parent.layout();
-        if matches!(parent_layout, Layout::SplitH | Layout::SplitV) && parent_layout == desired_layout
+        if matches!(parent_layout, Layout::SplitH | Layout::SplitV)
+            && parent_layout == desired_layout
         {
             let insert_idx = match direction {
                 Direction::Left | Direction::Up => target_idx,
@@ -5710,8 +5685,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             let mut squash_with_parent = false;
 
             let parent_layout = parent_key.and_then(|parent_key| {
-                self.get_container(parent_key)
-                    .map(|parent| parent.layout())
+                self.get_container(parent_key).map(|parent| parent.layout())
             });
 
             let single_child_key = container_children.first().copied();
@@ -5771,7 +5745,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                     for key in parent_focus {
                         if key == container_key {
                             for child in &container_focus_stack {
-                                if container_children.contains(child) && !new_focus.contains(child) {
+                                if container_children.contains(child) && !new_focus.contains(child)
+                                {
                                     new_focus.push(*child);
                                 }
                             }
@@ -5806,10 +5781,8 @@ impl<W: LayoutElement> ContainerTree<W> {
                                 }
                             } else {
                                 let value = replaced_share / container_children.len() as f64;
-                                new_percents.resize(
-                                    new_percents.len() + container_children.len(),
-                                    value,
-                                );
+                                new_percents
+                                    .resize(new_percents.len() + container_children.len(), value);
                             }
                         }
 
@@ -5930,7 +5903,6 @@ impl<W: LayoutElement> ContainerTree<W> {
             self.root = Some(child_key);
         }
     }
-
 
     fn focus_first_leaf(&mut self) {
         if let Some(key) = self.first_leaf_key() {
@@ -6114,9 +6086,9 @@ impl<W: LayoutElement> ContainerTree<W> {
             let child_count = container.child_count();
             let insert_idx = match container.layout() {
                 Layout::SplitH | Layout::SplitV => {
-                    let axis_matches =
-                        (container.layout() == Layout::SplitH && direction.is_horizontal())
-                            || (container.layout() == Layout::SplitV && direction.is_vertical());
+                    let axis_matches = (container.layout() == Layout::SplitH
+                        && direction.is_horizontal())
+                        || (container.layout() == Layout::SplitV && direction.is_vertical());
                     if axis_matches {
                         match direction {
                             Direction::Left | Direction::Up => child_count,
@@ -6225,7 +6197,9 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         let target_idx = match direction {
             Direction::Left | Direction::Up => node_idx.checked_sub(1),
-            Direction::Right | Direction::Down => (node_idx + 1 < child_count).then_some(node_idx + 1),
+            Direction::Right | Direction::Down => {
+                (node_idx + 1 < child_count).then_some(node_idx + 1)
+            }
         };
         let Some(target_idx) = target_idx else {
             return false;
@@ -6242,7 +6216,8 @@ impl<W: LayoutElement> ContainerTree<W> {
         } else {
             Layout::SplitV
         };
-        let Some(target_key) = self.wrap_child_in_container(root_key, target_idx, desired_layout) else {
+        let Some(target_key) = self.wrap_child_in_container(root_key, target_idx, desired_layout)
+        else {
             return false;
         };
         let target_focus_idx = self
@@ -6250,8 +6225,14 @@ impl<W: LayoutElement> ContainerTree<W> {
             .and_then(|container| container.focused_child_index())
             .unwrap_or(0);
 
-        let moved =
-            self.move_node_into_container(node_key, &[], node_idx, target_key, direction, target_focus_idx);
+        let moved = self.move_node_into_container(
+            node_key,
+            &[],
+            node_idx,
+            target_key,
+            direction,
+            target_focus_idx,
+        );
         if moved && wrapped_target {
             let _ = self.promote_single_root_child();
         }
@@ -6320,11 +6301,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         match self.get_node(node_key) {
             Some(NodeData::Leaf(tile)) => {
                 let focused = if *path == focused_path { " *" } else { "" };
-                let _ = writeln!(
-                    out,
-                    "{indent}Window {}{focused}",
-                    tile.window().id()
-                );
+                let _ = writeln!(out, "{indent}Window {}{focused}", tile.window().id());
             }
             Some(NodeData::Container(container)) => {
                 let label = layout_label(container.layout());

@@ -1,7 +1,6 @@
 use std::cell::Cell;
 
 use calloop::Interest;
-use tiri_config::PresetSize;
 use smithay::desktop::{
     find_popup_root_surface, get_popup_toplevel_coords, layer_map_for_output, utils, LayerSurface,
     PopupKeyboardGrab, PopupKind, PopupManager, PopupPointerGrab, PopupUngrabStrategy, Window,
@@ -35,6 +34,7 @@ use smithay::wayland::xdg_foreign::{XdgForeignHandler, XdgForeignState};
 use smithay::{
     delegate_kde_decoration, delegate_xdg_decoration, delegate_xdg_foreign, delegate_xdg_shell,
 };
+use tiri_config::PresetSize;
 use tracing::field::Empty;
 
 use crate::input::move_grab::MoveGrab;
@@ -93,7 +93,10 @@ fn resolve_unmapped_workspace<'a>(
 ) -> Option<&'a Workspace<crate::window::Mapped>> {
     workspace_name
         .and_then(|name| mon.and_then(|mon| mon.find_named_workspace(name)))
-        .or_else(|| mon.map(|mon| mon.active_workspace_ref()).or_else(|| layout.active_workspace()))
+        .or_else(|| {
+            mon.map(|mon| mon.active_workspace_ref())
+                .or_else(|| layout.active_workspace())
+        })
 }
 
 impl XdgShellHandler for State {
@@ -287,7 +290,9 @@ impl XdgShellHandler for State {
                 pos_within_output,
             )
         } else {
-            self.niri.layout.interactive_resize_begin(window.clone(), edges)
+            self.niri
+                .layout
+                .interactive_resize_begin(window.clone(), edges)
         };
         if !began {
             return;
@@ -552,8 +557,12 @@ impl XdgShellHandler for State {
                 } => {
                     let workspace_name = workspace_name.as_deref();
                     let layout = &self.niri.layout;
-                    let (resolved_output, mon) =
-                        resolve_unmapped_monitor(layout, &toplevel, output.as_ref(), workspace_name);
+                    let (resolved_output, mon) = resolve_unmapped_monitor(
+                        layout,
+                        &toplevel,
+                        output.as_ref(),
+                        workspace_name,
+                    );
                     *output = resolved_output;
 
                     let ws = resolve_unmapped_workspace(layout, mon, workspace_name);
@@ -700,8 +709,12 @@ impl XdgShellHandler for State {
                 } => {
                     let workspace_name = workspace_name.as_deref();
                     let layout = &self.niri.layout;
-                    let (resolved_output, mon) =
-                        resolve_unmapped_monitor(layout, &toplevel, output.as_ref(), workspace_name);
+                    let (resolved_output, mon) = resolve_unmapped_monitor(
+                        layout,
+                        &toplevel,
+                        output.as_ref(),
+                        workspace_name,
+                    );
                     *output = resolved_output;
 
                     let ws = resolve_unmapped_workspace(layout, mon, workspace_name);

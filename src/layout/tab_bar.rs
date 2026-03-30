@@ -1,12 +1,12 @@
 use std::borrow::Cow;
 
 use anyhow::{bail, Context, Result};
-use tiri_config::{Color, TabBar};
 use pangocairo::cairo::{self, ImageSurface};
 use pangocairo::pango::{self, Alignment, EllipsizeMode, FontDescription};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::reexports::gbm::Format as Fourcc;
 use smithay::utils::{Logical, Rectangle, Size, Transform};
+use tiri_config::{Color, TabBar};
 
 use super::container::{Layout, TabBarInfo, TabBarTab};
 use crate::render_helpers::texture::TextureBuffer;
@@ -117,7 +117,11 @@ fn tab_colors(
     } else if tab.is_focused && is_active_workspace {
         (config.active_bg, config.active_fg, config.active_border)
     } else {
-        (config.inactive_bg, config.inactive_fg, config.inactive_border)
+        (
+            config.inactive_bg,
+            config.inactive_fg,
+            config.inactive_border,
+        )
     }
 }
 
@@ -328,7 +332,11 @@ pub fn render_tab_bar(
         cursor_x += w;
     }
 
-    let row_count = if layout == Layout::Tabbed { 1 } else { tab_count };
+    let row_count = if layout == Layout::Tabbed {
+        1
+    } else {
+        tab_count
+    };
     let extra_height = height_px - row_height_px.saturating_mul(row_count as i32);
     if extra_height > 0 {
         let focused = tabs.iter().find(|tab| tab.is_focused).unwrap_or(&tabs[0]);

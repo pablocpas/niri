@@ -14,9 +14,6 @@ use anyhow::{anyhow, bail, ensure, Context};
 use bytemuck::cast_slice_mut;
 use drm_ffi::drm_mode_modeinfo;
 use libc::dev_t;
-use tiri_config::output::Modeline;
-use tiri_config::{Config, OutputName};
-use tiri_ipc::{HSyncPolarity, VSyncPolarity};
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
@@ -58,16 +55,19 @@ use smithay::wayland::drm_lease::{
 };
 use smithay::wayland::presentation::Refresh;
 use smithay_drm_extras::drm_scanner::{DrmScanEvent, DrmScanner};
+use tiri_config::output::Modeline;
+use tiri_config::{Config, OutputName};
+use tiri_ipc::{HSyncPolarity, VSyncPolarity};
 use wayland_protocols::wp::linux_dmabuf::zv1::server::zwp_linux_dmabuf_feedback_v1::TrancheFlags;
 use wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
 
 use super::{IpcOutputMap, RenderResult};
 use crate::backend::OutputId;
 use crate::frame_clock::FrameClock;
-use crate::tiri::{Niri, RedrawState, State};
 use crate::render_helpers::debug::draw_damage;
 use crate::render_helpers::renderer::AsGlesRenderer;
 use crate::render_helpers::{resources, shaders, RenderTarget};
+use crate::tiri::{Niri, RedrawState, State};
 use crate::utils::{get_monotonic_time, is_laptop_panel, logical_output, PanelOrientation};
 
 const SUPPORTED_COLOR_FORMATS: [Fourcc; 4] = [
@@ -1746,7 +1746,6 @@ impl Tty {
                         surface.presentation_misprediction_plot_name,
                         misprediction_s * 1000.,
                     );
-
                 }
             }
             Ok(None) => (),
@@ -2487,11 +2486,11 @@ impl Tty {
                     output.change_current_state(Some(wl_mode), None, None, None);
                     output.set_preferred(wl_mode);
                     let interval = refresh_interval(mode);
-                    output_state.frame_clock = FrameClock::new(
-                        Some(interval),
-                        surface.compositor.vrr_enabled(),
-                    );
-                    output_state.render_time_estimator.set_refresh_interval(interval);
+                    output_state.frame_clock =
+                        FrameClock::new(Some(interval), surface.compositor.vrr_enabled());
+                    output_state
+                        .render_time_estimator
+                        .set_refresh_interval(interval);
                     niri.output_resized(&output);
                 }
             }

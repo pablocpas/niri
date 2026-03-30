@@ -2,13 +2,13 @@ use core::f64;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use tiri_config::utils::MergeWith as _;
-use tiri_config::{Color, CornerRadius, GradientInterpolation, TabBar};
-use tiri_ipc::WindowLayout;
 use smithay::backend::renderer::element::{Element, Kind};
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexProgram, GlesTexture};
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 use smithay::wayland::compositor::{Blocker, BlockerState};
+use tiri_config::utils::MergeWith as _;
+use tiri_config::{Color, CornerRadius, GradientInterpolation, TabBar};
+use tiri_ipc::WindowLayout;
 
 use super::container::{InsertParentInfo, Layout, TabBarTab};
 use super::focus_ring::{
@@ -813,7 +813,10 @@ impl<W: LayoutElement> Tile<W> {
                     self.scale,
                 ) {
                     Ok(TabBarRenderOutput { buffer, .. }) => {
-                        *cache = Some(TitleBarCacheEntry { state, buffer: buffer.clone() });
+                        *cache = Some(TitleBarCacheEntry {
+                            state,
+                            buffer: buffer.clone(),
+                        });
                         buffer
                     }
                     Err(err) => {
@@ -833,7 +836,9 @@ impl<W: LayoutElement> Tile<W> {
             None,
             Kind::Unspecified,
         );
-        push(TileRenderElement::TitleBar(PrimaryGpuTextureRenderElement(elem)));
+        push(TileRenderElement::TitleBar(PrimaryGpuTextureRenderElement(
+            elem,
+        )));
     }
 
     pub fn scale(&self) -> f64 {
@@ -1393,12 +1398,8 @@ impl<W: LayoutElement> Tile<W> {
         } else {
             SizingMode::Normal
         };
-        self.window.request_size(
-            self.view_size.to_i32_round(),
-            mode,
-            animate,
-            transaction,
-        );
+        self.window
+            .request_size(self.view_size.to_i32_round(), mode, animate, transaction);
     }
 
     pub fn min_size_nonfullscreen(&self) -> Size<f64, Logical> {
@@ -1609,7 +1610,15 @@ impl<W: LayoutElement> Tile<W> {
 
             let clip_shader = ClippedSurfaceRenderElement::shader(renderer).cloned();
             let clip = |elem| {
-                clip_layout_element(elem, scale, geo, radius, clip_to_geometry, &clip_shader, has_border_shader)
+                clip_layout_element(
+                    elem,
+                    scale,
+                    geo,
+                    radius,
+                    clip_to_geometry,
+                    &clip_shader,
+                    has_border_shader,
+                )
             };
 
             if clip_to_geometry && clip_shader.is_some() {

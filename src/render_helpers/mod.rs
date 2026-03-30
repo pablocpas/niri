@@ -1,7 +1,6 @@
 use std::ptr;
 
 use anyhow::{ensure, Context};
-use tiri_config::BlockOutFrom;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::allocator::{Buffer, Fourcc};
 use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};
@@ -14,6 +13,7 @@ use smithay::reexports::wayland_server::protocol::wl_shm;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Size, Transform};
 use smithay::wayland::shm;
 use solid_color::{SolidColorBuffer, SolidColorRenderElement};
+use tiri_config::BlockOutFrom;
 
 use self::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use self::texture::{TextureBuffer, TextureRenderElement};

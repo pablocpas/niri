@@ -1,8 +1,8 @@
 use std::iter::zip;
 use std::mem;
 
-use tiri_config::{CornerRadius, Gradient, GradientRelativeTo, TabIndicatorPosition};
 use smithay::utils::{Logical, Point, Rectangle, Size};
+use tiri_config::{CornerRadius, Gradient, GradientRelativeTo, TabIndicatorPosition};
 
 use super::tile::Tile;
 use super::LayoutElement;

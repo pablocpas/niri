@@ -5,12 +5,12 @@ use std::time::Duration;
 use bitflags::bitflags;
 use knuffel::errors::DecodeError;
 use miette::miette;
-use tiri_ipc::{
-    ColumnDisplay, LayoutSwitchTarget, PositionChange, SizeChange, WorkspaceReferenceArg,
-};
 use smithay::input::keyboard::keysyms::KEY_NoSymbol;
 use smithay::input::keyboard::xkb::{keysym_from_name, KEYSYM_CASE_INSENSITIVE, KEYSYM_NO_FLAGS};
 use smithay::input::keyboard::Keysym;
+use tiri_ipc::{
+    ColumnDisplay, LayoutSwitchTarget, PositionChange, SizeChange, WorkspaceReferenceArg,
+};
 
 use crate::recent_windows::{MruDirection, MruFilter, MruScope};
 use crate::utils::{expect_only_children, MergeWith};
@@ -543,9 +543,7 @@ impl From<tiri_ipc::Action> for Action {
                 Self::MoveContainerToLast
             }
             tiri_ipc::Action::MoveColumnToIndex { index }
-            | tiri_ipc::Action::MoveContainerToIndex { index } => {
-                Self::MoveContainerToIndex(index)
-            }
+            | tiri_ipc::Action::MoveContainerToIndex { index } => Self::MoveContainerToIndex(index),
             tiri_ipc::Action::MoveColumnLeftOrToMonitorLeft {}
             | tiri_ipc::Action::MoveContainerLeftOrToMonitorLeft {} => {
                 Self::MoveContainerLeftOrToMonitorLeft
@@ -582,9 +580,7 @@ impl From<tiri_ipc::Action> for Action {
                 Self::ConsumeOrExpelWindowRightById(id)
             }
             tiri_ipc::Action::ConsumeWindowIntoColumn {}
-            | tiri_ipc::Action::ConsumeWindowIntoContainer {} => {
-                Self::ConsumeWindowIntoContainer
-            }
+            | tiri_ipc::Action::ConsumeWindowIntoContainer {} => Self::ConsumeWindowIntoContainer,
             tiri_ipc::Action::ExpelWindowFromColumn {}
             | tiri_ipc::Action::ExpelWindowFromContainer {} => Self::ExpelWindowFromContainer,
             tiri_ipc::Action::SwapWindowRight {} => Self::SwapWindowRight,
@@ -672,29 +668,19 @@ impl From<tiri_ipc::Action> for Action {
                 output,
             } => Self::MoveWindowToMonitorById { id, output },
             tiri_ipc::Action::MoveColumnToMonitorLeft {}
-            | tiri_ipc::Action::MoveContainerToMonitorLeft {} => {
-                Self::MoveContainerToMonitorLeft
-            }
+            | tiri_ipc::Action::MoveContainerToMonitorLeft {} => Self::MoveContainerToMonitorLeft,
             tiri_ipc::Action::MoveColumnToMonitorRight {}
-            | tiri_ipc::Action::MoveContainerToMonitorRight {} => {
-                Self::MoveContainerToMonitorRight
-            }
+            | tiri_ipc::Action::MoveContainerToMonitorRight {} => Self::MoveContainerToMonitorRight,
             tiri_ipc::Action::MoveColumnToMonitorDown {}
-            | tiri_ipc::Action::MoveContainerToMonitorDown {} => {
-                Self::MoveContainerToMonitorDown
-            }
+            | tiri_ipc::Action::MoveContainerToMonitorDown {} => Self::MoveContainerToMonitorDown,
             tiri_ipc::Action::MoveColumnToMonitorUp {}
-            | tiri_ipc::Action::MoveContainerToMonitorUp {} => {
-                Self::MoveContainerToMonitorUp
-            }
+            | tiri_ipc::Action::MoveContainerToMonitorUp {} => Self::MoveContainerToMonitorUp,
             tiri_ipc::Action::MoveColumnToMonitorPrevious {}
             | tiri_ipc::Action::MoveContainerToMonitorPrevious {} => {
                 Self::MoveContainerToMonitorPrevious
             }
             tiri_ipc::Action::MoveColumnToMonitorNext {}
-            | tiri_ipc::Action::MoveContainerToMonitorNext {} => {
-                Self::MoveContainerToMonitorNext
-            }
+            | tiri_ipc::Action::MoveContainerToMonitorNext {} => Self::MoveContainerToMonitorNext,
             tiri_ipc::Action::MoveColumnToMonitor { output }
             | tiri_ipc::Action::MoveContainerToMonitor { output } => {
                 Self::MoveContainerToMonitor(output)
@@ -959,9 +945,9 @@ where
         }
 
         let mut args = node.arguments.iter();
-        let name_val = args.next().ok_or_else(|| {
-            DecodeError::missing(node, "mode name argument is required")
-        })?;
+        let name_val = args
+            .next()
+            .ok_or_else(|| DecodeError::missing(node, "mode name argument is required"))?;
         let name: String = knuffel::traits::DecodeScalar::decode(name_val, ctx)?;
 
         if let Some(extra) = args.next() {

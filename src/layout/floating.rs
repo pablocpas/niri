@@ -3,13 +3,13 @@ use std::cmp::max;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use tiri_config::utils::MergeWith as _;
-use tiri_config::{PresetSize, RelativeTo};
-use tiri_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
 use log::warn;
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Serial, Size};
+use tiri_config::utils::MergeWith as _;
+use tiri_config::{PresetSize, RelativeTo};
+use tiri_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
 
 use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
@@ -19,6 +19,7 @@ use super::focus_ring::{
     render_container_selection, ContainerSelectionStyle, FocusRingEdges, FocusRingRenderElement,
 };
 use super::tile::{Tile, TileRenderElement, TileRenderSnapshot};
+use super::tile::{TilePtrIter, TilePtrIterMut, TileWithPosIterMut};
 use super::tiling::{ColumnWidth, ScrollDirection};
 use super::workspace::{InteractiveResize, ResolvedSize};
 use super::{
@@ -26,15 +27,14 @@ use super::{
     RemovedTile, SizeFrac,
 };
 use crate::animation::{Animation, Clock};
-use crate::niri_render_elements;
-use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
-use crate::render_helpers::renderer::NiriRenderer;
-use crate::render_helpers::RenderTarget;
-use crate::render_helpers::texture::TextureRenderElement;
 use crate::layout::tab_bar::{
     render_tab_bar, tab_bar_state_from_info, TabBarCacheEntry, TabBarRenderOutput,
 };
-use super::tile::{TilePtrIter, TilePtrIterMut, TileWithPosIterMut};
+use crate::niri_render_elements;
+use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
+use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::texture::TextureRenderElement;
+use crate::render_helpers::RenderTarget;
 use crate::utils::transaction::TransactionBlocker;
 use crate::utils::{
     center_preferring_top_left_in_area, clamp_preferring_top_left_in_area,
@@ -382,9 +382,12 @@ impl<W: LayoutElement> FloatingSpace<W> {
         for container in &mut self.containers {
             container.data.update_config(working_area);
             let local_rect = Rectangle::from_size(container.data.size);
-            container
-                .tree
-                .update_config(local_rect.size, local_rect, scale, container_options.clone());
+            container.tree.update_config(
+                local_rect.size,
+                local_rect,
+                scale,
+                container_options.clone(),
+            );
             container.tree.layout();
         }
 
@@ -447,7 +450,8 @@ impl<W: LayoutElement> FloatingSpace<W> {
                     let tile_view_rect = if is_fullscreen_tile {
                         view_rect
                     } else {
-                        let mut pos = container.data.logical_pos + info.rect.loc + tile.render_offset();
+                        let mut pos =
+                            container.data.logical_pos + info.rect.loc + tile.render_offset();
                         pos = pos.to_physical_precise_round(scale).to_logical(scale);
                         let mut r = view_rect;
                         r.loc -= pos;
@@ -457,7 +461,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
                     let is_focused = if is_fullscreen_tile {
                         is_active
                     } else {
-                        is_active && Some(tile.window().id()) == active.as_ref() && !selection_is_container
+                        is_active
+                            && Some(tile.window().id()) == active.as_ref()
+                            && !selection_is_container
                     };
                     tile.update_render_elements(
                         is_active,
@@ -492,10 +498,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         tiles.into_iter()
     }
 
-    pub(super) fn resize_hit_under(
-        &self,
-        pos: Point<f64, Logical>,
-    ) -> FloatingResizeResult<W::Id> {
+    pub(super) fn resize_hit_under(&self, pos: Point<f64, Logical>) -> FloatingResizeResult<W::Id> {
         if self.fullscreen_window.is_some() {
             return FloatingResizeResult::None;
         }
@@ -521,7 +524,10 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 let threshold = super::RESIZE_EDGE_THRESHOLD.max(border);
                 let expanded_rect = Rectangle::new(
                     Point::from((tile_rect.loc.x - threshold, tile_rect.loc.y - threshold)),
-                    Size::from((tile_rect.size.w + threshold * 2.0, tile_rect.size.h + threshold * 2.0)),
+                    Size::from((
+                        tile_rect.size.w + threshold * 2.0,
+                        tile_rect.size.h + threshold * 2.0,
+                    )),
                 );
 
                 if !expanded_rect.contains(pos) {
@@ -609,12 +615,13 @@ impl<W: LayoutElement> FloatingSpace<W> {
         &self,
     ) -> impl Iterator<Item = (&Tile<W>, Point<f64, Logical>)> {
         let scale = self.scale;
-        self.tiles_with_offsets_visible().map(move |(tile, offset)| {
-            let pos = offset + tile.render_offset();
-            // Round to physical pixels.
-            let pos = pos.to_physical_precise_round(scale).to_logical(scale);
-            (tile, pos)
-        })
+        self.tiles_with_offsets_visible()
+            .map(move |(tile, offset)| {
+                let pos = offset + tile.render_offset();
+                // Round to physical pixels.
+                let pos = pos.to_physical_precise_round(scale).to_logical(scale);
+                (tile, pos)
+            })
     }
 
     fn tab_bar_hit(&self, pos: Point<f64, Logical>) -> Option<(&W, super::HitType)> {
@@ -646,8 +653,10 @@ impl<W: LayoutElement> FloatingSpace<W> {
                     info.rect.loc.to_physical_precise_round(scale);
                 let pos_px: Point<i32, Physical> =
                     pos.to_physical_precise_round(scale) - bar_loc_px;
-                let width_px = to_physical_precise_round::<i32>(self.scale, info.rect.size.w).max(1);
-                let height_px = to_physical_precise_round::<i32>(self.scale, info.rect.size.h).max(1);
+                let width_px =
+                    to_physical_precise_round::<i32>(self.scale, info.rect.size.w).max(1);
+                let height_px =
+                    to_physical_precise_round::<i32>(self.scale, info.rect.size.h).max(1);
                 let hit_pad_px = 1;
 
                 if pos_px.x < -hit_pad_px
@@ -664,11 +673,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
                 let row_height_px =
                     to_physical_precise_round::<i32>(self.scale, info.row_height).max(1);
-                let focused_idx = info
-                    .tabs
-                    .iter()
-                    .position(|tab| tab.is_focused)
-                    .unwrap_or(0);
+                let focused_idx = info.tabs.iter().position(|tab| tab.is_focused).unwrap_or(0);
                 let key = (container.id, info.path.clone());
 
                 let tab_idx = match info.layout {
@@ -885,7 +890,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
     pub fn set_fullscreen(&mut self, window: &W::Id, is_fullscreen: bool) {
         if is_fullscreen {
-            if self.fullscreen_window.as_ref().is_some_and(|id| id == window) {
+            if self
+                .fullscreen_window
+                .as_ref()
+                .is_some_and(|id| id == window)
+            {
                 return;
             }
 
@@ -897,7 +906,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
             self.fullscreen_window = Some(window.clone());
         } else {
-            if !self.fullscreen_window.as_ref().is_some_and(|id| id == window) {
+            if !self
+                .fullscreen_window
+                .as_ref()
+                .is_some_and(|id| id == window)
+            {
                 return;
             }
 
@@ -912,7 +925,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
     }
 
     pub fn is_fullscreen(&self, window: &W::Id) -> bool {
-        self.fullscreen_window.as_ref().is_some_and(|id| id == window)
+        self.fullscreen_window
+            .as_ref()
+            .is_some_and(|id| id == window)
     }
 
     pub fn has_fullscreen_window(&self) -> bool {
@@ -990,7 +1005,10 @@ impl<W: LayoutElement> FloatingSpace<W> {
         let hint = tile.floating_reinsert_hint.take();
 
         if let Some((container_id, insert_info)) = hint {
-            if let Some(idx) = self.containers.iter().position(|container| container.id == container_id)
+            if let Some(idx) = self
+                .containers
+                .iter()
+                .position(|container| container.id == container_id)
             {
                 self.add_tile_to_container_idx_with_parent_info(idx, tile, activate, &insert_info);
                 return;
@@ -1120,12 +1138,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.add_tile_to_container_idx(idx, tile, activate)
     }
 
-    fn add_tile_to_container_idx(
-        &mut self,
-        idx: usize,
-        mut tile: Tile<W>,
-        activate: bool,
-    ) -> bool {
+    fn add_tile_to_container_idx(&mut self, idx: usize, mut tile: Tile<W>, activate: bool) -> bool {
         let (win_id, _) = self.prepare_tile_for_floating(&mut tile);
         if self.containers[idx].wrapper_selected {
             let insert_idx = self.containers[idx].tree.root_children_len();
@@ -1301,7 +1314,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
     pub(super) fn take_container_subtree(
         &mut self,
         id: &W::Id,
-    ) -> Option<(DetachedNode<W>, Option<InsertParentInfo>, Rectangle<f64, Logical>)> {
+    ) -> Option<(
+        DetachedNode<W>,
+        Option<InsertParentInfo>,
+        Rectangle<f64, Logical>,
+    )> {
         // Clear fullscreen if the subtree contains the fullscreen window.
         if let Some(fs_id) = &self.fullscreen_window {
             if self.idx_of(fs_id) == self.idx_of(id) {
@@ -1322,10 +1339,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
         if let Some(active) = &self.active_window_id {
             if !self.contains(active) {
-                self.active_window_id = self
-                    .containers
-                    .first()
-                    .and_then(|container| container.tree.focused_window().map(|win| win.id().clone()));
+                self.active_window_id = self.containers.first().and_then(|container| {
+                    container.tree.focused_window().map(|win| win.id().clone())
+                });
             }
         }
 
@@ -1342,9 +1358,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
     fn remove_tile_from_container(&mut self, idx: usize, id: &W::Id) -> RemovedTile<W> {
         let container_pos = self.containers[idx].data.pos;
         let container_id = self.containers[idx].id;
-        let insert_hint = self.containers[idx]
-            .tree
-            .insert_parent_info_for_window(id);
+        let insert_hint = self.containers[idx].tree.insert_parent_info_for_window(id);
         let mut tile = {
             let container = &mut self.containers[idx];
             container
@@ -1647,9 +1661,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             }
         };
 
-        let adjust = |percent: f64, delta: f64| {
-            (percent + delta).clamp(0.05, 1.0)
-        };
+        let adjust = |percent: f64, delta: f64| (percent + delta).clamp(0.05, 1.0);
 
         match change {
             SizeChange::SetProportion(percent) => to_proportion(percent / 100.),
@@ -1756,17 +1768,18 @@ impl<W: LayoutElement> FloatingSpace<W> {
             return;
         }
 
-        let current_percent = self
-            .containers[idx]
+        let current_percent = self.containers[idx]
             .tree
             .child_percent_at(parent_path.as_slice(), child_idx)
             .unwrap_or(1.0);
         let percent = Self::percent_from_size_change(current_percent, available, change);
 
-        if self.containers[idx]
-            .tree
-            .set_child_percent_at(parent_path.as_slice(), child_idx, Layout::SplitH, percent)
-        {
+        if self.containers[idx].tree.set_child_percent_at(
+            parent_path.as_slice(),
+            child_idx,
+            Layout::SplitH,
+            percent,
+        ) {
             if animate {
                 self.containers[idx].tree.layout();
             } else {
@@ -1812,17 +1825,18 @@ impl<W: LayoutElement> FloatingSpace<W> {
             return;
         }
 
-        let current_percent = self
-            .containers[idx]
+        let current_percent = self.containers[idx]
             .tree
             .child_percent_at(parent_path.as_slice(), child_idx)
             .unwrap_or(1.0);
         let percent = Self::percent_from_size_change(current_percent, available, change);
 
-        if self.containers[idx]
-            .tree
-            .set_child_percent_at(parent_path.as_slice(), child_idx, Layout::SplitV, percent)
-        {
+        if self.containers[idx].tree.set_child_percent_at(
+            parent_path.as_slice(),
+            child_idx,
+            Layout::SplitV,
+            percent,
+        ) {
             if animate {
                 self.containers[idx].tree.layout();
             } else {
@@ -1989,8 +2003,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         if self.should_cycle_top_level_stable_order() {
             return self.focus_in_stable_container_order(true);
         }
-        self.focus_in_stack_order(1)
-            || self.focus_directional(|focus, other| focus.x - other.x)
+        self.focus_in_stack_order(1) || self.focus_directional(|focus, other| focus.x - other.x)
     }
 
     pub fn focus_left_no_wrap(&mut self) -> bool {
@@ -2019,8 +2032,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         if self.should_cycle_top_level_stable_order() {
             return self.focus_in_stable_container_order(false);
         }
-        self.focus_in_stack_order(-1)
-            || self.focus_directional(|focus, other| other.x - focus.x)
+        self.focus_in_stack_order(-1) || self.focus_directional(|focus, other| other.x - focus.x)
     }
 
     pub fn focus_right_no_wrap(&mut self) -> bool {
@@ -2135,7 +2147,10 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 // No further parent in the container tree. Only expose wrapper selection
                 // if root is a meaningful container; otherwise let workspace fallback
                 // to tiling focus (sway behavior for redundant single-child wrappers).
-                let root_child_count = tree.container_info(&[]).map(|(_, _, count)| count).unwrap_or(0);
+                let root_child_count = tree
+                    .container_info(&[])
+                    .map(|(_, _, count)| count)
+                    .unwrap_or(0);
                 let root_meaningful = tree.container_is_meaningful_parent(&[]).unwrap_or(false);
                 let preserve_on_single = tree
                     .root_container()
@@ -2205,8 +2220,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
         if self.containers[idx].tree.selected_is_container() {
             let path = self.containers[idx].tree.selected_path();
-            return self
-                .containers[idx]
+            return self.containers[idx]
                 .tree
                 .container_info(&path)
                 .map(|(layout, _, _)| layout);
@@ -2216,7 +2230,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
     }
 
     fn has_implicit_single_leaf_root(&self, idx: usize) -> bool {
-        if self.containers[idx].wrapper_selected || self.containers[idx].tree.selected_is_container() {
+        if self.containers[idx].wrapper_selected
+            || self.containers[idx].tree.selected_is_container()
+        {
             return false;
         }
 
@@ -2298,7 +2314,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
         let moved = match direction {
             ScrollDirection::Left => self.containers[idx].tree.move_in_direction(Direction::Left),
-            ScrollDirection::Right => self.containers[idx].tree.move_in_direction(Direction::Right),
+            ScrollDirection::Right => self.containers[idx]
+                .tree
+                .move_in_direction(Direction::Right),
             ScrollDirection::Up => self.containers[idx].tree.move_in_direction(Direction::Up),
             ScrollDirection::Down => self.containers[idx].tree.move_in_direction(Direction::Down),
         };
@@ -2360,10 +2378,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 return false;
             }
             let parent_path = &path[..path.len() - 1];
-            if let Some(container) = self.containers[idx]
-                .tree
-                .container_at_path_mut(parent_path)
-            {
+            if let Some(container) = self.containers[idx].tree.container_at_path_mut(parent_path) {
                 container.set_layout_explicit(layout);
                 return true;
             }
@@ -2625,7 +2640,6 @@ impl<W: LayoutElement> FloatingSpace<W> {
             }
 
             tile.update_window();
-
         }
 
         let container = &mut self.containers[container_idx];
@@ -2673,7 +2687,10 @@ impl<W: LayoutElement> FloatingSpace<W> {
         // Like tiling, push container selection before the regular window
         // contents so it stays visually on top after the global reverse-order
         // composition pass in the renderer.
-        if (focus_ring || self.is_active) && selection_is_container && self.fullscreen_window.is_none() {
+        if (focus_ring || self.is_active)
+            && selection_is_container
+            && self.fullscreen_window.is_none()
+        {
             if let Some(idx) = self.active_container_idx() {
                 let path = self.selected_path_in(idx);
                 if let Some((_, local_rect, _)) = self.containers[idx].tree.container_info(&path) {
@@ -2782,10 +2799,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
         if let Some(fullscreen_id) = &self.fullscreen_window {
             // Only render the fullscreen tile at (0, 0).
-            if let Some(tile) = self
-                .tiles()
-                .find(|t| t.window().id() == fullscreen_id)
-            {
+            if let Some(tile) = self.tiles().find(|t| t.window().id() == fullscreen_id) {
                 let is_focused = self.is_active;
                 tile.render(
                     renderer,
@@ -2804,8 +2818,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
                     continue;
                 }
 
-                let is_focused =
-                    self.is_active && Some(tile.window().id()) == active.as_ref() && !selection_is_container;
+                let is_focused = self.is_active
+                    && Some(tile.window().id()) == active.as_ref()
+                    && !selection_is_container;
                 let draw_focus = focus_ring && is_focused;
 
                 tile.render(
@@ -2886,7 +2901,13 @@ impl<W: LayoutElement> FloatingSpace<W> {
             return false;
         };
 
-        let (original_window_size, original_container_size, edges, original_pos, resize_container_edges) = {
+        let (
+            original_window_size,
+            original_container_size,
+            edges,
+            original_pos,
+            resize_container_edges,
+        ) = {
             let Some(resize) = &self.interactive_resize else {
                 return false;
             };
@@ -2964,7 +2985,12 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
         if edges.intersects(ResizeEdge::LEFT_RIGHT) {
             if resize_container_h {
-                self.resize_container_dimension(idx, SizeChange::SetFixed(target_width), true, false);
+                self.resize_container_dimension(
+                    idx,
+                    SizeChange::SetFixed(target_width),
+                    true,
+                    false,
+                );
             } else {
                 self.set_window_width(Some(window), SizeChange::SetFixed(target_width), false);
             }
@@ -2972,7 +2998,12 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
         if edges.intersects(ResizeEdge::TOP_BOTTOM) {
             if resize_container_v {
-                self.resize_container_dimension(idx, SizeChange::SetFixed(target_height), false, false);
+                self.resize_container_dimension(
+                    idx,
+                    SizeChange::SetFixed(target_height),
+                    false,
+                    false,
+                );
             } else {
                 self.set_window_height(Some(window), SizeChange::SetFixed(target_height), false);
             }
@@ -3050,11 +3081,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
             }
             win.set_activated(is_active);
 
-            let resize_data = resize_target.as_ref().and_then(|(data, ids)| {
-                ids.iter()
-                    .any(|id| id == win.id())
-                    .then_some(*data)
-            });
+            let resize_data = resize_target
+                .as_ref()
+                .and_then(|(data, ids)| ids.iter().any(|id| id == win.id()).then_some(*data));
             win.set_interactive_resize(resize_data);
 
             let border_config = border_base.merged_with(&win.rules().border);

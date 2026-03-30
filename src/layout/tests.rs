@@ -1791,7 +1791,12 @@ fn assert_no_internal_vertical_seams(layout: &Layout<TestWindow>, ids: &[usize])
         }
     }
 
-    assert_eq!(rects.len(), ids.len(), "expected {} visible tiled rects", ids.len());
+    assert_eq!(
+        rects.len(),
+        ids.len(),
+        "expected {} visible tiled rects",
+        ids.len()
+    );
     rects.sort_by(|a, b| a.loc.y.total_cmp(&b.loc.y));
 
     let eps = 0.001;
@@ -2184,7 +2189,10 @@ fn open_window_joins_grouped_floating_even_when_tiling_is_empty() {
         );
     }
 
-    check_ops_on_layout(&mut layout, [Op::FocusParent, Op::ToggleWindowFloating { id: None }]);
+    check_ops_on_layout(
+        &mut layout,
+        [Op::FocusParent, Op::ToggleWindowFloating { id: None }],
+    );
 
     let workspace = layout.active_workspace().expect("active workspace");
     assert!(!workspace.floating_is_active());
@@ -2450,7 +2458,6 @@ fn parity_seed1_step53_replay_includes_floating_roundtrip_shape() {
             }
             _ => panic!("unsupported op in replay: {op}"),
         }
-
     }
 
     let workspace = layout.active_workspace().expect("active workspace");
@@ -2471,7 +2478,6 @@ fn parity_seed1_step53_replay_includes_floating_roundtrip_shape() {
         "focus after toggle_floating should stay within the restored subtree:\n{raw_tree}"
     );
 }
-
 
 #[test]
 fn parity_seed2_step60_toggle_floating_restores_stacked_subtree_like_sway() {
@@ -2767,7 +2773,10 @@ fn floating_toggle_single_selected_container_moves_to_tiling() {
     {
         let workspace = layout.active_workspace().expect("active workspace");
         assert!(workspace.floating_is_active());
-        let focus_id = layout.focus().map(|window| *window.id()).expect("focused window");
+        let focus_id = layout
+            .focus()
+            .map(|window| *window.id())
+            .expect("focused window");
         assert!(
             workspace.floating().selected_is_container(Some(&focus_id)),
             "test precondition: expected floating container selection before toggle"
@@ -2816,7 +2825,10 @@ fn floating_toggle_multi_window_selected_container_moves_to_tiling() {
     {
         let workspace = layout.active_workspace().expect("active workspace");
         assert!(workspace.floating_is_active());
-        let focus_id = layout.focus().map(|window| *window.id()).expect("focused window");
+        let focus_id = layout
+            .focus()
+            .map(|window| *window.id())
+            .expect("focused window");
         assert!(
             workspace.floating().selected_is_container(Some(&focus_id)),
             "test precondition: expected floating container selection before toggle"
@@ -2889,7 +2901,11 @@ fn floating_toggle_selected_tiling_container_roundtrips_through_workspace_contex
 
     check_ops_on_layout(
         &mut layout,
-        [Op::FocusParent, Op::FocusParent, Op::ToggleWindowFloating { id: None }],
+        [
+            Op::FocusParent,
+            Op::FocusParent,
+            Op::ToggleWindowFloating { id: None },
+        ],
     );
 
     let workspace = layout.active_workspace().expect("active workspace");
@@ -3065,10 +3081,7 @@ fn empty_workspace_layout_commands_do_not_wrap_next_open() {
 #[test]
 fn empty_workspace_layout_applies_on_second_open() {
     let mut layout = Layout::default();
-    check_ops_on_layout(
-        &mut layout,
-        [Op::AddOutput(1)],
-    );
+    check_ops_on_layout(&mut layout, [Op::AddOutput(1)]);
 
     layout.set_layout_mode(ContainerLayout::Tabbed);
 
@@ -3344,7 +3357,10 @@ fn workspace_split_from_workspace_context_keeps_floating_mode_like_sway() {
 
     {
         let workspace = layout.active_workspace().expect("active workspace");
-        assert!(workspace.floating_is_active(), "precondition: floating mode must be active");
+        assert!(
+            workspace.floating_is_active(),
+            "precondition: floating mode must be active"
+        );
         assert!(
             workspace.debug_floating_workspace_context(),
             "precondition: focus_parent on floating leaf should put us in workspace context",
@@ -3605,7 +3621,10 @@ fn layout_splith_on_single_child_preserved_split_stays_flat() {
     {
         let workspace = layout.active_workspace().expect("active workspace");
         let tree = workspace.tiling().debug_tree().replace(" *", "");
-        assert!(tree.starts_with("SplitH\n  Window 1"), "precondition:\n{tree}");
+        assert!(
+            tree.starts_with("SplitH\n  Window 1"),
+            "precondition:\n{tree}"
+        );
     }
 
     layout.set_layout_mode(ContainerLayout::SplitH);
@@ -4611,7 +4630,11 @@ fn fullscreen_open_then_focus_right_stays_locked_like_sway() {
 
     check_ops_on_layout(
         &mut layout,
-        [Op::SetLayoutTabbed, Op::SetLayoutSplitV, Op::FocusColumnRight],
+        [
+            Op::SetLayoutTabbed,
+            Op::SetLayoutSplitV,
+            Op::FocusColumnRight,
+        ],
     );
 
     assert_eq!(
@@ -4772,9 +4795,21 @@ fn floating_to_tiling_restore_uses_leaf_reference_as_sibling() {
         .tiling()
         .focus_path();
 
-    assert_eq!(idx1.len(), 1, "window 1 should remain a root child: {idx1:?}");
-    assert_eq!(idx3.len(), 1, "window 3 should be inserted as a root sibling: {idx3:?}");
-    assert_eq!(idx2.len(), 1, "window 2 should remain a root child: {idx2:?}");
+    assert_eq!(
+        idx1.len(),
+        1,
+        "window 1 should remain a root child: {idx1:?}"
+    );
+    assert_eq!(
+        idx3.len(),
+        1,
+        "window 3 should be inserted as a root sibling: {idx3:?}"
+    );
+    assert_eq!(
+        idx2.len(),
+        1,
+        "window 2 should remain a root child: {idx2:?}"
+    );
     assert!(
         idx1[0] < idx3[0] && idx3[0] < idx2[0],
         "leaf reference restore should insert after window 1 and before window 2: {idx1:?} {idx3:?} {idx2:?}"
@@ -5168,7 +5203,12 @@ fn floating_tab_bar_hit_does_not_report_resize_edges() {
             let candidate = rect.loc + Point::from((rect.size.w * frac, -(dy as f64)));
             if matches!(
                 layout.window_under(&output, candidate),
-                Some((_, HitType::Activate { is_tab_indicator: true }))
+                Some((
+                    _,
+                    HitType::Activate {
+                        is_tab_indicator: true
+                    }
+                ))
             ) {
                 tab_pos = Some(candidate);
                 break;
@@ -5188,7 +5228,12 @@ fn floating_tab_bar_hit_does_not_report_resize_edges() {
             let candidate = rect.loc + Point::from((rect.size.w * frac, -(dy as f64)));
             if matches!(
                 layout.window_under(&output, candidate),
-                Some((_, HitType::Activate { is_tab_indicator: true }))
+                Some((
+                    _,
+                    HitType::Activate {
+                        is_tab_indicator: true
+                    }
+                ))
             ) {
                 tab_pos_top = Some(candidate);
                 break;
@@ -5245,8 +5290,12 @@ fn floating_tab_bar_hit_does_not_fall_through_to_tiling_window() {
     for dy in 1..96 {
         for frac in [0.2, 0.5, 0.8] {
             let candidate = rect.loc + Point::from((rect.size.w * frac, -(dy as f64)));
-            if let Some((win, HitType::Activate { is_tab_indicator: true })) =
-                layout.window_under(&output, candidate)
+            if let Some((
+                win,
+                HitType::Activate {
+                    is_tab_indicator: true,
+                },
+            )) = layout.window_under(&output, candidate)
             {
                 if *win.id() != 1 {
                     hit = Some((candidate, *win.id()));
@@ -5260,7 +5309,10 @@ fn floating_tab_bar_hit_does_not_fall_through_to_tiling_window() {
     }
 
     let (candidate, id) = hit.expect("expected floating tab bar hit to capture pointer");
-    assert_ne!(id, 1, "tab bar hit must not fall through to tiling window below");
+    assert_ne!(
+        id, 1,
+        "tab bar hit must not fall through to tiling window below"
+    );
     assert_eq!(layout.resize_edges_under(&output, candidate), None);
 }
 
@@ -5996,7 +6048,10 @@ fn urgent_propagates_to_workspace() {
     set_window_urgent(&mut layout, 1, true);
 
     let workspace = layout.active_workspace().expect("active workspace");
-    assert!(workspace.is_urgent(), "workspace should reflect urgent child state");
+    assert!(
+        workspace.is_urgent(),
+        "workspace should reflect urgent child state"
+    );
 
     set_window_urgent(&mut layout, 1, false);
 
@@ -7893,7 +7948,10 @@ fn ensure_workspace_by_name_creates_named_workspace() {
     layout.add_output(output.clone(), None);
 
     let (target_output, idx) = layout.ensure_workspace_by_name("3").unwrap();
-    assert_eq!(target_output.as_ref().map(|out| out.name()), Some(output.name()));
+    assert_eq!(
+        target_output.as_ref().map(|out| out.name()),
+        Some(output.name())
+    );
     assert_eq!(idx, 0);
 
     let (found_idx, ws) = layout.find_workspace_by_name("3").unwrap();
@@ -7935,7 +7993,9 @@ fn set_workspace_name_by_index_does_not_use_positional_fallback() {
         Some(WorkspaceReference::Index(2)),
     );
 
-    assert!(layout.find_workspace_by_name("ws-should-not-be-created").is_none());
+    assert!(layout
+        .find_workspace_by_name("ws-should-not-be-created")
+        .is_none());
 }
 
 #[test]
@@ -8002,7 +8062,10 @@ fn move_workspace_to_output_by_workspace_id_moves_correct_workspace() {
     let (_, ws) = layout
         .find_workspace_by_name("10")
         .expect("workspace 10 must still exist");
-    assert_eq!(ws.current_output().map(|out| out.name()), Some(output_b.name()));
+    assert_eq!(
+        ws.current_output().map(|out| out.name()),
+        Some(output_b.name())
+    );
 }
 
 #[test]
@@ -8028,7 +8091,10 @@ fn move_workspace_to_idx_by_workspace_id_reorders_correct_workspace() {
         .iter()
         .filter_map(|ws| ws.name().cloned())
         .collect();
-    assert_eq!(names, vec!["20".to_owned(), "10".to_owned(), "30".to_owned()]);
+    assert_eq!(
+        names,
+        vec!["20".to_owned(), "10".to_owned(), "30".to_owned()]
+    );
 }
 
 #[test]
@@ -10723,7 +10789,10 @@ fn i3_104_focus_stack_restores_tiling_focus_after_floating_close() {
         .focus()
         .map(|win| *win.id())
         .expect("focused window should exist");
-    assert_eq!(focused, 2, "focus should restore to previously-focused tiled window");
+    assert_eq!(
+        focused, 2,
+        "focus should restore to previously-focused tiled window"
+    );
 }
 
 #[test]
@@ -11150,7 +11219,11 @@ fn i3_124_moving_all_children_out_of_split_removes_source_container() {
         1,
         "after moving the last two children out of the left split, the source container should be removed:\n{tree}",
     );
-    assert_eq!(ids, vec![1, 2, 3, 4], "all windows should still be present:\n{tree}");
+    assert_eq!(
+        ids,
+        vec![1, 2, 3, 4],
+        "all windows should still be present:\n{tree}"
+    );
 }
 
 #[test]
@@ -11403,7 +11476,11 @@ fn i3_135_toggle_floating_on_focused_window_from_other_workspace_preserves_focus
 
     check_ops_on_layout(
         &mut layout,
-        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(2) }, Op::FocusWorkspace(0)],
+        [
+            Op::FocusWorkspace(1),
+            Op::ToggleWindowFloating { id: Some(2) },
+            Op::FocusWorkspace(0),
+        ],
     );
 
     let workspace = layout.active_workspace().expect("active workspace");
@@ -11440,7 +11517,11 @@ fn i3_135_toggle_floating_on_unfocused_window_from_other_workspace_does_not_stea
 
     check_ops_on_layout(
         &mut layout,
-        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(1) }, Op::FocusWorkspace(0)],
+        [
+            Op::FocusWorkspace(1),
+            Op::ToggleWindowFloating { id: Some(1) },
+            Op::FocusWorkspace(0),
+        ],
     );
 
     let workspace = layout.active_workspace().expect("active workspace");
@@ -11482,7 +11563,11 @@ fn i3_135_toggle_floating_on_other_workspace_keeps_focused_floating_window() {
 
     check_ops_on_layout(
         &mut layout,
-        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(3) }, Op::FocusWorkspace(0)],
+        [
+            Op::FocusWorkspace(1),
+            Op::ToggleWindowFloating { id: Some(3) },
+            Op::FocusWorkspace(0),
+        ],
     );
 
     let workspace = layout.active_workspace().expect("active workspace");
@@ -11525,7 +11610,11 @@ fn i3_135_toggle_unfocused_window_on_other_workspace_keeps_current_floating_focu
 
     check_ops_on_layout(
         &mut layout,
-        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(2) }, Op::FocusWorkspace(0)],
+        [
+            Op::FocusWorkspace(1),
+            Op::ToggleWindowFloating { id: Some(2) },
+            Op::FocusWorkspace(0),
+        ],
     );
 
     let workspace = layout.active_workspace().expect("active workspace");
@@ -11569,7 +11658,11 @@ fn i3_135_toggle_floating_for_nested_window_from_other_workspace_preserves_focus
 
     check_ops_on_layout(
         &mut layout,
-        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(3) }, Op::FocusWorkspace(0)],
+        [
+            Op::FocusWorkspace(1),
+            Op::ToggleWindowFloating { id: Some(3) },
+            Op::FocusWorkspace(0),
+        ],
     );
 
     let workspace = layout.active_workspace().expect("active workspace");
@@ -11624,7 +11717,11 @@ fn i3_135_deep_floating_roundtrip_from_other_workspace_preserves_focus_chain() {
 
     check_ops_on_layout(
         &mut layout,
-        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(4) }, Op::FocusWorkspace(0)],
+        [
+            Op::FocusWorkspace(1),
+            Op::ToggleWindowFloating { id: Some(4) },
+            Op::FocusWorkspace(0),
+        ],
     );
 
     {
@@ -11644,7 +11741,11 @@ fn i3_135_deep_floating_roundtrip_from_other_workspace_preserves_focus_chain() {
 
     check_ops_on_layout(
         &mut layout,
-        [Op::FocusWorkspace(1), Op::ToggleWindowFloating { id: Some(4) }, Op::FocusWorkspace(0)],
+        [
+            Op::FocusWorkspace(1),
+            Op::ToggleWindowFloating { id: Some(4) },
+            Op::FocusWorkspace(0),
+        ],
     );
 
     {
@@ -11848,9 +11949,9 @@ fn focus_stack_head_is_workspace_in_floating_workspace_context() {
         "workspace-context focus must record Workspace at seat-focus head",
     );
     assert!(
-        snapshot
-            .iter()
-            .any(|node| matches!(node, SeatFocusNode::Floating { window_id, .. } if *window_id == 1)),
+        snapshot.iter().any(
+            |node| matches!(node, SeatFocusNode::Floating { window_id, .. } if *window_id == 1)
+        ),
         "floating node should remain in inactive MRU history",
     );
 
@@ -12026,10 +12127,7 @@ fn i3_218_floating_container_cannot_be_split_or_relayouted() {
     let mut params = TestWindowParams::new(1);
     params.is_floating = true;
 
-    let mut layout = check_ops([
-        Op::AddOutput(1),
-        Op::AddWindow { params },
-    ]);
+    let mut layout = check_ops([Op::AddOutput(1), Op::AddWindow { params }]);
 
     let before_layout = layout
         .active_workspace()
@@ -12110,10 +12208,7 @@ fn i3_218_toggle_layout_all_on_floating_leaf_is_noop() {
     let mut params = TestWindowParams::new(1);
     params.is_floating = true;
 
-    let mut layout = check_ops([
-        Op::AddOutput(1),
-        Op::AddWindow { params },
-    ]);
+    let mut layout = check_ops([Op::AddOutput(1), Op::AddWindow { params }]);
 
     let before = layout
         .active_workspace()

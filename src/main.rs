@@ -15,20 +15,20 @@ use clap::{CommandFactory, Parser};
 use clap_complete::Shell;
 use clap_complete_nushell::Nushell;
 use directories::ProjectDirs;
+use sd_notify::NotifyState;
+use smithay::reexports::wayland_server::Display;
 use tiri::cli::{Cli, CompletionShell, Sub};
 #[cfg(feature = "dbus")]
 use tiri::dbus;
 use tiri::ipc::client::handle_msg;
-use tiri::State;
 use tiri::utils::spawning::{
     spawn, spawn_sh, store_and_increase_nofile_rlimit, CHILD_DISPLAY, CHILD_ENV,
     REMOVE_ENV_RUST_BACKTRACE, REMOVE_ENV_RUST_LIB_BACKTRACE,
 };
 use tiri::utils::{cause_panic, version, watcher, xwayland, IS_SYSTEMD_SERVICE};
+use tiri::State;
 use tiri_config::{Config, ConfigPath};
 use tiri_ipc::socket::SOCKET_PATH_ENV;
-use sd_notify::NotifyState;
-use smithay::reexports::wayland_server::Display;
 use tracing_subscriber::EnvFilter;
 
 const DEFAULT_LOG_FILTER: &str = "tiri=debug,smithay::backend::renderer::gles=error";

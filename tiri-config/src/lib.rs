@@ -59,9 +59,9 @@ use crate::recent_windows::RecentWindowsPart;
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
 pub use crate::utils::FloatOrInt;
 use crate::utils::{Flag, MergeWith as _};
-use std::collections::HashMap;
 pub use crate::window_rule::{FloatingPosition, RelativeTo, WindowRule};
 pub use crate::workspace::{Workspace, WorkspaceLayoutPart};
+use std::collections::HashMap;
 
 const RECURSION_LIMIT: u8 = 10;
 

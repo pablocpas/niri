@@ -290,9 +290,10 @@ fn focus_parent_twice_bubbles_from_nested_split_to_parent_split_in_layout_tree()
     assert_eq!(focused_node_count(&after_first_parent), 1);
     assert_eq!(focused_leaf_count(&after_first_parent), 0);
     assert!(
-        after_first_parent.children.iter().any(|child| {
-            child.layout == Some(LayoutTreeLayout::SplitV) && child.focused
-        }),
+        after_first_parent
+            .children
+            .iter()
+            .any(|child| { child.layout == Some(LayoutTreeLayout::SplitV) && child.focused }),
         "first focus_parent should expose the nested SplitV as the focused node in the layout tree",
     );
 

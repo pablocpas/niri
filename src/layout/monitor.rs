@@ -3,12 +3,12 @@ use std::iter::zip;
 use std::rc::Rc;
 use std::time::Duration;
 
-use tiri_config::{CornerRadius, LayoutPart};
 use smithay::backend::renderer::element::utils::{
     CropRenderElement, Relocate, RelocateRenderElement, RescaleRenderElement,
 };
 use smithay::output::Output;
 use smithay::utils::{Logical, Point, Rectangle, Size};
+use tiri_config::{CornerRadius, LayoutPart};
 
 use super::container::Direction;
 use super::floating::{FloatingResizeResult, FloatingSpace};
@@ -29,10 +29,10 @@ use crate::render_helpers::solid_color::SolidColorRenderElement;
 use crate::render_helpers::RenderTarget;
 use crate::rubber_band::RubberBand;
 use crate::utils::transaction::{Transaction, TransactionBlocker};
-use smithay::backend::renderer::gles::GlesRenderer;
 use crate::utils::{
     output_size, round_logical_in_physical, round_logical_in_physical_max1, ResizeEdge,
 };
+use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::input::pointer::CursorIcon;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 
@@ -143,7 +143,10 @@ pub(super) enum SplitIndicator {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum InsertPosition {
     NewColumn(usize),
-    Swap { path: Vec<usize>, direction: Direction },
+    Swap {
+        path: Vec<usize>,
+        direction: Direction,
+    },
     Split {
         path: Vec<usize>,
         direction: Direction,
@@ -696,7 +699,8 @@ impl<W: LayoutElement> Monitor<W> {
         window: &W::Id,
         delta: Point<f64, Logical>,
     ) -> bool {
-        self.sticky_floating.interactive_resize_update(window, delta)
+        self.sticky_floating
+            .interactive_resize_update(window, delta)
     }
 
     pub fn sticky_interactive_resize_end(&mut self, window: &W::Id) {
@@ -2096,10 +2100,7 @@ impl<W: LayoutElement> Monitor<W> {
             .find_map(|(ws, geo)| geo.contains(pos_within_output).then_some(ws))
     }
 
-    fn sticky_window_under(
-        &self,
-        pos_within_output: Point<f64, Logical>,
-    ) -> Option<(&W, HitType)> {
+    fn sticky_window_under(&self, pos_within_output: Point<f64, Logical>) -> Option<(&W, HitType)> {
         if !self.sticky_is_visible() {
             return None;
         }
@@ -2112,7 +2113,9 @@ impl<W: LayoutElement> Monitor<W> {
             let (win, hit) = self
                 .sticky_floating
                 .tiles_with_render_positions()
-                .find_map(|(tile, tile_pos)| HitType::hit_tile(tile, tile_pos, pos_within_workspace))?;
+                .find_map(|(tile, tile_pos)| {
+                    HitType::hit_tile(tile, tile_pos, pos_within_workspace)
+                })?;
             // During the overview animation, we cannot do input hits because we cannot really
             // represent scaled windows properly.
             Some((win, hit.to_activate()))
@@ -2121,7 +2124,9 @@ impl<W: LayoutElement> Monitor<W> {
             let (win, hit) = self
                 .sticky_floating
                 .tiles_with_render_positions()
-                .find_map(|(tile, tile_pos)| HitType::hit_tile(tile, tile_pos, pos_within_workspace))?;
+                .find_map(|(tile, tile_pos)| {
+                    HitType::hit_tile(tile, tile_pos, pos_within_workspace)
+                })?;
             Some((win, hit.offset_win_pos(geo.loc)))
         }
     }
@@ -2420,7 +2425,12 @@ impl<W: LayoutElement> Monitor<W> {
             }
 
             if self.overview_progress.is_some() {
-                ws.render_tiling_as_offscreen(renderer.as_gles_renderer(), target, focus_ring, push!());
+                ws.render_tiling_as_offscreen(
+                    renderer.as_gles_renderer(),
+                    target,
+                    focus_ring,
+                    push!(),
+                );
             } else {
                 ws.render_tiling(renderer, target, focus_ring, push!());
             }

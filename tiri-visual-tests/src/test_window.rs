@@ -2,6 +2,10 @@ use std::cell::RefCell;
 use std::cmp::{max, min};
 use std::rc::Rc;
 
+use smithay::backend::renderer::element::Kind;
+use smithay::output::{self, Output};
+use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::utils::{Logical, Point, Scale, Serial, Size, Transform};
 use tiri::layout::{
     ConfigureIntent, InteractiveResizeData, LayoutElement, LayoutElementRenderElement,
     LayoutElementRenderSnapshot, SizingMode,
@@ -12,10 +16,6 @@ use tiri::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElemen
 use tiri::render_helpers::RenderTarget;
 use tiri::utils::transaction::Transaction;
 use tiri::window::ResolvedWindowRules;
-use smithay::backend::renderer::element::Kind;
-use smithay::output::{self, Output};
-use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
-use smithay::utils::{Logical, Point, Scale, Serial, Size, Transform};
 
 #[derive(Debug)]
 struct TestWindowInner {

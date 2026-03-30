@@ -1,8 +1,8 @@
 use std::iter::zip;
 
-use tiri_config::{CornerRadius, Gradient, GradientRelativeTo};
 use smithay::backend::renderer::element::{Element as _, Kind};
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
+use tiri_config::{CornerRadius, Gradient, GradientRelativeTo};
 
 use crate::niri_render_elements;
 use crate::render_helpers::border::BorderRenderElement;
@@ -122,7 +122,10 @@ pub fn render_container_selection<R: NiriRenderer>(
 
     // Match tile rendering: align selection geometry to physical pixels.
     let output_scale = Scale::from(scale);
-    rect.loc = rect.loc.to_physical_precise_round(output_scale).to_logical(output_scale);
+    rect.loc = rect
+        .loc
+        .to_physical_precise_round(output_scale)
+        .to_logical(output_scale);
     rect.size = rect
         .size
         .to_physical_precise_round(output_scale)

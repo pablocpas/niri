@@ -5,7 +5,6 @@ use std::fmt::Write as _;
 use std::iter::zip;
 use std::rc::Rc;
 
-use tiri_config::{Action, Bind, Config, Key, ModKey, Modifiers, Trigger};
 use pangocairo::cairo::{self, ImageSurface};
 use pangocairo::pango::{AttrColor, AttrInt, AttrList, AttrString, FontDescription, Weight};
 use smithay::backend::renderer::element::Kind;
@@ -14,6 +13,7 @@ use smithay::input::keyboard::xkb::keysym_get_name;
 use smithay::output::{Output, WeakOutput};
 use smithay::reexports::gbm::Format as Fourcc;
 use smithay::utils::{Scale, Transform};
+use tiri_config::{Action, Bind, Config, Key, ModKey, Modifiers, Trigger};
 
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
@@ -475,7 +475,9 @@ fn action_name(action: &Action) -> String {
         Action::FocusColumnLeft => String::from("Focus Column to the Left"),
         Action::FocusColumnRight => String::from("Focus Column to the Right"),
         Action::MoveColumnLeft | Action::MoveContainerLeft => String::from("Move Container Left"),
-        Action::MoveColumnRight | Action::MoveContainerRight => String::from("Move Container Right"),
+        Action::MoveColumnRight | Action::MoveContainerRight => {
+            String::from("Move Container Right")
+        }
         Action::FocusWorkspaceDown => String::from("Switch Workspace Down"),
         Action::FocusWorkspaceUp => String::from("Switch Workspace Up"),
         Action::MoveColumnToWorkspaceDown(_) | Action::MoveContainerToWorkspaceDown(_) => {

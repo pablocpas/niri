@@ -13,11 +13,6 @@ use std::{env, mem, thread};
 use _server_decoration::server::org_kde_kwin_server_decoration_manager::Mode as KdeDecorationsMode;
 use anyhow::{bail, ensure, Context};
 use calloop::futures::Scheduler;
-use tiri_config::debug::PreviewRender;
-use tiri_config::{
-    Config, FloatOrInt, Key, ModKey, Modifiers, OutputName, TrackLayout, WarpMouseToFocusMode,
-    WorkspaceReference, Xkb,
-};
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::input::Keycode;
 use smithay::backend::renderer::damage::OutputDamageTracker;
@@ -108,6 +103,11 @@ use smithay::wayland::viewporter::ViewporterState;
 use smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState;
 use smithay::wayland::xdg_activation::XdgActivationState;
 use smithay::wayland::xdg_foreign::XdgForeignState;
+use tiri_config::debug::PreviewRender;
+use tiri_config::{
+    Config, FloatOrInt, Key, ModKey, Modifiers, OutputName, TrackLayout, WarpMouseToFocusMode,
+    WorkspaceReference, Xkb,
+};
 
 #[cfg(feature = "dbus")]
 use crate::a11y::A11y;
@@ -846,7 +846,8 @@ impl State {
         }
 
         {
-            let _span = tracy_client::span!("State::refresh_and_flush_clients::redraw_queued_outputs");
+            let _span =
+                tracy_client::span!("State::refresh_and_flush_clients::redraw_queued_outputs");
             self.niri.redraw_queued_outputs(&mut self.backend);
         }
 
@@ -2151,12 +2152,10 @@ impl State {
                 .open(renderer, screenshots, default_output, show_pointer, path)
         });
 
-        self.niri
-            .cursor_manager
-            .set_override_cursor(
-                CursorOverride::ScreenshotUi,
-                CursorImageStatus::Named(CursorIcon::Crosshair),
-            );
+        self.niri.cursor_manager.set_override_cursor(
+            CursorOverride::ScreenshotUi,
+            CursorImageStatus::Named(CursorIcon::Crosshair),
+        );
         self.niri.queue_redraw_all();
     }
 
@@ -2170,12 +2169,10 @@ impl State {
         let grab = PickColorGrab::new(start_data);
         pointer.set_grab(self, grab, SERIAL_COUNTER.next_serial(), Focus::Clear);
         self.niri.pick_color = Some(tx);
-        self.niri
-            .cursor_manager
-            .set_override_cursor(
-                CursorOverride::PointerGrab,
-                CursorImageStatus::Named(CursorIcon::Crosshair),
-            );
+        self.niri.cursor_manager.set_override_cursor(
+            CursorOverride::PointerGrab,
+            CursorImageStatus::Named(CursorIcon::Crosshair),
+        );
         self.niri.queue_redraw_all();
     }
 
@@ -3711,9 +3708,10 @@ impl Niri {
                     .find_workspace_by_name(&index.to_string())
                     .map(|(_, ws)| ws.id())
             }
-            WorkspaceReference::Name(name) => {
-                self.layout.find_workspace_by_name(&name).map(|(_, ws)| ws.id())
-            }
+            WorkspaceReference::Name(name) => self
+                .layout
+                .find_workspace_by_name(&name)
+                .map(|(_, ws)| ws.id()),
             WorkspaceReference::Id(id) => {
                 let id = WorkspaceId::specific(id);
                 self.layout.find_workspace_by_id(id).map(|_| id)

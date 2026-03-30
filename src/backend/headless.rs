@@ -7,7 +7,6 @@ use std::mem;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Context as _;
-use tiri_config::OutputName;
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::egl::native::EGLSurfacelessDisplay;
 use smithay::backend::egl::{EGLContext, EGLDisplay};
@@ -17,10 +16,11 @@ use smithay::output::{Mode, Output, PhysicalProperties, Subpixel};
 use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_presentation_feedback;
 use smithay::utils::Size;
 use smithay::wayland::presentation::Refresh;
+use tiri_config::OutputName;
 
 use super::{IpcOutputMap, OutputId, RenderResult};
-use crate::tiri::{Niri, RedrawState};
 use crate::render_helpers::{resources, shaders};
+use crate::tiri::{Niri, RedrawState};
 use crate::utils::{get_monotonic_time, logical_output};
 
 pub struct Headless {

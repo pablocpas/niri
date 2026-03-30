@@ -6,9 +6,6 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use anyhow::ensure;
-use tiri_config::{
-    Action, Bind, Config, CornerRadius, Key, Modifiers, MruDirection, MruFilter, MruScope, Trigger,
-};
 use pango::FontDescription;
 use pangocairo::cairo::{self, ImageSurface};
 use smithay::backend::allocator::Fourcc;
@@ -21,6 +18,9 @@ use smithay::backend::renderer::Color32F;
 use smithay::input::keyboard::Keysym;
 use smithay::output::Output;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Size, Transform};
+use tiri_config::{
+    Action, Bind, Config, CornerRadius, Key, Modifiers, MruDirection, MruFilter, MruScope, Trigger,
+};
 
 use crate::animation::{Animation, Clock};
 use crate::layout::focus_ring::{
@@ -28,7 +28,6 @@ use crate::layout::focus_ring::{
 };
 use crate::layout::tile::clip_layout_element;
 use crate::layout::{Layout, LayoutElement as _, LayoutElementRenderElement};
-use crate::tiri::Niri;
 use crate::niri_render_elements;
 use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::clipped_surface::ClippedSurfaceRenderElement;
@@ -39,6 +38,7 @@ use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::render_helpers::RenderTarget;
+use crate::tiri::Niri;
 use crate::utils::{
     baba_is_float_offset, output_size, round_logical_in_physical, to_physical_precise_round,
     with_toplevel_role,
@@ -383,15 +383,7 @@ impl Thumbnail {
         let clip_shader = ClippedSurfaceRenderElement::shader(renderer).cloned();
         let geo = Rectangle::from_size(self.size.to_f64());
         let clip = move |elem| {
-            clip_layout_element(
-                elem,
-                s,
-                geo,
-                radius,
-                true,
-                &clip_shader,
-                has_border_shader,
-            )
+            clip_layout_element(elem, s, geo, radius, true, &clip_shader, has_border_shader)
         };
 
         let downscale = move |elem| {

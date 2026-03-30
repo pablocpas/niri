@@ -13,7 +13,6 @@ use anyhow::{ensure, Context};
 use bitflags::bitflags;
 use directories::UserDirs;
 use git_version::git_version;
-use tiri_config::{Config, OutputName};
 use smithay::backend::renderer::utils::with_renderer_surface_state;
 use smithay::input::pointer::CursorIcon;
 use smithay::output::{self, Output};
@@ -29,6 +28,7 @@ use smithay::wayland::shell::xdg::{
     ToplevelCachedState, ToplevelConfigure, ToplevelState, ToplevelSurface, XdgToplevelSurfaceData,
     XdgToplevelSurfaceRoleAttributes,
 };
+use tiri_config::{Config, OutputName};
 use wayland_backend::server::Credentials;
 
 use crate::handlers::KdeDecorationsModeState;

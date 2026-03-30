@@ -74,7 +74,6 @@ use smithay::{
 pub use crate::handlers::xdg_shell::KdeDecorationsModeState;
 use crate::layout::workspace::WorkspaceId;
 use crate::layout::ActivateWindow;
-use crate::tiri::{DndIcon, NewClient, State};
 use crate::protocols::ext_workspace::{self, ExtWorkspaceHandler, ExtWorkspaceManagerState};
 use crate::protocols::foreign_toplevel::{
     self, ForeignToplevelHandler, ForeignToplevelManagerState,
@@ -88,6 +87,7 @@ use crate::protocols::virtual_pointer::{
     VirtualPointerInputBackend, VirtualPointerManagerState, VirtualPointerMotionAbsoluteEvent,
     VirtualPointerMotionEvent,
 };
+use crate::tiri::{DndIcon, NewClient, State};
 use crate::utils::{output_size, send_scale_transform};
 use crate::{
     delegate_ext_workspace, delegate_foreign_toplevel, delegate_gamma_control,

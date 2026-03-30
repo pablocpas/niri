@@ -1,7 +1,7 @@
 use knuffel::errors::DecodeError;
 use miette::miette;
-use tiri_ipc::{ColumnDisplay, SizeChange};
 use std::str::FromStr;
+use tiri_ipc::{ColumnDisplay, SizeChange};
 
 use crate::appearance::{
     Border, FocusRing, InsertHint, Shadow, TabBar, TabIndicator, DEFAULT_BACKGROUND_COLOR,

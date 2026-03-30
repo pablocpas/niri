@@ -226,7 +226,7 @@ jobs:
         with:
           show-progress: false
 
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@1.94.0
         with:
           components: rustfmt
 

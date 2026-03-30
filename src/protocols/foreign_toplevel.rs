@@ -133,7 +133,14 @@ pub fn refresh(state: &mut State) {
                 return;
             };
 
-            refresh_toplevel(protocol_state, wl_surface, role, cur, output.as_ref(), false);
+            refresh_toplevel(
+                protocol_state,
+                wl_surface,
+                role,
+                cur,
+                output.as_ref(),
+                false,
+            );
         });
     }
 

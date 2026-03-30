@@ -14,12 +14,6 @@ use calloop::io::Async;
 use directories::BaseDirs;
 use futures_util::io::{AsyncReadExt, BufReader};
 use futures_util::{select_biased, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, FutureExt as _};
-use tiri_config::OutputName;
-use tiri_ipc::state::{EventStreamState, EventStreamStatePart as _};
-use tiri_ipc::{
-    Action, Event, KeyboardLayouts, OutputConfigChanged, Overview, Reply, Request, Response,
-    Timestamp, WindowLayout, Workspace,
-};
 use smithay::desktop::layer_map_for_output;
 use smithay::input::pointer::{
     CursorIcon, CursorImageStatus, Focus, GrabStartData as PointerGrabStartData,
@@ -29,6 +23,12 @@ use smithay::reexports::calloop::{Interest, LoopHandle, Mode, PostAction};
 use smithay::reexports::rustix::fs::unlink;
 use smithay::utils::SERIAL_COUNTER;
 use smithay::wayland::shell::wlr_layer::{KeyboardInteractivity, Layer};
+use tiri_config::OutputName;
+use tiri_ipc::state::{EventStreamState, EventStreamStatePart as _};
+use tiri_ipc::{
+    Action, Event, KeyboardLayouts, OutputConfigChanged, Overview, Reply, Request, Response,
+    Timestamp, WindowLayout, Workspace,
+};
 
 use crate::backend::IpcOutputMap;
 use crate::cursor::CursorOverride;

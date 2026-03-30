@@ -185,9 +185,9 @@ impl<WindowId: Clone + PartialEq> SeatFocusStack<WindowId> {
                 output_name: Some(name),
                 ..
             } if name == output_name => Some(node.clone()),
-            SeatFocusNode::Sticky { output_name: name, .. } if name == output_name => {
-                Some(node.clone())
-            }
+            SeatFocusNode::Sticky {
+                output_name: name, ..
+            } if name == output_name => Some(node.clone()),
             _ => None,
         })
     }

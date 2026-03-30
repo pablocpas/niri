@@ -1,5 +1,11 @@
 use std::cmp::{max, min};
 
+use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
+use smithay::utils::{Logical, Size};
+use smithay::wayland::compositor::with_states;
+use smithay::wayland::shell::xdg::{
+    SurfaceCachedState, ToplevelSurface, XdgToplevelSurfaceRoleAttributes,
+};
 use tiri_config::utils::MergeWith as _;
 use tiri_config::window_rule::{Match, WindowRule};
 use tiri_config::{
@@ -7,12 +13,6 @@ use tiri_config::{
     TabIndicatorRule,
 };
 use tiri_ipc::ColumnDisplay;
-use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
-use smithay::utils::{Logical, Size};
-use smithay::wayland::compositor::with_states;
-use smithay::wayland::shell::xdg::{
-    SurfaceCachedState, ToplevelSurface, XdgToplevelSurfaceRoleAttributes,
-};
 
 use crate::utils::with_toplevel_role;
 

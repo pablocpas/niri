@@ -91,4 +91,3 @@ impl InputBackend for VirtualKeyboardInputBackend {
 
     type SpecialEvent = UnusedEvent;
 }
-

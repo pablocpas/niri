@@ -1,8 +1,8 @@
-use tiri::render_helpers::border::BorderRenderElement;
-use tiri_config::{Color, CornerRadius, GradientColorSpace, GradientInterpolation};
 use smithay::backend::renderer::element::RenderElement;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Physical, Point, Rectangle, Size};
+use tiri::render_helpers::border::BorderRenderElement;
+use tiri_config::{Color, CornerRadius, GradientColorSpace, GradientInterpolation};
 
 use super::{Args, TestCase};
 
