@@ -242,8 +242,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo dnf update -y
-          sudo dnf install -y ${{ env.DEPS_DNF }} libadwaita-devel
+          dnf update -y
+          dnf install -y ${{ env.DEPS_DNF }} libadwaita-devel
 
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --all
@@ -349,9 +349,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Generate rustdoc documentation
-        run: cargo doc --no-deps -p niri-ipc
+        run: cargo doc --no-deps -p tiri-ipc
 
-      - run: mkdir -p publish/niri_ipc
+      - run: mkdir -p publish/tiri_ipc
       - run: cp -r ./target/doc/* ./publish/
       - run: cp -r ./docs/site/* ./publish/
 

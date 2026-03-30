@@ -28,7 +28,7 @@ jobs:
 
       - name: Check for unreplaced "Since:" in the wiki
         run: |
-          if grep --recursive 'Since: next release' wiki; then
+          if grep --recursive 'Since: next release' docs/wiki; then
             exit 1
           fi
 
