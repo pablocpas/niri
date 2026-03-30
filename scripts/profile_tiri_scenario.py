@@ -203,7 +203,7 @@ class Runner:
         active_workspace: ActiveWorkspace | None = None
 
         try:
-            active_workspace = self._activate_workspace(workspace_name)
+            active_workspace = self._activate_workspace(workspace_name, spawned_processes)
             workspace_id = active_workspace.id
             snapshot = self._settle(f"workspace {workspace_name} baseline")
 
@@ -400,6 +400,9 @@ class Runner:
             env=env,
             start_new_session=True,
             text=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
 
     def _focused_workspace(self, expected_name: str | None = None) -> dict[str, JsonValue]:
@@ -419,7 +422,11 @@ class Runner:
     def _focus_workspace_reference(self, reference: dict[str, JsonValue]) -> None:
         self._send_action("FocusWorkspace", {"reference": reference})
 
-    def _activate_workspace(self, workspace_name: str) -> ActiveWorkspace:
+    def _activate_workspace(
+        self,
+        workspace_name: str,
+        spawned_processes: list[subprocess.Popen[str]],
+    ) -> ActiveWorkspace:
         focused_before = self._focused_workspace()
         restore_reference = workspace_reference(focused_before)
         restore_name = focused_before.get("name")
@@ -439,7 +446,61 @@ class Runner:
                 renamed_from_focused_workspace=False,
             )
 
-        self._send_action("SetWorkspaceName", {"name": workspace_name, "workspace": None})
+        created_workspace = self._create_named_workspace_from_anchor(
+            workspace_name,
+            focused_before,
+            restore_name,
+            restore_reference,
+            spawned_processes,
+        )
+        return created_workspace
+
+    def _create_named_workspace_from_anchor(
+        self,
+        workspace_name: str,
+        focused_before: dict[str, JsonValue],
+        restore_name: str | None,
+        restore_reference: dict[str, JsonValue] | None,
+        spawned_processes: list[subprocess.Popen[str]],
+    ) -> ActiveWorkspace:
+        source_workspace_id = focused_before.get("id")
+        if not isinstance(source_workspace_id, int):
+            raise RunnerError("focused workspace is missing an integer id")
+
+        windows_before = self._request_variant("Windows", "Windows")
+        before_ids = {
+            window.get("id") for window in windows_before if isinstance(window.get("id"), int)
+        }
+
+        self.event_monitor.reset_activity()
+        spawned_processes.append(self._spawn_window())
+        self._settle(f"workspace {workspace_name} anchor spawn")
+
+        anchor_window_id = self._wait_for_new_window_id(
+            before_ids,
+            context=f"workspace {workspace_name} anchor window",
+        )
+        if anchor_window_id is None:
+            raise RunnerError("could not determine anchor window id for temporary workspace")
+
+        self._send_action("FocusWindow", {"id": anchor_window_id})
+        self._wait_for_quiet(f"workspace {workspace_name} anchor focus")
+
+        focused_after_move = self._move_anchor_to_adjacent_workspace(
+            workspace_name,
+            source_workspace_id,
+        )
+        target_workspace_id = focused_after_move.get("id")
+        if not isinstance(target_workspace_id, int):
+            raise RunnerError("temporary workspace is missing an integer id")
+
+        self._send_action(
+            "SetWorkspaceName",
+            {
+                "name": workspace_name,
+                "workspace": {"Id": target_workspace_id},
+            },
+        )
         self._wait_for_quiet(f"workspace {workspace_name} rename")
         focused = self._focused_workspace(expected_name=workspace_name)
         return ActiveWorkspace(
@@ -447,7 +508,45 @@ class Runner:
             name=workspace_name,
             restore_name=restore_name,
             restore_reference=restore_reference,
-            renamed_from_focused_workspace=True,
+            renamed_from_focused_workspace=False,
+        )
+
+    def _detect_new_window_id(self, before_ids: set[int]) -> int | None:
+        windows_after = self._request_variant("Windows", "Windows")
+        new_ids = [
+            window.get("id")
+            for window in windows_after
+            if isinstance(window.get("id"), int) and window.get("id") not in before_ids
+        ]
+        if not new_ids:
+            return None
+        return max(new_ids)
+
+    def _wait_for_new_window_id(self, before_ids: set[int], context: str) -> int | None:
+        deadline = time.monotonic() + self.args.settle_timeout
+        while time.monotonic() < deadline:
+            self.event_monitor.raise_if_failed()
+            window_id = self._detect_new_window_id(before_ids)
+            if window_id is not None:
+                return window_id
+            time.sleep(self.args.settle_interval)
+        return self._detect_new_window_id(before_ids)
+
+    def _move_anchor_to_adjacent_workspace(
+        self,
+        workspace_name: str,
+        source_workspace_id: int,
+    ) -> dict[str, JsonValue]:
+        for action_name in ("MoveWindowToWorkspaceDown", "MoveWindowToWorkspaceUp"):
+            self.event_monitor.reset_activity()
+            self._send_action(action_name, {"focus": True})
+            self._wait_for_quiet(f"workspace {workspace_name} {action_name}")
+            focused = self._focused_workspace()
+            if focused.get("id") != source_workspace_id:
+                return focused
+
+        raise RunnerError(
+            f"could not move anchor window away from source workspace {source_workspace_id}"
         )
 
     def _cleanup_workspace(self, workspace: ActiveWorkspace) -> None:
@@ -509,18 +608,21 @@ class Runner:
                     pass
 
     def _build_summary(self, runs: list[dict[str, JsonValue]]) -> dict[str, JsonValue]:
+        measured_runs = [run for run in runs if not run["warmup"]]
+        aggregate_runs = measured_runs or runs
         aggregate: list[dict[str, JsonValue]] = []
-        if runs:
-            step_count = len(runs[0]["steps"])
+        if aggregate_runs:
+            step_count = len(aggregate_runs[0]["steps"])
             for index in range(step_count):
-                durations = [run["steps"][index]["duration_ms"] for run in runs]
-                sample = runs[0]["steps"][index]
+                durations = [run["steps"][index]["duration_ms"] for run in aggregate_runs]
+                sample = aggregate_runs[0]["steps"][index]
                 aggregate.append(
                     {
                         "sequence": sample["sequence"],
                         "label": sample["label"],
                         "kind": sample["kind"],
                         "action_name": sample["action_name"],
+                        "sample_count": len(durations),
                         "p50_ms": percentile(durations, 0.50),
                         "p95_ms": percentile(durations, 0.95),
                         "max_ms": max(durations),
@@ -538,7 +640,9 @@ class Runner:
             "socket_path": os.fspath(self.socket_path),
             "window_cmd": self.args.window_cmd,
             "repeat_count": self.args.repeat,
+            "measured_run_count": len(aggregate_runs),
             "warmup_run_index": 0,
+            "aggregates_exclude_warmup": bool(measured_runs),
             "settle_timeout_s": self.args.settle_timeout,
             "settle_interval_s": self.args.settle_interval,
             "idle_grace_s": self.args.idle_grace,
@@ -592,7 +696,11 @@ class Runner:
     def _print_summary(self, summary: dict[str, JsonValue]) -> None:
         print(f"Scenario: {summary['scenario']['name']}")
         print(f"Socket:   {summary['socket_path']}")
-        print(f"Runs:     {summary['repeat_count']} (warmup run index {summary['warmup_run_index']})")
+        print(
+            f"Runs:     {summary['repeat_count']} total, "
+            f"{summary['measured_run_count']} measured "
+            f"(warmup run index {summary['warmup_run_index']})"
+        )
         print(f"Output:   {self.output_dir}")
         print()
         print("Step timings:")

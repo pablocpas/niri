@@ -1,0 +1,109 @@
+{
+  "name": "diverse-interactions",
+  "initial_windows": 0,
+  "steps": [
+    {
+      "kind": "spawn_window",
+      "label": "open_1"
+    },
+    {
+      "kind": "spawn_window",
+      "label": "open_2"
+    },
+    {
+      "kind": "spawn_window",
+      "label": "open_3"
+    },
+    {
+      "kind": "action",
+      "name": "FocusColumnRight",
+      "label": "focus_right"
+    },
+    {
+      "kind": "action",
+      "name": "MoveColumnLeft",
+      "label": "move_left"
+    },
+    {
+      "kind": "action",
+      "name": "SetLayoutStacked",
+      "label": "stacked"
+    },
+    {
+      "kind": "action",
+      "name": "SetLayoutTabbed",
+      "label": "tabbed"
+    },
+    {
+      "kind": "action",
+      "name": "ToggleSplitLayout",
+      "label": "toggle_split"
+    },
+    {
+      "kind": "action",
+      "name": "ToggleWindowFloating",
+      "args": {
+        "id": null
+      },
+      "label": "float_on"
+    },
+    {
+      "kind": "action",
+      "name": "SwitchFocusBetweenFloatingAndTiling",
+      "label": "switch_focus_layer"
+    },
+    {
+      "kind": "action",
+      "name": "ToggleWindowFloating",
+      "args": {
+        "id": null
+      },
+      "label": "float_off"
+    },
+    {
+      "kind": "action",
+      "name": "FullscreenWindow",
+      "args": {
+        "id": null
+      },
+      "label": "fullscreen_on"
+    },
+    {
+      "kind": "action",
+      "name": "FullscreenWindow",
+      "args": {
+        "id": null
+      },
+      "label": "fullscreen_off"
+    },
+    {
+      "kind": "action",
+      "name": "FocusWindowPrevious",
+      "label": "focus_previous"
+    },
+    {
+      "kind": "action",
+      "name": "CloseWindow",
+      "args": {
+        "id": null
+      },
+      "label": "close_1"
+    },
+    {
+      "kind": "action",
+      "name": "CloseWindow",
+      "args": {
+        "id": null
+      },
+      "label": "close_2"
+    },
+    {
+      "kind": "action",
+      "name": "CloseWindow",
+      "args": {
+        "id": null
+      },
+      "label": "close_3"
+    }
+  ]
+}
