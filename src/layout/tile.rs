@@ -1176,6 +1176,13 @@ impl<W: LayoutElement> Tile<W> {
             }
         }
         if self.options.animations.off {
+            if self.window.interactive_resize_data().is_some() {
+                let mut size = self.window.size().to_f64();
+                size = size
+                    .to_physical_precise_round(self.scale)
+                    .to_logical(self.scale);
+                return size;
+            }
             return self.window_expected_or_current_size();
         }
 
