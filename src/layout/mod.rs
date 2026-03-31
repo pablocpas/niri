@@ -5576,10 +5576,10 @@ impl<W: LayoutElement> Layout<W> {
                         }
                         (true, None, floating_grouped)
                     } else {
-                        let ws = self
-                            .workspaces_mut()
-                            .find(|ws| ws.has_window(&window_id))
-                            .unwrap();
+                        let Some(ws) = self.workspaces_mut().find(|ws| ws.has_window(&window_id))
+                        else {
+                            return false;
+                        };
                         let workspace_config = ws.layout_config().cloned().map(|c| (ws.id(), c));
                         let is_floating = ws.is_floating(&window_id);
                         let floating_grouped =
@@ -5622,10 +5622,11 @@ impl<W: LayoutElement> Layout<W> {
                         };
                         pos
                     } else {
-                        let ws = self
-                            .workspaces_mut()
-                            .find(|ws| ws.has_window(&window_id))
-                            .unwrap();
+                        let Some(ws) = self.workspaces_mut().find(|ws| ws.has_window(&window_id))
+                        else {
+                            self.interactive_move = None;
+                            return false;
+                        };
                         let tile = ws
                             .tiles_mut()
                             .find(|tile| *tile.window().id() == window_id)
