@@ -6844,11 +6844,9 @@ impl<W: LayoutElement> Layout<W> {
             &self.interactive_move
         {
             ongoing_scrolling_dnd.get_or_insert_with(|| {
-                let (_, _, ws) = self
-                    .workspaces()
+                self.workspaces()
                     .find(|(_, _, ws)| ws.has_window(window_id))
-                    .unwrap();
-                !ws.is_floating(window_id)
+                    .is_some_and(|(_, _, ws)| !ws.is_floating(window_id))
             });
         }
 

@@ -5636,6 +5636,30 @@ fn scratchpad_show_after_move_to_workspace_cleans_empty_non_active_workspace() {
 }
 
 #[test]
+fn move_window_to_scratchpad_during_interactive_move_doesnt_panic_on_refresh() {
+    let layout = check_ops([
+        Op::AddScaledOutput {
+            id: 1,
+            scale: 1.0,
+            layout_config: None,
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::InteractiveMoveBegin {
+            window: 3,
+            output_idx: 1,
+            px: 0.0,
+            py: 0.0,
+        },
+        Op::MoveWindowToScratchpad { id: None },
+        Op::Refresh { is_active: false },
+    ]);
+
+    assert!(layout.workspaces().all(|(_, _, ws)| !ws.has_window(&3)));
+}
+
+#[test]
 fn move_to_scratchpad_cleans_empty_non_active_workspace() {
     let layout = check_ops([
         Op::AddWindow {
