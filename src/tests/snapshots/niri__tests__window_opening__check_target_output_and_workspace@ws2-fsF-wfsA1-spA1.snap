@@ -7,10 +7,10 @@ final monitor: headless-1
 final workspace: 0 (ws-1)
 
 initial configure:
-size: 1868 × 1028, bounds: 800 × 600, states: []
+size: 1884 × 1044, bounds: 800 × 600, states: []
 
 post-map configures:
 size: 1280 × 720, bounds: 800 × 600, states: [Fullscreen]
 
 unfullscreen configure:
-size: 1280 × 720, bounds: 1280 × 720, states: [Activated]
+size: 640 × 540, bounds: 1280 × 720, states: [Activated]
