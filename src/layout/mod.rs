@@ -4610,10 +4610,21 @@ impl<W: LayoutElement> Layout<W> {
                 return;
             }
 
-            let tile = self
-                .workspaces_mut()
-                .find(|ws| ws.id() == ws_id)
-                .and_then(|ws| ws.take_tile_for_scratchpad(&visible_id));
+            let source_monitor_idx = self.find_workspace_location_by_id(ws_id).map(|(idx, _)| idx);
+
+            let tile = {
+                self.workspaces_mut()
+                    .find(|ws| ws.id() == ws_id)
+                    .and_then(|ws| ws.take_tile_for_scratchpad(&visible_id))
+            };
+
+            if let (Some(monitor_idx), MonitorSet::Normal { monitors, .. }) =
+                (source_monitor_idx, &mut self.monitor_set)
+            {
+                if monitors[monitor_idx].workspace_switch.is_none() {
+                    monitors[monitor_idx].clean_up_workspaces();
+                }
+            }
 
             if let (Some(tile), Some(monitor)) = (tile, self.active_monitor()) {
                 monitor.add_scratchpad_tile(tile, true);

@@ -5608,6 +5608,34 @@ fn scratchpad_show_keeps_empty_workspace_tail() {
 }
 
 #[test]
+fn scratchpad_show_after_move_to_workspace_cleans_empty_non_active_workspace() {
+    let layout = check_ops([
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddOutput(1),
+        Op::MoveWindowToScratchpad { id: None },
+        Op::ScratchpadShow,
+        Op::MoveColumnToWorkspace(1, false),
+        Op::ScratchpadShow,
+    ]);
+
+    let MonitorSet::Normal { monitors, .. } = layout.monitor_set else {
+        unreachable!()
+    };
+
+    let monitor = monitors.into_iter().next().unwrap();
+    for (idx, ws) in monitor.workspaces.iter().enumerate().skip(1) {
+        if idx != monitor.active_workspace_idx && idx != monitor.workspaces.len() - 1 {
+            assert!(
+                ws.has_windows_or_name(),
+                "workspace {idx} should not be left empty and unnamed"
+            );
+        }
+    }
+}
+
+#[test]
 fn move_to_scratchpad_cleans_empty_non_active_workspace() {
     let layout = check_ops([
         Op::AddWindow {
