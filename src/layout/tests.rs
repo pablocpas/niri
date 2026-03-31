@@ -5689,6 +5689,41 @@ fn move_window_to_scratchpad_during_interactive_move_update_doesnt_panic() {
 }
 
 #[test]
+fn interactive_move_begin_ignores_hidden_tabbed_window() {
+    let layout = check_ops([
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddScaledOutput {
+            id: 4,
+            scale: 1.0,
+            layout_config: None,
+        },
+        Op::AddWindowNextTo {
+            params: TestWindowParams {
+                id: 3,
+                is_floating: true,
+                ..TestWindowParams::new(3)
+            },
+            next_to_id: 2,
+        },
+        Op::SplitHorizontal,
+        Op::SetLayoutTabbed,
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::InteractiveMoveBegin {
+            window: 3,
+            output_idx: 4,
+            px: 0.0,
+            py: 0.0,
+        },
+    ]);
+
+    assert!(layout.has_window(&3));
+}
+
+#[test]
 fn move_to_scratchpad_cleans_empty_non_active_workspace() {
     let layout = check_ops([
         Op::AddWindow {

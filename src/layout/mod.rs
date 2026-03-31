@@ -5453,10 +5453,12 @@ impl<W: LayoutElement> Layout<W> {
                 .workspaces_with_render_geo()
                 .find(|(ws, _)| ws.has_window(&window_id))
             {
-                let (tile, tile_offset, _visible) = ws
+                let Some((tile, tile_offset, _visible)) = ws
                     .tiles_with_render_positions()
                     .find(|(tile, _, _)| tile.window().id() == &window_id)
-                    .unwrap();
+                else {
+                    continue;
+                };
                 let window_offset = tile.window_loc();
                 let window_size = tile.window_size();
                 let is_floating = ws.is_floating(&window_id);
