@@ -8429,6 +8429,72 @@ fn floating_fullscreen_roundtrip_restores_floating_with_other_tiling_windows() {
 }
 
 #[test]
+fn floating_windowed_fullscreen_replaces_existing_floating_fullscreen() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(5)
+            },
+        },
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(4)
+            },
+        },
+        Op::FullscreenWindow(5),
+        Op::ToggleWindowedFullscreen(4),
+    ];
+
+    let layout = check_ops(ops);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&5));
+    assert!(workspace.is_floating(&4));
+
+    let (_mon, win4) = layout
+        .windows()
+        .find(|(_, win)| *win.id() == 4)
+        .expect("window 4 should exist");
+    let (_mon, win5) = layout
+        .windows()
+        .find(|(_, win)| *win.id() == 5)
+        .expect("window 5 should exist");
+
+    assert!(win4.pending_sizing_mode().is_fullscreen());
+    assert!(!win5.pending_sizing_mode().is_fullscreen());
+}
+
+#[test]
+fn tiling_maximized_window_floated_clears_maximized_state() {
+    let ops = [
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::MaximizeWindowToEdges { id: Some(3) },
+        Op::AddOutput(1),
+        Op::FocusParent,
+        Op::ToggleWindowFloating { id: None },
+    ];
+
+    let layout = check_ops(ops);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&3));
+
+    let (_mon, win3) = layout
+        .windows()
+        .find(|(_, win)| *win.id() == 3)
+        .expect("window 3 should exist");
+    assert!(win3.pending_sizing_mode().is_normal());
+}
+
+#[test]
 fn floating_set_fullscreen_roundtrip_restores_floating() {
     let ops = [
         Op::AddOutput(1),

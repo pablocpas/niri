@@ -898,6 +898,12 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 return;
             }
 
+            if let Some(previous) = self.fullscreen_window.clone() {
+                if previous != *window {
+                    self.set_fullscreen(&previous, false);
+                }
+            }
+
             // Store the floating size before going fullscreen.
             if let Some(tile) = self.tiles_mut().find(|t| t.window().id() == window) {
                 Self::store_floating_size_for_restore(tile);
@@ -1237,11 +1243,8 @@ impl<W: LayoutElement> FloatingSpace<W> {
         focus: Option<&W::Id>,
         workspace_floated: bool,
     ) {
-        let view_size = self.view_size;
-        let scale = self.scale;
-        let options = self.options.clone();
         subtree.for_each_tile_mut(&mut |tile| {
-            tile.update_config(view_size, scale, options.clone());
+            self.prepare_tile_for_floating(tile);
         });
 
         let mut tree = ContainerTree::new(

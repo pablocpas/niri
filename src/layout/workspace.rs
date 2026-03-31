@@ -513,6 +513,20 @@ impl<W: LayoutElement> Workspace<W> {
         Some(size)
     }
 
+    fn normalize_tile_for_floating(&self, tile: &mut Tile<W>, animate: bool) {
+        tile.pending_maximized = false;
+
+        if tile.window().pending_sizing_mode().is_normal() {
+            return;
+        }
+
+        if let Some(size) = tile.floating_window_size {
+            tile.window_mut().request_size_once(size, animate);
+        } else {
+            let _ = self.assign_default_floating_size_if_missing(tile, animate);
+        }
+    }
+
     pub fn id(&self) -> WorkspaceId {
         self.id
     }
@@ -2438,7 +2452,10 @@ impl<W: LayoutElement> Workspace<W> {
             && self.floating.active_command_container_path().is_none()
             && !self.tiling.is_empty()
         {
-            if let Some((subtree, rect)) = self.tiling.take_workspace_subtree_for_floating() {
+            if let Some((mut subtree, rect)) = self.tiling.take_workspace_subtree_for_floating() {
+                subtree.for_each_tile_mut(&mut |tile| {
+                    self.normalize_tile_for_floating(tile, true);
+                });
                 let focus_id = subtree
                     .tiles()
                     .into_iter()
@@ -2467,7 +2484,10 @@ impl<W: LayoutElement> Workspace<W> {
             let old_parent_ref = self
                 .tiling
                 .inactive_tiling_reference_for_parent_of_selected_reference();
-            if let Some((subtree, origin, rect)) = self.tiling.take_selected_subtree() {
+            if let Some((mut subtree, origin, rect)) = self.tiling.take_selected_subtree() {
+                subtree.for_each_tile_mut(&mut |tile| {
+                    self.normalize_tile_for_floating(tile, true);
+                });
                 let focus_id = subtree
                     .tiles()
                     .into_iter()
@@ -2617,12 +2637,19 @@ impl<W: LayoutElement> Workspace<W> {
                 }
             }
             removed.tile.stop_move_animations();
-            removed.tile.pending_maximized = false;
+            let had_non_normal_sizing = !removed.tile.window().pending_sizing_mode().is_normal();
 
             let stored_or_default = self.floating.stored_or_default_tile_pos(&removed.tile);
+            let mut requested_default_size = false;
             if stored_or_default.is_none() {
                 removed.tile.floating_pos = None;
-                self.assign_default_floating_size_if_missing(&mut removed.tile, true);
+                requested_default_size = self
+                    .assign_default_floating_size_if_missing(&mut removed.tile, true)
+                    .is_some();
+            }
+
+            if had_non_normal_sizing && !requested_default_size {
+                self.normalize_tile_for_floating(&mut removed.tile, true);
             }
 
             self.floating
