@@ -12,4 +12,4 @@ size: 1280 × 720, bounds: 1280 × 720, states: [Fullscreen, Activated]
 size: 1272 × 712, bounds: 1280 × 720, states: [Activated]
 
 unfullscreen configure:
-size: 1240 × 680, bounds: 1240 × 680, states: [Activated]
+size: 1256 × 696, bounds: 1256 × 696, states: [Activated]
