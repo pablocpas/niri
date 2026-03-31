@@ -1029,6 +1029,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         tile: &mut Tile<W>,
     ) -> (W::Id, Option<Size<f64, Logical>>) {
         tile.update_config(self.view_size, self.scale, self.options.clone());
+        tile.pending_maximized = false;
 
         let win_id = tile.window().id().clone();
 
