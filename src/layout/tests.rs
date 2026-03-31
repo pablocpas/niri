@@ -8495,6 +8495,30 @@ fn tiling_maximized_window_floated_clears_maximized_state() {
 }
 
 #[test]
+fn floating_interactive_resize_then_unfloat_clears_resize_state() {
+    let ops = [
+        Op::AddWindow {
+            params: TestWindowParams {
+                id: 5,
+                is_floating: true,
+                ..TestWindowParams::new(5)
+            },
+        },
+        Op::AddOutput(1),
+        Op::InteractiveResizeBegin {
+            window: 5,
+            edges: ResizeEdge::RIGHT,
+        },
+        Op::ToggleWindowFloating { id: None },
+    ];
+
+    let layout = check_ops(ops);
+    let workspace = layout.active_workspace().unwrap();
+
+    assert!(!workspace.is_floating(&5));
+}
+
+#[test]
 fn floating_set_fullscreen_roundtrip_restores_floating() {
     let ops = [
         Op::AddOutput(1),

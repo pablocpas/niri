@@ -1331,6 +1331,13 @@ impl<W: LayoutElement> FloatingSpace<W> {
         }
 
         let idx = self.idx_of(id)?;
+
+        if let Some(resize) = &self.interactive_resize {
+            if self.idx_of(&resize.window) == Some(idx) {
+                self.interactive_resize = None;
+            }
+        }
+
         let mut container = self.containers.remove(idx);
         let rect = Rectangle::new(container.data.logical_pos, container.data.size);
         let origin = container.origin.take();
