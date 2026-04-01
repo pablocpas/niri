@@ -4610,7 +4610,9 @@ impl<W: LayoutElement> Layout<W> {
                 return;
             }
 
-            let source_monitor_idx = self.find_workspace_location_by_id(ws_id).map(|(idx, _)| idx);
+            let source_monitor_idx = self
+                .find_workspace_location_by_id(ws_id)
+                .map(|(idx, _)| idx);
 
             let tile = {
                 self.workspaces_mut()
