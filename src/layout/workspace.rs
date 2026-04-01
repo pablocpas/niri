@@ -24,7 +24,9 @@ use super::floating::{
 };
 use super::shadow::Shadow;
 use super::tile::{Tile, TileRenderSnapshot};
-use super::tiling::{Column, ColumnWidth, ScrollDirection, TilingSpace, TilingSpaceRenderElement};
+use super::tiling::{
+    Column, ColumnWidth, RootTilingSubtree, ScrollDirection, TilingSpace, TilingSpaceRenderElement,
+};
 use super::{
     ActivateWindow, HitType, InsertPosition, InteractiveResizeData, LayoutElement, Options,
     RemovedTile, ResizeHit, SizeFrac,
@@ -1358,17 +1360,22 @@ impl<W: LayoutElement> Workspace<W> {
         inserted
     }
 
-    pub fn add_column(&mut self, column: Column<W>, activate: bool) {
-        for tile in column.tiles() {
+    pub fn add_root_tiling_subtree(&mut self, subtree: RootTilingSubtree<W>, activate: bool) {
+        for tile in subtree.tiles() {
             self.enter_output_for_window(tile.window());
         }
 
-        self.tiling.add_column(None, column, activate, None);
+        self.tiling
+            .add_root_tiling_subtree(None, subtree, activate, None);
 
         if activate {
             self.floating_is_active = FloatingActive::No;
             self.sync_tiling_focus_context_from_tiling();
         }
+    }
+
+    pub fn add_column(&mut self, column: Column<W>, activate: bool) {
+        self.add_root_tiling_subtree(column.into(), activate);
     }
 
     fn update_focus_floating_tiling_after_removing(&mut self, removed_from_floating: bool) {
@@ -1429,23 +1436,27 @@ impl<W: LayoutElement> Workspace<W> {
         Some(removed)
     }
 
-    pub fn remove_active_column(&mut self) -> Option<Column<W>> {
+    pub fn remove_active_root_tiling_subtree(&mut self) -> Option<RootTilingSubtree<W>> {
         let from_floating = self.floating_is_active.get();
         if from_floating {
             return None;
         }
 
-        let column = self.tiling.remove_active_column()?;
+        let subtree = self.tiling.remove_active_root_tiling_subtree()?;
 
         if let Some(output) = &self.output {
-            for tile in column.tiles() {
+            for tile in subtree.tiles() {
                 tile.window().output_leave(output);
             }
         }
 
         self.update_focus_floating_tiling_after_removing(from_floating);
 
-        Some(column)
+        Some(subtree)
+    }
+
+    pub fn remove_active_column(&mut self) -> Option<Column<W>> {
+        self.remove_active_root_tiling_subtree().map(Into::into)
     }
 
     pub fn resolve_default_width(

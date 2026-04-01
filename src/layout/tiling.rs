@@ -148,13 +148,19 @@ niri_render_elements! {
     }
 }
 
-/// Container wrapper representing a top-level column in the i3-style tree.
+/// Detached top-level tiling subtree.
 ///
-/// This holds a detached subtree so structure survives moving across workspaces.
+/// This is the internal unit moved across workspaces and monitors in the i3-style tree.
 #[derive(Debug)]
-pub struct Column<W: LayoutElement> {
+pub struct RootTilingSubtree<W: LayoutElement> {
     /// Detached subtree that preserves container structure.
     subtree: DetachedNode<W>,
+}
+
+/// Legacy wrapper preserving the old niri-inspired "column" vocabulary at public seams.
+#[derive(Debug)]
+pub struct Column<W: LayoutElement> {
+    subtree: RootTilingSubtree<W>,
 }
 
 /// Column width specification for tiling layout
@@ -2735,26 +2741,49 @@ impl<W: LayoutElement> TilingSpace<W> {
         &self,
     ) -> impl Iterator<Item = (&Tile<W>, tiri_ipc::WindowLayout)> + '_ {
         let scale = Scale::from(self.scale);
+        let legacy_positions = self.legacy_tiling_positions();
 
-        self.tree
-            .leaf_layouts()
-            .iter()
-            .enumerate()
-            .filter_map(move |(idx, info)| {
-                let tile = self.tree.tile_at_path(&info.path)?;
-                let mut layout = tile.ipc_layout_template();
-                let tile_size = tile.tile_size();
-                layout.tile_size = (tile_size.w, tile_size.h);
-                let window_size = tile.window_size().to_i32_round();
-                layout.window_size = (window_size.w, window_size.h);
-                let mut pos = info.rect.loc + tile.render_offset();
-                pos = pos.to_physical_precise_round(scale).to_logical(scale);
-                layout.tile_pos_in_workspace_view = Some((pos.x, pos.y));
-                let window_offset = tile.window_loc();
-                layout.window_offset_in_tile = (window_offset.x, window_offset.y);
-                layout.pos_in_tiling_layout = Some((idx + 1, 1));
-                Some((tile, layout))
-            })
+        self.tree.leaf_layouts().iter().filter_map(move |info| {
+            let tile = self.tree.tile_at_path(&info.path)?;
+            let mut layout = tile.ipc_layout_template();
+            let tile_size = tile.tile_size();
+            layout.tile_size = (tile_size.w, tile_size.h);
+            let window_size = tile.window_size().to_i32_round();
+            layout.window_size = (window_size.w, window_size.h);
+            let mut pos = info.rect.loc + tile.render_offset();
+            pos = pos.to_physical_precise_round(scale).to_logical(scale);
+            layout.tile_pos_in_workspace_view = Some((pos.x, pos.y));
+            let window_offset = tile.window_loc();
+            layout.window_offset_in_tile = (window_offset.x, window_offset.y);
+            layout.pos_in_tiling_layout = legacy_positions.get(&info.path).copied();
+            Some((tile, layout))
+        })
+    }
+
+    fn legacy_tiling_positions(&self) -> HashMap<Vec<usize>, (usize, usize)> {
+        let mut positions = HashMap::new();
+
+        if self.tree.root_children_len() == 0 {
+            return positions;
+        }
+
+        if self.tree.root_container().is_none() {
+            positions.insert(Vec::new(), (1, 1));
+            return positions;
+        }
+
+        for root_idx in 0..self.tree.root_children_len() {
+            for (leaf_idx, path) in self
+                .tree
+                .leaf_paths_under(&[root_idx])
+                .into_iter()
+                .enumerate()
+            {
+                positions.insert(path, (root_idx + 1, leaf_idx + 1));
+            }
+        }
+
+        positions
     }
 
     pub fn are_transitions_ongoing(&self) -> bool {
@@ -2974,18 +3003,28 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.focused_tile_mut()
     }
 
-    pub fn add_column(
+    pub fn add_root_tiling_subtree(
         &mut self,
-        _col_idx: Option<usize>,
-        column: Column<W>,
+        root_idx: Option<usize>,
+        subtree: RootTilingSubtree<W>,
         activate: bool,
         _height: Option<WindowHeight>,
     ) {
-        let idx = _col_idx.unwrap_or_else(|| self.tree.root_children_len());
-        let subtree = column.into_subtree();
-        self.tree.insert_subtree_at_root(idx, subtree, activate);
+        let idx = root_idx.unwrap_or_else(|| self.tree.root_children_len());
+        self.tree
+            .insert_subtree_at_root(idx, subtree.into_subtree(), activate);
         self.sync_fullscreen_window();
         self.tree.layout();
+    }
+
+    pub fn add_column(
+        &mut self,
+        col_idx: Option<usize>,
+        column: Column<W>,
+        activate: bool,
+        height: Option<WindowHeight>,
+    ) {
+        self.add_root_tiling_subtree(col_idx, column.into(), activate, height);
     }
     pub fn remove_tile(&mut self, window: &W::Id, transaction: Transaction) -> RemovedTile<W> {
         self.tree.set_pending_transaction(transaction.clone());
@@ -3021,10 +3060,10 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
         Some(removed)
     }
-    pub fn remove_active_column(&mut self) -> Option<Column<W>> {
+    pub fn remove_active_root_tiling_subtree(&mut self) -> Option<RootTilingSubtree<W>> {
         let idx = self.tree.focused_root_index()?;
         let subtree = self.tree.take_root_child_subtree(idx)?;
-        let column = Column::from_subtree(subtree);
+        let subtree = RootTilingSubtree::from_subtree(subtree);
 
         if let Some(full_id) = self.fullscreen_window.clone() {
             if self.tree.find_window(&full_id).is_none() {
@@ -3033,7 +3072,11 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
 
         self.tree.layout();
-        Some(column)
+        Some(subtree)
+    }
+
+    pub fn remove_active_column(&mut self) -> Option<Column<W>> {
+        self.remove_active_root_tiling_subtree().map(Into::into)
     }
 
     pub fn new_window_size(
@@ -3730,7 +3773,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 }
 
-impl<W: LayoutElement> Column<W> {
+impl<W: LayoutElement> RootTilingSubtree<W> {
     pub fn new(tile: Tile<W>) -> Self {
         Self {
             subtree: DetachedNode::Leaf(tile),
@@ -3778,6 +3821,48 @@ impl<W: LayoutElement> Column<W> {
 
     pub fn into_tiles(self) -> Vec<Tile<W>> {
         self.subtree.into_tiles()
+    }
+}
+
+impl<W: LayoutElement> Column<W> {
+    pub fn new(tile: Tile<W>) -> Self {
+        RootTilingSubtree::new(tile).into()
+    }
+
+    pub fn from_tiles(tiles: Vec<Tile<W>>) -> Self {
+        RootTilingSubtree::from_tiles(tiles).into()
+    }
+
+    pub fn tiles(&self) -> Vec<&Tile<W>> {
+        self.subtree.tiles()
+    }
+
+    pub fn contains(&self, window: &W) -> bool {
+        self.subtree.contains(window)
+    }
+
+    pub fn from_subtree(subtree: DetachedNode<W>) -> Self {
+        RootTilingSubtree::from_subtree(subtree).into()
+    }
+
+    pub fn into_subtree(self) -> DetachedNode<W> {
+        self.subtree.into_subtree()
+    }
+
+    pub fn into_tiles(self) -> Vec<Tile<W>> {
+        self.subtree.into_tiles()
+    }
+}
+
+impl<W: LayoutElement> From<Column<W>> for RootTilingSubtree<W> {
+    fn from(value: Column<W>) -> Self {
+        value.subtree
+    }
+}
+
+impl<W: LayoutElement> From<RootTilingSubtree<W>> for Column<W> {
+    fn from(value: RootTilingSubtree<W>) -> Self {
+        Self { subtree: value }
     }
 }
 

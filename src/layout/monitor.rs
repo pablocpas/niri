@@ -14,7 +14,7 @@ use super::container::Direction;
 use super::floating::{FloatingResizeResult, FloatingSpace};
 use super::insert_hint_element::{InsertHintElement, InsertHintRenderElement};
 use super::tile::Tile;
-use super::tiling::{Column, ColumnWidth};
+use super::tiling::{Column, ColumnWidth, RootTilingSubtree};
 use super::workspace::{
     compute_working_area, OutputId, Workspace, WorkspaceAddWindowTarget, WorkspaceId,
     WorkspaceRenderElement,
@@ -902,10 +902,15 @@ impl<W: LayoutElement> Monitor<W> {
         );
     }
 
-    pub fn add_column(&mut self, mut workspace_idx: usize, column: Column<W>, activate: bool) {
+    pub fn add_root_tiling_subtree(
+        &mut self,
+        mut workspace_idx: usize,
+        subtree: RootTilingSubtree<W>,
+        activate: bool,
+    ) {
         let workspace = &mut self.workspaces[workspace_idx];
 
-        workspace.add_column(column, activate);
+        workspace.add_root_tiling_subtree(subtree, activate);
 
         // After adding a new window, workspace becomes this output's own.
         if workspace.name().is_none() {
@@ -923,6 +928,10 @@ impl<W: LayoutElement> Monitor<W> {
         if activate {
             self.activate_workspace(workspace_idx);
         }
+    }
+
+    pub fn add_column(&mut self, workspace_idx: usize, column: Column<W>, activate: bool) {
+        self.add_root_tiling_subtree(workspace_idx, column.into(), activate);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1428,11 +1437,11 @@ impl<W: LayoutElement> Monitor<W> {
             return;
         }
 
-        let Some(column) = workspace.remove_active_column() else {
+        let Some(subtree) = workspace.remove_active_root_tiling_subtree() else {
             return;
         };
 
-        self.add_column(new_idx, column, activate);
+        self.add_root_tiling_subtree(new_idx, subtree, activate);
     }
 
     pub fn move_column_to_workspace_down(&mut self, activate: bool) {
@@ -1449,11 +1458,11 @@ impl<W: LayoutElement> Monitor<W> {
             return;
         }
 
-        let Some(column) = workspace.remove_active_column() else {
+        let Some(subtree) = workspace.remove_active_root_tiling_subtree() else {
             return;
         };
 
-        self.add_column(new_idx, column, activate);
+        self.add_root_tiling_subtree(new_idx, subtree, activate);
     }
 
     pub fn move_column_to_workspace(&mut self, idx: usize, activate: bool) {
@@ -1475,11 +1484,11 @@ impl<W: LayoutElement> Monitor<W> {
             return;
         }
 
-        let Some(column) = workspace.remove_active_column() else {
+        let Some(subtree) = workspace.remove_active_root_tiling_subtree() else {
             return;
         };
 
-        self.add_column(new_idx, column, activate);
+        self.add_root_tiling_subtree(new_idx, subtree, activate);
     }
 
     pub fn switch_workspace_up(&mut self) {

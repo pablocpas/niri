@@ -45,7 +45,7 @@ use smithay::output::{self, Output};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size, Transform};
 use tile::{Tile, TileRenderElement};
-use tiling::{Column, ColumnWidth};
+use tiling::{Column, ColumnWidth, RootTilingSubtree};
 use tiri_config::utils::MergeWith as _;
 use tiri_config::{
     Config, CornerRadius, LayoutPart, PresetSize, Workspace as WorkspaceConfig, WorkspaceReference,
@@ -427,9 +427,9 @@ struct InteractiveMoveData<W: LayoutElement> {
     pub(self) output: Output,
     /// Current pointer position within output.
     pub(self) pointer_pos_within_output: Point<f64, Logical>,
-    /// Window column width.
+    /// Width of the root tiling subtree the window came from.
     pub(self) width: ColumnWidth,
-    /// Whether the window column was full-width.
+    /// Whether that root tiling subtree occupied the full available width.
     pub(self) is_full_width: bool,
     /// Whether the window targets the floating layout.
     pub(self) is_floating: bool,
@@ -528,9 +528,9 @@ pub enum MarkMode {
 /// Tile that was just removed from the layout.
 pub struct RemovedTile<W: LayoutElement> {
     tile: Tile<W>,
-    /// Width of the column the tile was in.
+    /// Width of the root tiling subtree the tile was in.
     width: ColumnWidth,
-    /// Whether the column the tile was in was full-width.
+    /// Whether that root tiling subtree was full-width.
     is_full_width: bool,
     /// Whether the tile was floating.
     is_floating: bool,
@@ -961,11 +961,11 @@ impl<W: LayoutElement> Layout<W> {
         self.seat_focus_after_mutation();
     }
 
-    pub fn add_column_by_idx(
+    pub fn add_root_tiling_subtree_by_idx(
         &mut self,
         monitor_idx: usize,
         workspace_idx: usize,
-        column: Column<W>,
+        subtree: RootTilingSubtree<W>,
         activate: bool,
     ) {
         let MonitorSet::Normal {
@@ -977,11 +977,21 @@ impl<W: LayoutElement> Layout<W> {
             panic!()
         };
 
-        monitors[monitor_idx].add_column(workspace_idx, column, activate);
+        monitors[monitor_idx].add_root_tiling_subtree(workspace_idx, subtree, activate);
 
         if activate {
             *active_monitor_idx = monitor_idx;
         }
+    }
+
+    pub fn add_column_by_idx(
+        &mut self,
+        monitor_idx: usize,
+        workspace_idx: usize,
+        column: Column<W>,
+        activate: bool,
+    ) {
+        self.add_root_tiling_subtree_by_idx(monitor_idx, workspace_idx, column.into(), activate);
     }
 
     /// Adds a new window to the layout.
@@ -4996,14 +5006,14 @@ impl<W: LayoutElement> Layout<W> {
                 return;
             }
 
-            let Some(column) = ws.remove_active_column() else {
+            let Some(subtree) = ws.remove_active_root_tiling_subtree() else {
                 return;
             };
 
             let workspace_idx = target_ws_idx
                 .unwrap_or(monitors[new_idx].active_workspace_idx)
                 .min(monitors[new_idx].workspaces.len() - 1);
-            self.add_column_by_idx(new_idx, workspace_idx, column, activate);
+            self.add_root_tiling_subtree_by_idx(new_idx, workspace_idx, subtree, activate);
         }
         self.seat_focus_after_mutation();
     }

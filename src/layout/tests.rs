@@ -2020,11 +2020,61 @@ fn auto_insertion_after_split_preserves_existing_columns() {
         .pos_in_tiling_layout
         .expect("window 3 should be tiled");
 
-    // Existing windows should stay in distinct columns after the split operation.
+    // Existing windows should stay in distinct root children after the split operation.
     assert_ne!(pos1.0, pos2.0);
-    // Auto-inserted window should not replace existing placements.
-    assert_ne!(pos3.0, pos1.0);
-    assert_ne!(pos3.0, pos2.0);
+    // Auto-inserted window should preserve existing placements rather than collapsing indices.
+    assert_ne!(pos3, pos1);
+    assert_ne!(pos3, pos2);
+}
+
+#[test]
+fn ipc_layout_uses_root_child_and_leaf_indices_for_single_window() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+    ]);
+
+    assert_eq!(window_layout(&layout, 1).pos_in_tiling_layout, Some((1, 1)));
+}
+
+#[test]
+fn ipc_layout_uses_leaf_index_within_root_child() {
+    let layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::Communicate(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::Communicate(1),
+        Op::Communicate(2),
+        Op::SplitVertical,
+        Op::FocusChild,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::Communicate(2),
+        Op::Communicate(3),
+    ]);
+
+    let mut positions = vec![
+        window_layout(&layout, 1)
+            .pos_in_tiling_layout
+            .expect("window 1 should be tiled"),
+        window_layout(&layout, 2)
+            .pos_in_tiling_layout
+            .expect("window 2 should be tiled"),
+        window_layout(&layout, 3)
+            .pos_in_tiling_layout
+            .expect("window 3 should be tiled"),
+    ];
+    positions.sort();
+
+    assert_eq!(positions, vec![(1, 1), (2, 1), (2, 2)]);
 }
 
 #[test]
