@@ -1,6 +1,6 @@
 ### Overview
 
-<sup>Since: 25.05</sup>
+<sup>Upstream niri: 25.05</sup>
 
 The Overview is a zoomed-out view of your workspaces and windows.
 It lets you see what's going on at a glance, navigate, and drag windows around.
@@ -97,7 +97,7 @@ You can also combine this with a transparent background color if you don't like 
 // Make the wallpaper stationary, rather than moving with workspaces.
 layer-rule {
     // This is for swaybg; change for other wallpaper tools.
-    // Find the right namespace by running niri msg layers.
+    // Find the right namespace by running tiri msg layers.
     match namespace="^wallpaper$"
     place-within-backdrop true
 }

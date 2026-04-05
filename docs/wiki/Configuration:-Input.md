@@ -131,7 +131,7 @@ input {
 
 > [!TIP]
 >
-> <sup>Since: 25.02</sup>
+> <sup>Upstream niri: 25.02</sup>
 >
 > Alternatively, you can directly set a path to a .xkb file containing an xkb keymap.
 > This overrides all other xkb settings.
@@ -148,10 +148,10 @@ input {
 
 > [!NOTE]
 >
-> <sup>Since: 25.08</sup>
+> <sup>Upstream niri: 25.08</sup>
 >
-> If the `xkb` section is empty (like it is by default), niri will fetch xkb settings from systemd-localed at `org.freedesktop.locale1` over D-Bus.
-> This way, for example, system installers can dynamically set the niri keyboard layout.
+> If the `xkb` section is empty (like it is by default), tiri will fetch xkb settings from systemd-localed at `org.freedesktop.locale1` over D-Bus.
+> This way, for example, system installers can dynamically set the tiri keyboard layout.
 > You can see this layout in `localectl` and change it with `localectl set-x11-keymap`, for example:
 >
 > ```sh
@@ -174,7 +174,7 @@ input {
 >
 > These settings are picked up by some other programs too, like GDM.
 
-When using multiple layouts, niri can remember the current layout globally (the default) or per-window.
+When using multiple layouts, tiri can remember the current layout globally (the default) or per-window.
 You can control this with the `track-layout` option.
 
 - `global`: layout change is global for all windows.
@@ -204,7 +204,7 @@ input {
 
 #### Num Lock
 
-<sup>Since: 25.05</sup>
+<sup>Upstream niri: 25.05</sup>
 
 Set the `numlock` flag to turn on Num Lock automatically at startup.
 
@@ -235,8 +235,8 @@ A few settings are common between `touchpad`, `mouse`, `trackpoint`, and `trackb
 - `accel-profile`: can be `adaptive` (the default) or `flat` (disables pointer acceleration).
 - `scroll-method`: when to generate scroll events instead of pointer motion events, can be `no-scroll`, `two-finger`, `edge`, or `on-button-down`.
   The default and supported methods vary depending on the device type.
-- `scroll-button`: <sup>Since: 0.1.10</sup> the button code used for the `on-button-down` scroll method. You can find it in `libinput debug-events`.
-- `scroll-button-lock`: <sup>Since: 25.08</sup> when enabled, the button does not need to be held down. Pressing once engages scrolling, pressing a second time disengages it, and double click acts as single click of the the underlying button.
+- `scroll-button`: <sup>Upstream niri: 0.1.10</sup> the button code used for the `on-button-down` scroll method. You can find it in `libinput debug-events`.
+- `scroll-button-lock`: <sup>Upstream niri: 25.08</sup> when enabled, the button does not need to be held down. Pressing once engages scrolling, pressing a second time disengages it, and double click acts as single click of the the underlying button.
 - `left-handed`: if set, changes the device to left-handed mode.
 - `middle-emulation`: emulate a middle mouse click by pressing left and right mouse buttons at once.
 
@@ -245,23 +245,23 @@ Settings specific to `touchpad`s:
 - `tap`: tap-to-click.
 - `dwt`: disable-when-typing.
 - `dwtp`: disable-when-trackpointing.
-- `drag`: <sup>Since: 25.05</sup> can be `true` or `false`, controls if tap-and-drag is enabled.
-- `drag-lock`: <sup>Since: 25.02</sup> if set, lifting the finger off for a short time while dragging will not drop the dragged item. See the [libinput documentation](https://wayland.freedesktop.org/libinput/doc/latest/tapping.html#tap-and-drag).
+- `drag`: <sup>Upstream niri: 25.05</sup> can be `true` or `false`, controls if tap-and-drag is enabled.
+- `drag-lock`: <sup>Upstream niri: 25.02</sup> if set, lifting the finger off for a short time while dragging will not drop the dragged item. See the [libinput documentation](https://wayland.freedesktop.org/libinput/doc/latest/tapping.html#tap-and-drag).
 - `tap-button-map`: can be `left-right-middle` or `left-middle-right`, controls which button corresponds to a two-finger tap and a three-finger tap.
 - `click-method`: can be `button-areas` or `clickfinger`, changes the [click method](https://wayland.freedesktop.org/libinput/doc/latest/clickpad-softbuttons.html).
 - `disabled-on-external-mouse`: do not send events while external pointer device is plugged in.
 
 Settings specific to `touchpad` and `mouse`:
 
-- `scroll-factor`: <sup>Since: 0.1.10</sup> scales the scrolling speed by this value.
+- `scroll-factor`: <sup>Upstream niri: 0.1.10</sup> scales the scrolling speed by this value.
 
-    <sup>Since: 25.08</sup> You can also override horizontal and vertical scroll factor separately like so: `scroll-factor horizontal=2.0 vertical=-1.0`
+    <sup>Upstream niri: 25.08</sup> You can also override horizontal and vertical scroll factor separately like so: `scroll-factor horizontal=2.0 vertical=-1.0`
 
 Settings specific to `tablet` and `touch`:
 
 - `calibration-matrix`: set to six floating point numbers to change the calibration matrix. See the [`LIBINPUT_CALIBRATION_MATRIX` documentation](https://wayland.freedesktop.org/libinput/doc/latest/device-configuration-via-udev.html) for examples.
-    - <sup>Since: 25.02</sup> for `tablet`
-    - <sup>Since: 25.11</sup> for `touch`
+    - <sup>Upstream niri: 25.02</sup> for `tablet`
+    - <sup>Upstream niri: 25.11</sup> for `touch`
 
 Tablets and touchscreens are absolute pointing devices that can be mapped to a specific output like so:
 
@@ -279,7 +279,7 @@ input {
 
 Valid output names are the same as the ones used for output configuration.
 
-<sup>Since: 0.1.7</sup> When a tablet is not mapped to any output, it will map to the union of all connected outputs, without aspect ratio correction.
+<sup>Upstream niri: 0.1.7</sup> When a tablet is not mapped to any output, it will map to the union of all connected outputs, without aspect ratio correction.
 
 ### General Settings
 
@@ -287,7 +287,7 @@ These settings are not specific to a particular input device.
 
 #### `disable-power-key-handling`
 
-By default, niri will take over the power button to make it sleep instead of power off.
+By default, tiri will take over the power button to make it sleep instead of power off.
 Set this if you would like to configure the power button elsewhere (i.e. `logind.conf`).
 
 ```kdl
@@ -311,7 +311,7 @@ input {
 By default, the cursor warps *separately* horizontally and vertically.
 I.e. if moving the mouse only horizontally is enough to put it inside the newly focused window, then the mouse will move only horizontally, and not vertically.
 
-<sup>Since: 25.05</sup> You can customize this with the `mode` property.
+<sup>Upstream niri: 25.05</sup> You can customize this with the `mode` property.
 
 - `mode="center-xy"`: warps by both X and Y coordinates together.
 So if the mouse was anywhere outside the newly focused window, it will warp to the center of the window.
@@ -348,12 +348,12 @@ input {
 
 #### `mod-key`, `mod-key-nested`
 
-<sup>Since: 25.05</sup>
+<sup>Upstream niri: 25.05</sup>
 
 Customize the `Mod` key for [key bindings](./Configuration:-Key-Bindings.md).
 Only valid modifiers are allowed, e.g. `Super`, `Alt`, `Mod3`, `Mod5`, `Ctrl`, `Shift`.
 
-By default, `Mod` is equal to `Super` when running niri on a TTY, and to `Alt` when running niri as a nested winit window.
+By default, `Mod` is equal to `Super` when running tiri on a TTY, and to `Alt` when running tiri as a nested winit window.
 
 > [!NOTE]
 > There are a lot of default bindings with Mod, none of them "make it through" to the underlying window.

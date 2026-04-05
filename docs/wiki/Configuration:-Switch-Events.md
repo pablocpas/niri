@@ -1,6 +1,6 @@
 ### Overview
 
-<sup>Since: 0.1.10</sup>
+<sup>Upstream niri: 0.1.10</sup>
 
 Switch event bindings are declared in the `switch-events {}` section of the config.
 
@@ -25,7 +25,7 @@ Currently, only the [`spawn` action](./Configuration:-Key-Bindings.md#spawn) are
 
 These events correspond to closing and opening of the laptop lid.
 
-Note that niri will already automatically turn the internal laptop monitor on and off in accordance with the laptop lid.
+Note that tiri will already automatically turn the internal laptop monitor on and off in accordance with the laptop lid.
 
 ```kdl
 switch-events {

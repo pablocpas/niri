@@ -1,6 +1,6 @@
 ### Overview
 
-<sup>Since: 25.11</sup>
+<sup>Upstream niri: 25.11</sup>
 
 In this section you can configure the recent windows switcher (Alt-Tab).
 

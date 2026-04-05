@@ -354,7 +354,7 @@ jobs:
         run: uv sync --locked --all-extras --dev
         working-directory: docs/
 
-      - name: Generate niri documentation
+      - name: Generate tiri documentation
         run: uv run mkdocs build
         working-directory: docs/
 

@@ -1,6 +1,6 @@
 ### Overview
 
-<sup>Since: 25.01</sup>
+<sup>Upstream niri: 25.01</sup>
 
 Layer rules let you adjust behavior for individual layer-shell surfaces.
 They have `match` and `exclude` directives that control which layer-shell surfaces the rule should apply to, and a number of properties that you can set.
@@ -53,15 +53,15 @@ layer-rule {
 }
 ```
 
-You can find the namespaces of all open layer-shell surfaces by running `niri msg layers`.
+You can find the namespaces of all open layer-shell surfaces by running `tiri msg layers`.
 
 #### `at-startup`
 
 Can be `true` or `false`.
-Matches during the first 60 seconds after starting niri.
+Matches during the first 60 seconds after starting tiri.
 
 ```kdl
-// Show layer-shell surfaces with 0.5 opacity at niri startup, but not afterwards.
+// Show layer-shell surfaces with 0.5 opacity at tiri startup, but not afterwards.
 layer-rule {
     match at-startup=true
 
@@ -112,7 +112,7 @@ layer-rule {
 
 #### `shadow`
 
-<sup>Since: 25.02</sup>
+<sup>Upstream niri: 25.02</sup>
 
 Override the shadow options for the surface.
 
@@ -122,10 +122,10 @@ Unlike window shadows, layer surface shadows always need to be enabled with a la
 That is, enabling shadows in the layout config section won't automatically enable them for layer surfaces.
 
 > [!NOTE]
-> Layer surfaces have no way to tell niri about their *visual geometry*.
-> For example, if a layer surface includes some invisible margins (like mako), niri has no way of knowing that, and will draw the shadow behind the entire surface, including the invisible margins.
+> Layer surfaces have no way to tell tiri about their *visual geometry*.
+> For example, if a layer surface includes some invisible margins (like mako), tiri has no way of knowing that, and will draw the shadow behind the entire surface, including the invisible margins.
 >
-> So to use niri shadows, you'll need to configure layer-shell clients to remove their own margins or shadows.
+> So to use tiri shadows, you'll need to configure layer-shell clients to remove their own margins or shadows.
 
 ```kdl
 // Add a shadow for fuzzel.
@@ -143,7 +143,7 @@ layer-rule {
 
 #### `geometry-corner-radius`
 
-<sup>Since: 25.02</sup>
+<sup>Upstream niri: 25.02</sup>
 
 Set the corner radius of the surface.
 
@@ -159,7 +159,7 @@ layer-rule {
 
 #### `place-within-backdrop`
 
-<sup>Since: 25.05</sup>
+<sup>Upstream niri: 25.05</sup>
 
 Set to `true` to place the surface into the backdrop visible in the [Overview](./Overview.md) and between workspaces.
 
@@ -177,7 +177,7 @@ layer-rule {
 
 #### `baba-is-float`
 
-<sup>Since: 25.05</sup>
+<sup>Upstream niri: 25.05</sup>
 
 Make your layer surfaces FLOAT up and down.
 

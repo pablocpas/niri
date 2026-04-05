@@ -1,5 +1,5 @@
 <h1 align="center"><img alt="tiri" src="tiri.svg"></h1>
-<p align="center">An i3-like tiling Wayland compositor based on niri.</p>
+<p align="center">An i3-like tiling Wayland compositor built as a fork of niri.</p>
 
 ![tiri with tiling windows](tiri.png)
 
@@ -9,7 +9,7 @@
 
 ### Why tiri?
 
-Coming from GNOME, I tried niri and loved how well it worked - excellent performance, clean architecture, and a minimalist approach. However, the scrollable strips weren't for me: I couldn't remember what windows were where. Tiri keeps all of niri's excellence but uses i3-style tiling with predictable, visible window positions.
+Tiri started from niri's excellent technical foundation: strong performance, clean architecture, and a minimalist approach. The main change is the window management model: instead of scrollable strips, tiri uses i3-style tiling with predictable, visible window positions.
 
 Windows are automatically arranged using a container tree with support for:
 - **Horizontal and Vertical splits**: automatic tiling that divides space between windows
@@ -69,16 +69,15 @@ Have your [waybar]s and [fuzzel]s ready: tiri is not a complete desktop environm
 Here are some points you may have questions about:
 
 - **Multi-monitor**: yes, a core part of the design from the very start. Mixed DPI works.
-- **Fractional scaling**: yes, plus all niri UI stays pixel-perfect.
+- **Fractional scaling**: yes, plus all tiri UI stays pixel-perfect.
 - **NVIDIA**: seems to work fine.
 - **Floating windows**: yes, starting from niri 25.01.
-- **Input devices**: niri supports tablets, touchpads, and touchscreens.
+- **Input devices**: tiri supports tablets, touchpads, and touchscreens.
 You can map the tablet to a specific monitor, or use [OpenTabletDriver].
 We have touchpad gestures, but no touchscreen gestures yet.
 - **Wlr protocols**: yes, we have most of the important ones like layer-shell, gamma-control, screencopy.
 You can check on [wayland.app](https://wayland.app) at the bottom of each protocol's page.
-- **Performance**: while I run niri on beefy machines, I try to stay conscious of performance.
-I've seen someone use it fine on an Eee PC 900 from 2008, of all things.
+- **Performance**: performance remains a priority, and the project keeps the rendering strengths inherited from niri.
 - **Xwayland**: [integrated](https://yalter.github.io/niri/Xwayland.html#using-xwayland-satellite) via xwayland-satellite starting from niri 25.08.
 
 ## Credits and Acknowledgments

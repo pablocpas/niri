@@ -46,7 +46,7 @@ binds {
 
 ### `preview-render`
 
-Make niri render the monitors the same way as for a screencast or a screen capture.
+Make tiri render the monitors the same way as for a screencast or a screen capture.
 
 Useful for previewing the `block-out-from` window rule.
 
@@ -99,7 +99,7 @@ Restricts direct scanout to the primary plane to when the window buffer exactly 
 
 This flag may prevent unexpected bandwidth changes when going between composition and scanout.
 The plan is to make it default in the future, when we implement a way to tell the clients the composition swapchain format.
-As is, it may prevent some clients (mpv on my machine) from scanning out to the primary plane.
+As is, it may prevent some clients (e.g. mpv) from scanning out to the primary plane.
 
 ```kdl
 debug {
@@ -109,10 +109,10 @@ debug {
 
 ### `force-disable-connectors-on-resume`
 
-Force-disables all outputs upon resuming niri (TTY switch or waking up from suspend).
+Force-disables all outputs upon resuming tiri (TTY switch or waking up from suspend).
 This causes a modeset/screen blank on all outputs.
 
-If niri rendering is corrupted, or monitors don't light up after a TTY switch, you can try this flag.
+If tiri rendering is corrupted, or monitors don't light up after a TTY switch, you can try this flag.
 
 ```kdl
 debug {
@@ -122,9 +122,9 @@ debug {
 
 ### `render-drm-device`
 
-Override the DRM device that niri will use for all rendering.
+Override the DRM device that tiri will use for all rendering.
 
-You can set this to make niri use a different primary GPU than the default one.
+You can set this to make tiri use a different primary GPU than the default one.
 
 ```kdl
 debug {
@@ -134,10 +134,10 @@ debug {
 
 ### `ignore-drm-device`
 
-<sup>Since: 25.11</sup>
+<sup>Upstream niri: 25.11</sup>
 
-List DRM devices that niri will ignore.
-Useful for GPU passthrough when you don't want niri to open a certain device.
+List DRM devices that tiri will ignore.
+Useful for GPU passthrough when you don't want tiri to open a certain device.
 
 ```kdl
 debug {
@@ -148,7 +148,7 @@ debug {
 
 ### `force-pipewire-invalid-modifier`
 
-<sup>Since: 25.01</sup>
+<sup>Upstream niri: 25.01</sup>
 
 Forces PipeWire screencasting to use the invalid modifier, even when DRM offers more modifiers.
 
@@ -162,11 +162,11 @@ debug {
 
 ### `dbus-interfaces-in-non-session-instances`
 
-Make niri create its D-Bus interfaces even if it's not running as a `--session`.
+Make tiri create its D-Bus interfaces even if it's not running as a `--session`.
 
 Useful for testing screencasting changes without having to relogin.
 
-The main niri instance will *not* currently take back the interfaces when you close the test instance, so you will need to relogin in the end to make screencasting work again.
+The main tiri instance will *not* currently take back the interfaces when you close the test instance, so you will need to relogin in the end to make screencasting work again.
 
 ```kdl
 debug {
@@ -190,7 +190,7 @@ debug {
 
 Emulate zero (unknown) presentation time returned from DRM.
 
-This is a thing on NVIDIA proprietary drivers, so this flag can be used to test that niri doesn't break too hard on those systems.
+This is a thing on NVIDIA proprietary drivers, so this flag can be used to test that tiri doesn't break too hard on those systems.
 
 ```kdl
 debug {
@@ -200,7 +200,7 @@ debug {
 
 ### `disable-resize-throttling`
 
-<sup>Since: 0.1.9</sup>
+<sup>Upstream niri: 0.1.9</sup>
 
 Disable throttling resize events sent to windows.
 
@@ -217,14 +217,14 @@ debug {
 
 ### `disable-transactions`
 
-<sup>Since: 0.1.9</sup>
+<sup>Upstream niri: 0.1.9</sup>
 
 Disable transactions (resize and close).
 
 By default, windows which must resize together, do resize together.
 For example, all windows in a column must resize at the same time to maintain the combined column height equal to the screen height, and to maintain the same window width.
 
-Transactions make niri wait until all windows finish resizing before showing them all on screen in one, synchronized frame.
+Transactions make tiri wait until all windows finish resizing before showing them all on screen in one, synchronized frame.
 For them to work properly, resize throttling shouldn't be disabled (with the previous debug flag).
 
 ```kdl
@@ -235,9 +235,9 @@ debug {
 
 ### `keep-laptop-panel-on-when-lid-is-closed`
 
-<sup>Since: 0.1.10</sup>
+<sup>Upstream niri: 0.1.10</sup>
 
-By default, niri will disable the internal laptop monitor when the laptop lid is closed.
+By default, tiri will disable the internal laptop monitor when the laptop lid is closed.
 This flag turns off this behavior and will leave the internal laptop monitor on.
 
 ```kdl
@@ -248,9 +248,9 @@ debug {
 
 ### `disable-monitor-names`
 
-<sup>Since: 0.1.10</sup>
+<sup>Upstream niri: 0.1.10</sup>
 
-Disables the make/model/serial monitor names, as if niri fails to read them from the EDID.
+Disables the make/model/serial monitor names, as if tiri fails to read them from the EDID.
 
 Use this flag to work around a crash present in 0.1.9 and 0.1.10 when connecting two monitors with matching make/model/serial.
 
@@ -262,7 +262,7 @@ debug {
 
 ### `strict-new-window-focus-policy`
 
-<sup>Since: 25.01</sup>
+<sup>Upstream niri: 25.01</sup>
 
 Disables heuristic automatic focusing for new windows.
 Only windows that activate themselves with a valid xdg-activation token will be focused.
@@ -275,13 +275,13 @@ debug {
 
 ### `honor-xdg-activation-with-invalid-serial`
 
-<sup>Since: 25.05</sup>
+<sup>Upstream niri: 25.05</sup>
 
 Widely-used clients such as Discord and Telegram make fresh xdg-activation tokens upon clicking on their tray icon or on their notification.
 Most of the time, these fresh tokens will have invalid serials, because the app needs to be focused to get a valid serial, and if the user clicks on a tray icon or a notification, it is usually because the app *isn't* focused, and the user wants to focus it.
 
-By default, niri ignores xdg-activation tokens with invalid serials, to prevent windows from randomly stealing focus.
-This debug flag makes niri honor such tokens, making the aforementioned widely-used apps get focus when clicking on their tray icon or notification.
+By default, tiri ignores xdg-activation tokens with invalid serials, to prevent windows from randomly stealing focus.
+This debug flag makes tiri honor such tokens, making the aforementioned widely-used apps get focus when clicking on their tray icon or notification.
 
 Amusingly, clicking on a notification sends the app a perfectly valid activation token from the notification daemon, but these apps seem to simply ignore it.
 Maybe in the future these apps/toolkits (Electron, Qt) are fixed, making this debug flag unnecessary.
@@ -294,7 +294,7 @@ debug {
 
 ### `skip-cursor-only-updates-during-vrr`
 
-<sup>Since: 25.08</sup>
+<sup>Upstream niri: 25.08</sup>
 
 Skips redrawing the screen from cursor input while variable refresh rate is active.
 
@@ -310,13 +310,13 @@ debug {
 
 ### `deactivate-unfocused-windows`
 
-<sup>Since: 25.08</sup>
+<sup>Upstream niri: 25.08</sup>
 
 Some clients (notably, Chromium- and Electron-based, like Teams or Slack) erroneously use the Activated xdg window state instead of keyboard focus for things like deciding whether to send notifications for new messages, or for picking where to show an IME popup.
-Niri keeps the Activated state on unfocused workspaces and invisible tabbed windows (to reduce unwanted animations), surfacing bugs in these applications.
+Tiri keeps the Activated state on unfocused workspaces and invisible tabbed windows (to reduce unwanted animations), surfacing bugs in these applications.
 
 Set this debug flag to work around these problems.
-It will cause niri to drop the Activated state for all unfocused windows.
+It will cause tiri to drop the Activated state for all unfocused windows.
 
 ```kdl
 debug {
@@ -328,7 +328,7 @@ debug {
 
 Disables frame scheduling, a latency optimization that only applies on the TTY backend with fixed-refresh (non-VRR) outputs.
 
-When frame scheduling is enabled (the default), niri delays rendering until just before the estimated vblank deadline instead of rendering immediately when damage arrives.
+When frame scheduling is enabled (the default), tiri delays rendering until just before the estimated vblank deadline instead of rendering immediately when damage arrives.
 This reduces the time the rendered frame sits in the KMS buffer waiting for vblank, lowering input-to-presentation latency.
 The deadline is computed from an adaptive estimator of render+commit time that adjusts automatically based on measured GPU render times and detected frame drops.
 
@@ -361,18 +361,18 @@ debug {
 
 ### `keep-max-bpc-unchanged`
 
-<sup>Since: 25.08</sup>
+<sup>Upstream niri: 25.08</sup>
 
-When connecting monitors, niri sets their max bpc to 8 in order to reduce display bandwidth and to potentially allow more monitors to be connected at once.
+When connecting monitors, tiri sets their max bpc to 8 in order to reduce display bandwidth and to potentially allow more monitors to be connected at once.
 Restricting bpc to 8 is not a problem since we don't support HDR or color management yet and can't really make use of higher bpc.
 
 Apparently, setting max bpc to 8 breaks some displays driven by AMDGPU.
-If this happens to you, set this debug flag, which will prevent niri from changing max bpc.
+If this happens to you, set this debug flag, which will prevent tiri from changing max bpc.
 AMDGPU bug report: https://gitlab.freedesktop.org/drm/amd/-/issues/4487.
 
-<sup>Since: 25.11</sup>
-This setting is deprecated and does nothing: niri no longer sets max bpc.
-The old niri behavior with this setting enabled matches the new behavior.
+<sup>Upstream niri: 25.11</sup>
+This setting is deprecated and does nothing: tiri no longer sets max bpc.
+The old tiri behavior with this setting enabled matches the new behavior.
 
 ```kdl
 debug {
@@ -398,7 +398,7 @@ binds {
 
 #### `debug-toggle-opaque-regions`
 
-<sup>Since: 0.1.6</sup>
+<sup>Upstream niri: 0.1.6</sup>
 
 Tints regions marked as opaque with blue and the rest of the render elements with red.
 
@@ -412,7 +412,7 @@ binds {
 
 #### `debug-toggle-damage`
 
-<sup>Since: 0.1.6</sup>
+<sup>Upstream niri: 0.1.6</sup>
 
 Tints damaged regions with red.
 

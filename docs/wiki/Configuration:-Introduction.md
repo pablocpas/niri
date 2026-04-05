@@ -137,16 +137,16 @@ A notable exception is [`binds {}`](./Configuration:-Key-Bindings.md): they do n
 
 ### Breaking Change Policy
 
-As a rule, niri updates should not break existing config files.
-(For example, the default config from niri v0.1.0 still parses fine on v25.02 as I'm writing this.)
+As a rule, tiri updates should not break existing config files.
+(For example, the default config from niri v0.1.0 still parses fine on later releases.)
 
 Exceptions can be made for parsing bugs.
-For example, niri used to accept multiple binds to the same key, but this was not intended and did not do anything (the first bind was always used).
-A patch release changed niri from silently accepting this to causing a parsing failure.
-This is not a blanket rule, I will consider the potential impact of every breaking change like this before deciding to carry on with it.
+For example, niri (upstream) used to accept multiple binds to the same key, but this was not intended and did not do anything (the first bind was always used).
+A patch release changed this from silently accepting to causing a parsing failure.
+This is not a blanket rule; the potential impact of every breaking change like this is considered before deciding to carry on with it.
 
-Keep in mind that the breaking change policy applies only to niri releases.
+Keep in mind that the breaking change policy applies only to releases.
 Commits between releases can and do occasionally break the config as new features are ironed out.
-However, I do try to limit these, since several people are running git builds.
+However, these are kept to a minimum, since several people are running git builds.
 
 [KDL]: https://kdl.dev/

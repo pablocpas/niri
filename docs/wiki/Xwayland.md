@@ -1,6 +1,6 @@
 ## Using xwayland-satellite
 
-<sup>Since: 25.08</sup> Tiri integrates with [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) out of the box.
+<sup>Upstream niri: 25.08</sup> Tiri integrates with [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) out of the box.
 Ensure xwayland-satellite >= 0.7 is installed and available in `$PATH`.
 With no further configuration, tiri will create X11 sockets on disk, export `$DISPLAY`, and spawn xwayland-satellite on-demand when an X11 client connects.
 If xwayland-satellite dies, tiri will automatically restart it.
@@ -24,7 +24,7 @@ $ echo $DISPLAY
 
 ![xwayland-satellite running Steam and Half-Life.](https://github.com/user-attachments/assets/57db8f96-40d4-4621-a389-373c169349a4)
 
-We're using xwayland-satellite rather than Xwayland directly because [X11 is very cursed](./FAQ.md#why-doesnt-niri-integrate-xwayland-like-other-compositors).
+We're using xwayland-satellite rather than Xwayland directly because [X11 is very cursed](./FAQ.md#why-doesnt-tiri-integrate-xwayland-like-other-compositors).
 xwayland-satellite takes on the bulk of the work dealing with the X11 peculiarities from us, giving tiri normal Wayland windows to manage.
 
 xwayland-satellite works well with most applications: Steam, games, Discord, even more exotic things like Ardour with wine Windows VST plugins.

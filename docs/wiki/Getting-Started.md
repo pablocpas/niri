@@ -54,19 +54,19 @@ Finally, the [Xwayland](./Xwayland.md) page explains how to run X11 applications
 
 ### Desktop environments
 
-Some desktop environments and shells work with niri and can give a more out-of-the-box experience:
+Some desktop environments and shells work with tiri/niri and can give a more out-of-the-box experience:
 
-- [LXQt](https://lxqt-project.org/) officially supports niri, see [their wiki](https://github.com/lxqt/lxqt/wiki/ConfigWaylandSettings#general) for details on setting it up.
-- Many [XFCE](https://www.xfce.org/) components work on Wayland, including niri. See [their wiki](https://wiki.xfce.org/releng/wayland_roadmap#component_specific_status) for details.
+- [LXQt](https://lxqt-project.org/) officially supports niri, see [their wiki](https://github.com/lxqt/lxqt/wiki/ConfigWaylandSettings#general) for details on setting it up (may need adaptation for tiri).
+- Many [XFCE](https://www.xfce.org/) components work on Wayland, including niri-based compositors. See [their wiki](https://wiki.xfce.org/releng/wayland_roadmap#component_specific_status) for details.
 - There are complete desktop shells based on Quickshell that support niri, for example [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) and [Noctalia](https://github.com/noctalia-dev/noctalia-shell).
 - You can run a [COSMIC](https://system76.com/cosmic/) session with niri using [cosmic-ext-extra-sessions](https://github.com/Drakulix/cosmic-ext-extra-sessions).
 
 ### NVIDIA
 
 The NVIDIA drivers currently have an issue with high VRAM usage due to a heap reuse quirk.
-You're recommended to apply a manual fix documented [here](./Nvidia.md) if you run niri on an NVIDIA GPU.
+You're recommended to apply a manual fix documented [here](./Nvidia.md) if you run tiri on an NVIDIA GPU.
 
-NVIDIA GPUs can have problems running niri (for example, the screen remains black upon starting from a TTY).
+NVIDIA GPUs can have problems running tiri (for example, the screen remains black upon starting from a TTY).
 Sometimes, the problems can be fixed.
 You can try the following:
 
@@ -75,8 +75,8 @@ You can try the following:
 
 ### Asahi, ARM, and other kmsro devices
 
-On some of these systems, niri fails to correctly detect the primary render device.
-If you're getting a black screen when starting niri on a TTY, you can try to set the device manually.
+On some of these systems, tiri fails to correctly detect the primary render device.
+If you're getting a black screen when starting tiri on a TTY, you can try to set the device manually.
 
 First, find which devices you have:
 
@@ -104,65 +104,92 @@ If you still get a black screen, try using each of the `card` devices.
 
 ### Nix/NixOS
 
-There's a common problem of mesa drivers going out of sync with niri, so make sure your system mesa version matches the niri mesa version.
-When this happens, you usually see a black screen when trying to start niri from a TTY.
+There's a common problem of mesa drivers going out of sync with tiri, so make sure your system mesa version matches the tiri mesa version.
+When this happens, you usually see a black screen when trying to start tiri from a TTY.
 
 Also, on Intel graphics, you may need a workaround described [here](https://wiki.nixos.org/wiki/Intel_Graphics).
 
 ### Virtual Machines
 
-To run niri in a VM, make sure to enable 3D acceleration.
+To run tiri in a VM, make sure to enable 3D acceleration.
 
 ## Main Default Hotkeys
 
 When running on a TTY, the Mod key is <kbd>Super</kbd>.
 When running in a window, the Mod key is <kbd>Alt</kbd>.
 
-The general system is: if a hotkey switches somewhere, then adding <kbd>Ctrl</kbd> will move the focused window or column there.
+The general system is: if a hotkey switches somewhere, then adding <kbd>Ctrl</kbd> will usually move the focused window or top-level tiling subtree there.
 
 | Hotkey | Description |
 | ------ | ----------- |
-| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>/</kbd> | Show a list of important niri hotkeys |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>/</kbd> | Show a list of important hotkeys |
 | <kbd>Mod</kbd><kbd>T</kbd> | Spawn `alacritty` (terminal) |
 | <kbd>Mod</kbd><kbd>D</kbd> | Spawn `fuzzel` (application launcher) |
+| <kbd>Mod</kbd><kbd>O</kbd> | Toggle overview |
 | <kbd>Super</kbd><kbd>Alt</kbd><kbd>L</kbd> | Spawn `swaylock` (screen locker) |
-| <kbd>Mod</kbd><kbd>Q</kbd> | Close the focused window |
-| <kbd>Mod</kbd><kbd>H</kbd> or <kbd>Mod</kbd><kbd>←</kbd> | Focus the column to the left |
-| <kbd>Mod</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>→</kbd> | Focus the column to the right |
-| <kbd>Mod</kbd><kbd>J</kbd> or <kbd>Mod</kbd><kbd>↓</kbd> | Focus the window below in a column |
-| <kbd>Mod</kbd><kbd>K</kbd> or <kbd>Mod</kbd><kbd>↑</kbd> | Focus the window above in a column |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>H</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>←</kbd> | Move the focused column to the left |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>→</kbd> | Move the focused column to the right |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>J</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>↓</kbd> | Move the focused window below in a column |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>K</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>↑</kbd> | Move the focused window above in a column |
-| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>↑</kbd><kbd>→</kbd> | Focus the monitor to the side |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>↑</kbd><kbd>→</kbd> | Move the focused column to the monitor to the side |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>Q</kbd> | Close the focused window |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>-</kbd> | Move the focused window to the scratchpad |
+| <kbd>Mod</kbd><kbd>-</kbd> | Show or hide the scratchpad window |
+| **Navigation** | |
+| <kbd>Mod</kbd><kbd>H</kbd> or <kbd>Mod</kbd><kbd>←</kbd> | Focus the tiling subtree to the left |
+| <kbd>Mod</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>→</kbd> | Focus the tiling subtree to the right |
+| <kbd>Mod</kbd><kbd>J</kbd> or <kbd>Mod</kbd><kbd>↓</kbd> | Focus the window below |
+| <kbd>Mod</kbd><kbd>K</kbd> or <kbd>Mod</kbd><kbd>↑</kbd> | Focus the window above |
+| <kbd>Mod</kbd><kbd>A</kbd> | Focus the parent container |
+| <kbd>Mod</kbd><kbd>Home</kbd> | Focus the first tiling subtree |
+| <kbd>Mod</kbd><kbd>End</kbd> | Focus the last tiling subtree |
+| **Moving windows** | |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>H</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>←</kbd> | Move the focused tiling subtree to the left |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>→</kbd> | Move the focused tiling subtree to the right |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>J</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>↓</kbd> | Move the focused window down |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>K</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>↑</kbd> | Move the focused window up |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>H</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>←</kbd> | Swap the focused window left |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>→</kbd> | Swap the focused window right |
+| **Monitors** | |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>↑</kbd><kbd>→</kbd> | Focus the monitor in that direction |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>↑</kbd><kbd>→</kbd> | Move the focused tiling subtree to the monitor in that direction |
+| **Workspaces** | |
 | <kbd>Mod</kbd><kbd>U</kbd> or <kbd>Mod</kbd><kbd>PageDown</kbd> | Switch to the workspace below |
 | <kbd>Mod</kbd><kbd>I</kbd> or <kbd>Mod</kbd><kbd>PageUp</kbd> | Switch to the workspace above |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>U</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>PageDown</kbd> | Move the focused column to the workspace below |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>I</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>PageUp</kbd> | Move the focused column to the workspace above |
+| <kbd>Mod</kbd><kbd>1</kbd>–<kbd>9</kbd> | Focus workspace by index |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>U</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>PageDown</kbd> | Move the focused tiling subtree to the workspace below |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>I</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>PageUp</kbd> | Move the focused tiling subtree to the workspace above |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>1</kbd>–<kbd>9</kbd> | Move the focused tiling subtree to workspace by index |
 | <kbd>Mod</kbd><kbd>Shift</kbd><kbd>U</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>PageDown</kbd> | Move the focused workspace down |
 | <kbd>Mod</kbd><kbd>Shift</kbd><kbd>I</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>PageUp</kbd> | Move the focused workspace up |
-| <kbd>Mod</kbd><kbd>,</kbd> | Consume the window to the right into the focused column |
-| <kbd>Mod</kbd><kbd>.</kbd> | Expel the bottom window in the focused column into its own column |
+| **i3-style layout** | |
+| <kbd>Mod</kbd><kbd>B</kbd> | Split horizontal |
+| <kbd>Mod</kbd><kbd>V</kbd> | Split vertical |
+| <kbd>Mod</kbd><kbd>W</kbd> | Set layout to tabbed |
+| <kbd>Mod</kbd><kbd>S</kbd> | Set layout to stacked |
+| <kbd>Mod</kbd><kbd>E</kbd> | Toggle split layout (horizontal/vertical) |
+| <kbd>Mod</kbd><kbd>Space</kbd> | Switch focus between the floating and tiling layers |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>Space</kbd> | Toggle the focused window between floating and tiling |
+| **Container operations** | |
+| <kbd>Mod</kbd><kbd>,</kbd> | Consume the window to the right into the focused container |
+| <kbd>Mod</kbd><kbd>.</kbd> | Expel the bottom window from the focused container |
 | <kbd>Mod</kbd><kbd>[</kbd> | Consume or expel the focused window to the left |
 | <kbd>Mod</kbd><kbd>]</kbd> | Consume or expel the focused window to the right |
-| <kbd>Mod</kbd><kbd>R</kbd> | Toggle between preset column widths |
-| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>R</kbd> | Toggle between preset column heights |
-| <kbd>Mod</kbd><kbd>F</kbd> | Maximize column |
-| <kbd>Mod</kbd><kbd>C</kbd> | Center column within view |
-| <kbd>Mod</kbd><kbd>-</kbd> | Decrease column width by 10% |
-| <kbd>Mod</kbd><kbd>=</kbd> | Increase column width by 10% |
-| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>-</kbd> | Decrease window height by 10% |
-| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>=</kbd> | Increase window height by 10% |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>R</kbd> | Reset window height back to automatic |
-| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>F</kbd> | Toggle full-screen on the focused window |
-| <kbd>Mod</kbd><kbd>V</kbd> | Move the focused window between the floating and the tiling layout |
-| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>V</kbd> | Switch focus between the floating and the tiling layout |
+| **Sizing and fullscreen** | |
+| <kbd>Ctrl</kbd><kbd>→</kbd> | Grow width |
+| <kbd>Ctrl</kbd><kbd>←</kbd> | Shrink width |
+| <kbd>Ctrl</kbd><kbd>↓</kbd> | Grow height |
+| <kbd>Ctrl</kbd><kbd>↑</kbd> | Shrink height |
+| <kbd>Mod</kbd><kbd>F</kbd> | Toggle full-screen on the focused window |
+| <kbd>Mod</kbd><kbd>M</kbd> | Toggle `maximize-column` compatibility behavior (fullscreen-style in current tiri) |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>M</kbd> | Toggle `maximize-window-to-edges` compatibility behavior (currently an alias of fullscreen) |
+| **Screenshots** | |
 | <kbd>PrtSc</kbd> | Take an area screenshot. Select the area to screenshot with mouse, then press Space to save the screenshot, or Escape to cancel |
 | <kbd>Alt</kbd><kbd>PrtSc</kbd> | Take a screenshot of the focused window to clipboard and to `~/Pictures/Screenshots/` |
 | <kbd>Ctrl</kbd><kbd>PrtSc</kbd> | Take a screenshot of the focused monitor to clipboard and to `~/Pictures/Screenshots/` |
+| **Session** | |
+| <kbd>Mod</kbd><kbd>Escape</kbd> | Toggle keyboard shortcuts inhibitor |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>P</kbd> | Power off monitors |
 | <kbd>Mod</kbd><kbd>Shift</kbd><kbd>E</kbd> or <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Delete</kbd> | Exit tiri |
+
+> [!NOTE]
+> Several actions still use `column` in their names for compatibility with niri and the IPC/config surface.
+> In current tiri, these actions operate on the top-level tiling subtree or container on a workspace rather than on a special internal "column" type.
 
 ## Building
 

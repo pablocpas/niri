@@ -8,6 +8,13 @@ See `CONTRIBUTING.md` in the repository for an overview.
 
 If you're not already here, check out the documentation site: https://pablocpas.github.io/tiri/
 
+> [!NOTE]
+> **About this documentation:**
+> Tiri is a fork of [niri](https://github.com/YaLTeR/niri), the scrollable-tiling Wayland compositor by Ivan Molodetskikh.
+> Much of this documentation was originally written for niri and has been adapted for tiri.
+> Some pages may still contain first-person references or design rationale from the original niri project.
+> Where tiri diverges from niri (most notably in the tiling layout model), the documentation has been rewritten to reflect tiri's behavior.
+
 ---
 
 The documentation is open to contribution, see [Documenting tiri](./Development:-Documenting-tiri.md).

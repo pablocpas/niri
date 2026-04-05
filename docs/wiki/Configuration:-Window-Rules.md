@@ -173,7 +173,7 @@ window-rule {
 }
 ```
 
-You can find the title and the app ID of a window by running `niri msg pick-window` and clicking on the window in question.
+You can find the title and the app ID of a window by running `tiri msg pick-window` and clicking on the window in question.
 
 > [!TIP]
 > Another way to find the window title and app ID is to configure the `wlr/taskbar` module in [Waybar](https://github.com/Alexays/Waybar) to include them in the tooltip:
@@ -215,7 +215,7 @@ window-rule {
 
 #### `is-active-in-column`
 
-<sup>Since: 0.1.6</sup>
+<sup>Upstream niri: 0.1.6</sup>
 
 Can be `true` or `false`.
 Matches the window that is the "active" window in its column.
@@ -223,7 +223,7 @@ Matches the window that is the "active" window in its column.
 Contrary to `is-active`, there is always one `is-active-in-column` window in each column.
 It is the window that was last focused in the column, i.e. the one that will gain focus if this column is focused.
 
-<sup>Since: 25.01</sup> This rule will match `true` during the initial window opening.
+<sup>Upstream niri: 25.01</sup> This rule will match `true` during the initial window opening.
 
 ```kdl
 window-rule {
@@ -233,7 +233,7 @@ window-rule {
 
 #### `is-floating`
 
-<sup>Since: 25.01</sup>
+<sup>Upstream niri: 25.01</sup>
 
 Can be `true` or `false`.
 Matches floating windows.
@@ -250,7 +250,7 @@ window-rule {
 
 #### `is-window-cast-target`
 
-<sup>Since: 25.02</sup>
+<sup>Upstream niri: 25.02</sup>
 
 Can be `true` or `false`.
 Matches `true` for windows that are target of an ongoing window screencast.
@@ -290,7 +290,7 @@ Example:
 
 #### `is-urgent`
 
-<sup>Since: 25.05</sup>
+<sup>Upstream niri: 25.05</sup>
 
 Can be `true` or `false`.
 Matches windows that request the user's attention.
@@ -303,15 +303,15 @@ window-rule {
 
 #### `at-startup`
 
-<sup>Since: 0.1.6</sup>
+<sup>Upstream niri: 0.1.6</sup>
 
 Can be `true` or `false`.
-Matches during the first 60 seconds after starting niri.
+Matches during the first 60 seconds after starting tiri.
 
-This is useful for properties like `open-on-output` which you may want to apply only right after starting niri.
+This is useful for properties like `open-on-output` which you may want to apply only right after starting tiri.
 
 ```kdl
-// Open windows on the HDMI-A-1 monitor at niri startup, but not afterwards.
+// Open windows on the HDMI-A-1 monitor at tiri startup, but not afterwards.
 window-rule {
     match at-startup=true
     open-on-output "HDMI-A-1"
@@ -322,7 +322,7 @@ window-rule {
 
 These properties apply once, when a window first opens.
 
-To be precise, they apply at the point when niri sends the initial configure request to the window.
+To be precise, they apply at the point when tiri sends the initial configure request to the window.
 
 #### `default-column-width`
 
@@ -345,7 +345,7 @@ window-rule {
 
 #### `default-window-height`
 
-<sup>Since: 25.01</sup>
+<sup>Upstream niri: 25.01</sup>
 
 Set the default height for the new window.
 
@@ -382,12 +382,12 @@ window-rule {
 }
 ```
 
-<sup>Since: 0.1.9</sup> `open-on-output` can now use monitor manufacturer, model, and serial.
+<sup>Upstream niri: 0.1.9</sup> `open-on-output` can now use monitor manufacturer, model, and serial.
 Before, it could only use the connector name.
 
 #### `open-on-workspace`
 
-<sup>Since: 0.1.6</sup>
+<sup>Upstream niri: 0.1.6</sup>
 
 Make the window open on a specific [named workspace](./Configuration:-Named-Workspaces.md).
 
@@ -419,7 +419,7 @@ window-rule {
 
 #### `open-maximized-to-edges`
 
-<sup>Since: 25.11</sup>
+<sup>Upstream niri: 25.11</sup>
 
 Make the window open [maximized to edges](./Fullscreen-and-Maximize.md).
 
@@ -460,7 +460,7 @@ window-rule {
 
 #### `open-floating`
 
-<sup>Since: 25.01</sup>
+<sup>Upstream niri: 25.01</sup>
 
 Make the window open in the floating layout.
 
@@ -484,7 +484,7 @@ window-rule {
 
 #### `open-focused`
 
-<sup>Since: 25.01</sup>
+<sup>Upstream niri: 25.01</sup>
 
 Set this to `false` to prevent this window from being automatically focused upon opening.
 
@@ -600,7 +600,7 @@ window-rule {
 
 #### `variable-refresh-rate`
 
-<sup>Since: 0.1.9</sup>
+<sup>Upstream niri: 0.1.9</sup>
 
 If set to true, whenever this window displays on an output with on-demand VRR, it will enable VRR on that output.
 
@@ -620,7 +620,7 @@ window-rule {
 
 #### `default-column-display`
 
-<sup>Since: 25.02</sup>
+<sup>Upstream niri: 25.02</sup>
 
 Set the default display mode for columns created from this window.
 Can be `normal` or `tabbed`.
@@ -642,7 +642,7 @@ window-rule {
 
 #### `default-floating-position`
 
-<sup>Since: 25.01</sup>
+<sup>Upstream niri: 25.01</sup>
 
 Set the initial position for this window when it opens on, or moves to the floating layout.
 
@@ -694,7 +694,7 @@ window-rule {
 
 #### `scroll-factor`
 
-<sup>Since: 25.02</sup>
+<sup>Upstream niri: 25.02</sup>
 
 Set a scroll factor for all scroll events sent to a window.
 
@@ -730,7 +730,7 @@ window-rule {
 
 #### `focus-ring` and `border`
 
-<sup>Since: 0.1.6</sup>
+<sup>Upstream niri: 0.1.6</sup>
 
 Override the focus ring and border options for the window.
 
@@ -757,7 +757,7 @@ window-rule {
 
 #### `shadow`
 
-<sup>Since: 25.02</sup>
+<sup>Upstream niri: 25.02</sup>
 
 Override the shadow options for the window.
 
@@ -779,7 +779,7 @@ window-rule {
 
 #### `tab-indicator`
 
-<sup>Since: 25.02</sup>
+<sup>Upstream niri: 25.02</sup>
 
 Override the tab indicator options for the window.
 
@@ -798,7 +798,7 @@ window-rule {
 
 #### `geometry-corner-radius`
 
-<sup>Since: 0.1.6</sup>
+<sup>Upstream niri: 0.1.6</sup>
 
 Set the corner radius of the window.
 
@@ -830,7 +830,7 @@ This way, you can match GTK 3 applications which have square bottom corners:
 
 #### `clip-to-geometry`
 
-<sup>Since: 0.1.6</sup>
+<sup>Upstream niri: 0.1.6</sup>
 
 Clips the window to its visual geometry.
 
@@ -869,13 +869,13 @@ window-rule {
 
 #### `tiled-state`
 
-<sup>Since: 25.05</sup>
+<sup>Upstream niri: 25.05</sup>
 
 Informs the window that it is tiled.
 Usually, windows will react by becoming rectangular and hiding their client-side shadows.
 Windows that snap their size to a grid (e.g. terminals like [foot](https://codeberg.org/dnkl/foot)) will usually disable this snapping when they are tiled.
 
-By default, niri will set the tiled state to `true` together with [`prefer-no-csd`](./Configuration:-Miscellaneous.md#prefer-no-csd) in order to improve behavior for apps that don't support server-side decorations.
+By default, tiri will set the tiled state to `true` together with [`prefer-no-csd`](./Configuration:-Miscellaneous.md#prefer-no-csd) in order to improve behavior for apps that don't support server-side decorations.
 You can use this window rule to override this, for example to get rectangular windows with CSD.
 
 ```kdl
@@ -889,7 +889,7 @@ window-rule {
 
 #### `baba-is-float`
 
-<sup>Since: 25.02</sup>
+<sup>Upstream niri: 25.02</sup>
 
 Make your windows FLOAT up and down.
 
@@ -914,13 +914,13 @@ https://github.com/user-attachments/assets/3f4cb1a4-40b2-4766-98b7-eec014c19509
 You can amend the window's minimum and maximum size in logical pixels.
 
 Keep in mind that the window itself always has a final say in its size.
-These values instruct niri to never ask the window to be smaller than the minimum you set, or to be bigger than the maximum you set.
+These values instruct tiri to never ask the window to be smaller than the minimum you set, or to be bigger than the maximum you set.
 
 > [!NOTE]
 > `max-height` will only apply to automatically-sized windows if it is equal to `min-height`.
 > Either set it equal to `min-height`, or change the window height manually after opening it with `set-window-height`.
 >
-> This is a limitation of niri's window height distribution algorithm.
+> This is a limitation of tiri's window height distribution algorithm.
 
 ```kdl
 window-rule {

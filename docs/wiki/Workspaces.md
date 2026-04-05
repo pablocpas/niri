@@ -1,6 +1,6 @@
 ### Overview
 
-Niri has dynamic workspaces that can move between monitors.
+Tiri has dynamic workspaces that can move between monitors.
 
 Each monitor contains an independent set of workspaces arranged vertically.
 You can switch between workspaces on a monitor with `focus-workspace-down` and `focus-workspace-up`.
@@ -27,33 +27,33 @@ But, they will also "remember" their original monitor, so when you reconnect it,
 
 > [!TIP]
 > From other tiling WMs, you may be used to thinking about workspaces like this: "These are all of my workspaces. I can show workspace X on my first monitor, and workspace Y on my second monitor."
-> In niri, instead, think like this: "My first monitor contains these workspaces, including X and Y, and my second monitor contains these other workspaces. I can switch my first monitor to workspace X or Y. I can move workspace Y to my second monitor to show it there."
+> In tiri, instead, think like this: "My first monitor contains these workspaces, including X and Y, and my second monitor contains these other workspaces. I can switch my first monitor to workspace X or Y. I can move workspace Y to my second monitor to show it there."
 
 ### Addressing workspaces by index
 
-Several actions in niri can address workspaces "by index": `focus-workspace 2`, `move-column-to-workspace 4`.
+Several actions in tiri can address workspaces "by index": `focus-workspace 2`, `move-column-to-workspace 4`.
 For numeric references, this index maps to workspace name `"N"` globally, like i3/sway.
 So, `focus-workspace 2` resolves workspace `"2"` regardless of monitor-local ordering.
 If it doesn't exist yet, it is created lazily.
 
 Auto-created numeric workspaces are temporary: if they remain empty and become unfocused, they disappear.
 
-When you want to have a more permanent workspace in niri, you can create a [named workspace](./Configuration:-Named-Workspaces.md) in the config or via the `set-workspace-name` action.
+When you want to have a more permanent workspace, you can create a [named workspace](./Configuration:-Named-Workspaces.md) in the config or via the `set-workspace-name` action.
 You can refer to named workspaces by name, e.g. `focus-workspace "browser"`, and they won't disappear when they become empty.
 
 > [!TIP]
 > You can try to emulate static workspaces by creating workspaces named "one", "two", "three", ..., and binding keys to `focus-workspace "one"`, `focus-workspace "two"`, ...
 > This can work to some extent, but it can become somewhat confusing, since you can still move these workspaces up and down and between monitors.
 >
-> If you're coming from a static workspace WM, I suggest *not* doing that, but instead trying the dynamic workspace approach with focusing and moving up/down instead of by index.
+> If you're coming from a static workspace WM, consider *not* doing that, but instead trying the dynamic workspace approach with focusing and moving up/down instead of by index.
 
 ### Example workflow
 
-This is how I like to use workspaces.
+Here is an example of how dynamic workspaces can be used effectively.
 
-I will usually have my browser on the topmost workspace, then one workspace per project (or a "thing") I'm working on.
-On a single workspace I have multiple windows arranged in the tiling layout that I switch between frequently.
-When the workspace gets too cluttered, I'll move some windows to a new workspace or use tabbed/stacked containers to organize them better.
+A common setup is to keep a browser on the topmost workspace, then one workspace per project or task.
+On a single workspace, multiple windows are arranged in the tiling layout using splits, tabs, or stacked containers for quick switching.
+When a workspace gets too cluttered, some windows can be moved to a new workspace or grouped into tabbed/stacked containers to stay organized.
 
-I actively move workspaces up and down as I'm working on things to make what I need accessible in one motion.
-For example, I usually frequently switch between the browser and whatever I'm doing, so I always move whatever I'm currently doing to right below the browser, so a single `focus-workspace-up/down` gets me where I want.
+Workspaces can be actively moved up and down to keep the most relevant ones accessible in one motion.
+For example, frequently switching between a browser and a project workspace is easy: just move the project workspace right below the browser, so a single `focus-workspace-up/down` gets you where you need.

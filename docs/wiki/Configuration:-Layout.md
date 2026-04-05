@@ -30,11 +30,37 @@ layout {
         on
         width 4
         active-color "#7fc8ff"
+        active-indicator-color "#2e9ef4"
+        // focused-inactive-color "#505050"
         inactive-color "#505050"
         urgent-color "#9b0000"
         // active-gradient from="#80c8ff" to="#bbddff" angle=45
+        // active-indicator-gradient from="#2e9ef4" to="#7fc8ff" angle=45
         // inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view"
         // urgent-gradient from="#800" to="#a33" angle=45
+    }
+
+    tab-bar {
+        // off
+        on
+        // show-in-split
+        height 0
+        padding-x 8
+        padding-y 3
+        separator-width 1
+        border-width 0
+        font "sans 12px"
+
+        active-bg "#7fc8ff"
+        inactive-bg "#3c3c3c"
+        urgent-bg "#9b0000"
+        active-fg "#103050"
+        inactive-fg "#bbbbbb"
+        urgent-fg "#ffffff"
+        separator-color "#2a2a2a"
+        active-border "#2e9ef4"
+        inactive-border "#3c3c3c"
+        urgent-border "#7a0000"
     }
 
     border {
@@ -42,12 +68,18 @@ layout {
         // on
         width 4
         active-color "#ffc87f"
+        active-indicator-color "#ffb347"
+        // focused-inactive-color "#505050"
         inactive-color "#505050"
         urgent-color "#9b0000"
         // active-gradient from="#ffbb66" to="#ffc880" angle=45 relative-to="workspace-view"
+        // active-indicator-gradient from="#ffb347" to="#ffc87f" angle=45
         // inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view" in="srgb-linear"
         // urgent-gradient from="#800" to="#a33" angle=45
     }
+
+    hide-edge-borders "none"
+    hide-edge-borders-smart false
 
     shadow {
         off
@@ -95,17 +127,21 @@ layout {
 }
 ```
 
-<sup>Since: 25.11</sup> You can override these settings for specific [outputs](./Configuration:-Outputs.md#layout-config-overrides) and [named workspaces](./Configuration:-Named-Workspaces.md#layout-config-overrides).
+<sup>Upstream niri: 25.11</sup> You can override these settings for specific [outputs](./Configuration:-Outputs.md#layout-config-overrides) and [named workspaces](./Configuration:-Named-Workspaces.md#layout-config-overrides).
+
+> [!NOTE]
+> Some layout options still use `column` in their names for config and IPC compatibility with niri.
+> In current tiri, these settings apply to the top-level tiling subtree or container on a workspace; `column` is legacy terminology, not a special internal layout primitive.
 
 ### `gaps`
 
 Set gaps around (inside and outside) windows in logical pixels.
 
-<sup>Since: 0.1.7</sup> You can use fractional values.
+<sup>Upstream niri: 0.1.7</sup> You can use fractional values.
 The value will be rounded to physical pixels according to the scale factor of every output.
 For example, `gaps 0.5` on an output with `scale 2` will result in one physical-pixel wide gaps.
 
-<sup>Since: 0.1.8</sup> You can emulate "inner" vs. "outer" gaps with negative `struts` values (see the struts section below).
+<sup>Upstream niri: 0.1.8</sup> You can emulate "inner" vs. "outer" gaps with negative `struts` values (see the struts section below).
 
 ```kdl
 layout {
@@ -115,9 +151,9 @@ layout {
 
 ### `empty-workspace-above-first`
 
-<sup>Since: 25.01</sup>
+<sup>Upstream niri: 25.01</sup>
 
-If set, niri will always add an empty workspace at the very start, in addition to the empty workspace at the very end.
+If set, tiri will always add an empty workspace at the very start, in addition to the empty workspace at the very end.
 
 ```kdl
 layout {
@@ -171,14 +207,14 @@ layout {
 ```
 
 > [!NOTE]
-> `default-column-width {}` causes niri to send a (0, H) size in the initial configure request.
+> `default-column-width {}` causes tiri to send a (0, H) size in the initial configure request.
 >
 > This is a bit [unclearly defined](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/issues/155) in the Wayland protocol, so some clients may misinterpret it.
 > Either way, `default-column-width {}` is most useful for specific windows, in form of a [window rule](./Configuration:-Window-Rules.md#default-column-width) with the same syntax.
 
 ### `preset-window-heights`
 
-<sup>Since: 0.1.9</sup>
+<sup>Upstream niri: 0.1.9</sup>
 
 Set the heights that the `switch-preset-window-height` action (Mod+Shift+R) toggles between.
 
@@ -248,7 +284,7 @@ layout {
 
 Set the thickness of the border in logical pixels.
 
-<sup>Since: 0.1.7</sup> You can use fractional values.
+<sup>Upstream niri: 0.1.7</sup> You can use fractional values.
 The value will be rounded to physical pixels according to the scale factor of every output.
 For example, `width 0.5` on an output with `scale 2` will result in one physical-pixel thick borders.
 
@@ -268,7 +304,11 @@ Colors can be set in a variety of ways:
 - RGB hex: `"#rgb"`, `"#rgba"`, `"#rrggbb"`, `"#rrggbbaa"`
 - CSS-like notation: `"rgb(255, 127, 0)"`, `"rgba()"`, `"hsl()"` and a few others.
 
-`active-color` is the color of the focus ring / border around the active window, and `inactive-color` is the color of the focus ring / border around all other windows.
+`active-color` is the color of the focus ring / border around the active window, and `inactive-color` is the color of the focus ring / border around windows on inactive workspaces or monitors.
+
+`focused-inactive-color` lets you style non-focused windows on the active workspace separately from fully inactive workspaces.
+
+`active-indicator-color`, `focused-inactive-indicator-color`, `inactive-indicator-color`, and `urgent-indicator-color` control the split indicator colors that tiri draws for the relevant state.
 
 The *focus ring* is only drawn around the active window on each monitor, so with a single monitor you will never see its `inactive-color`.
 You will see it if you have multiple monitors, though.
@@ -277,7 +317,8 @@ There's also a *deprecated* syntax for setting colors with four numbers represen
 
 #### Gradients
 
-Similarly to colors, you can set `active-gradient` and `inactive-gradient`, which will take precedence.
+Similarly to colors, you can set `active-gradient`, `focused-inactive-gradient`, `inactive-gradient`, and `urgent-gradient`, which will take precedence.
+The split indicator has matching gradient options: `active-indicator-gradient`, `focused-inactive-indicator-gradient`, `inactive-indicator-gradient`, and `urgent-indicator-gradient`.
 
 Gradients are rendered the same as CSS [`linear-gradient(angle, from, to)`](https://developer.mozilla.org/en-US/docs/Web/CSS/gradient/linear-gradient).
 The angle works the same as in `linear-gradient`, and is optional, defaulting to `180` (top-to-bottom gradient).
@@ -287,6 +328,7 @@ You can use any CSS linear-gradient tool on the web to set these up, like [css-g
 layout {
     focus-ring {
         active-gradient from="#80c8ff" to="#bbddff" angle=45
+        active-indicator-gradient from="#2e9ef4" to="#7fc8ff" angle=45
     }
 }
 ```
@@ -303,12 +345,14 @@ Here's a visual example:
 layout {
     border {
         active-gradient from="#ffbb66" to="#ffc880" angle=45 relative-to="workspace-view"
+        focused-inactive-color "#505050"
         inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view"
+        active-indicator-color "#ffb347"
     }
 }
 ```
 
-<sup>Since: 0.1.8</sup> You can set the gradient interpolation color space using syntax like `in="srgb-linear"` or `in="oklch longer hue"`.
+<sup>Upstream niri: 0.1.8</sup> You can set the gradient interpolation color space using syntax like `in="srgb-linear"` or `in="oklch longer hue"`.
 Supported color spaces are:
 
 - `srgb` (the default),
@@ -329,9 +373,93 @@ layout {
 }
 ```
 
+### `tab-bar`
+
+Controls the title bar used for tabbed and stacked layouts.
+By default it matches the focus-ring palette, and unlike `tab-indicator`, it shows actual title tabs.
+
+Set `off` to disable it completely.
+
+Set `show-in-split` to also render a single-row title bar above tiles in split layouts.
+
+`height` sets the total tab bar height in logical pixels.
+Set `height 0` to auto-size it from the configured font and padding.
+
+`padding-x` and `padding-y` control the text padding inside each tab.
+
+`separator-width` controls the divider width between adjacent tabs.
+
+`border-width` controls the outline width around each tab.
+
+`font` sets the Pango font description used for tab titles.
+
+The color properties are:
+
+- `active-bg`, `inactive-bg`, `urgent-bg` for tab backgrounds
+- `active-fg`, `inactive-fg`, `urgent-fg` for tab title text
+- `active-border`, `inactive-border`, `urgent-border` for tab outlines
+- `separator-color` for the divider between tabs
+
+```kdl
+layout {
+    tab-bar {
+        show-in-split
+        height 0
+        padding-x 5
+        padding-y 4
+        separator-width 1
+        border-width 1
+        font "monospace 10"
+
+        active-bg "#285577"
+        inactive-bg "#222222"
+        urgent-bg "#900000"
+        active-fg "#ffffff"
+        inactive-fg "#888888"
+        urgent-fg "#ffffff"
+        separator-color "#000000"
+        active-border "#4c7899"
+        inactive-border "#333333"
+        urgent-border "#2f343a"
+    }
+}
+```
+
+### `hide-edge-borders`
+
+Hide border or focus-ring edges that touch the workspace edge.
+This is useful if you want internal separators between tiles without outlining the workspace itself.
+
+Valid values are:
+
+- `"none"`: keep all edges visible
+- `"horizontal"`: hide top and bottom edges that touch the workspace edge
+- `"vertical"`: hide left and right edges that touch the workspace edge
+- `"both"`: hide any edge that touches the workspace edge
+
+```kdl
+layout {
+    border {
+        on
+    }
+    hide-edge-borders "both"
+}
+```
+
+### `hide-edge-borders-smart`
+
+If enabled, tiri hides all border/focus-ring edges when there is only one tiled window in the layout.
+This applies in addition to `hide-edge-borders`.
+
+```kdl
+layout {
+    hide-edge-borders-smart true
+}
+```
+
 ### `shadow`
 
-<sup>Since: 25.02</sup>
+<sup>Upstream niri: 25.02</sup>
 
 Shadow rendered behind a window.
 
@@ -341,18 +469,18 @@ Set `on` to enable the shadow.
 Setting `softness 0` will give you hard shadows.
 
 `spread` is the distance to expand the window rectangle in logical pixels, same as CSS box-shadow spread.
-<sup>Since: 25.05</sup> Spread can be negative.
+<sup>Upstream niri: 25.05</sup> Spread can be negative.
 
 `offset` moves the shadow relative to the window in logical pixels, same as CSS box-shadow offset.
 For example, `offset x=2 y=2` will move the shadow 2 logical pixels downwards and to the right.
 
 Set `draw-behind-window` to `true` to make shadows draw behind the window rather than just around it.
-Note that niri has no way of knowing about the CSD window corner radius.
+Note that tiri has no way of knowing about the CSD window corner radius.
 It has to assume that windows have square corners, leading to shadow artifacts inside the CSD rounded corners.
 This setting fixes those artifacts.
 
 However, instead you may want to set `prefer-no-csd` and/or `geometry-corner-radius`.
-Then, niri will know the corner radius and draw the shadow correctly, without having to draw it behind the window.
+Then, tiri will know the corner radius and draw the shadow correctly, without having to draw it behind the window.
 These will also remove client-side shadows if the window draws any.
 
 `color` is the shadow color and opacity.
@@ -381,7 +509,7 @@ prefer-no-csd
 
 ### `tab-indicator`
 
-<sup>Since: 25.02</sup>
+<sup>Upstream niri: 25.02</sup>
 
 Controls the appearance of the tab indicator that appears next to columns in tabbed display mode.
 
@@ -416,7 +544,7 @@ Tab colors are picked in this order:
 
 1. Colors from the `tab-indicator` window rule, if set.
 1. Colors from the `tab-indicator` layout options, if set (you're here).
-1. If neither are set, niri picks the color matching the window border or focus ring, whichever one is active.
+1. If neither are set, tiri picks the color matching the window border or focus ring, whichever one is active.
 
 ```kdl
 // Make the tab indicator wider and match the window height,
@@ -434,7 +562,7 @@ layout {
 
 ### `insert-hint`
 
-<sup>Since: 0.1.10</sup> 
+<sup>Upstream niri: 0.1.10</sup>
 
 Settings for the window insert position hint during an interactive window move.
 
@@ -461,7 +589,7 @@ They are set in logical pixels.
 Left and right struts will cause the next window to the side to always peek out slightly.
 Top and bottom struts will simply add outer gaps in addition to the area occupied by layer-shell panels and regular gaps.
 
-<sup>Since: 0.1.7</sup> You can use fractional values.
+<sup>Upstream niri: 0.1.7</sup> You can use fractional values.
 The value will be rounded to physical pixels according to the scale factor of every output.
 For example, `top 0.5` on an output with `scale 2` will result in one physical-pixel wide top strut.
 
@@ -478,7 +606,7 @@ layout {
 
 ![A screenshot illustrating the effects of struts, as explained in the second paragraph in this section](./img/struts.png)
 
-<sup>Since: 0.1.8</sup> You can use negative values.
+<sup>Upstream niri: 0.1.8</sup> You can use negative values.
 They will push the windows outwards, even outside the edges of the screen.
 
 You can use negative struts with matching gaps value to emulate "inner" vs. "outer" gaps.
@@ -499,9 +627,9 @@ layout {
 
 ### `background-color`
 
-<sup>Since: 25.05</sup>
+<sup>Upstream niri: 25.05</sup>
 
-Set the default background color that niri draws for workspaces.
+Set the default background color that tiri draws for workspaces.
 This is visible when you're not using any background tools like swaybg.
 
 ```kdl

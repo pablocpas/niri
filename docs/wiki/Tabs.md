@@ -1,6 +1,6 @@
 ### Overview
 
-<sup>Since: 25.02</sup>
+<sup>Upstream niri: 25.02</sup>
 
 You can switch a container to present windows as tabs, rather than as splits.
 All tabs in a tabbed container have the same window size, so this is useful to get more vertical space.

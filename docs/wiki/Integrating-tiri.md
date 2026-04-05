@@ -20,7 +20,7 @@ You can split the tiri config file into multiple files using [`include`](./Confi
 
 Xwayland is required for running X11 apps and games, and also the Orca screen reader.
 
-<sup>Since: 25.08</sup> Tiri integrates with [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) out of the box.
+<sup>Upstream niri: 25.08</sup> Tiri integrates with [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite) out of the box.
 The integration requires xwayland-satellite >= 0.7 available in `$PATH`.
 Please consider making tiri depend on (or at least recommend) the xwayland-satellite package.
 If you had a custom config which manually started `xwayland-satellite` and set `$DISPLAY`, you should remove those customizations for the automatic integration to work.
@@ -29,7 +29,7 @@ You can change the path where tiri looks for xwayland-satellite using the [`xway
 
 ### Keyboard layout
 
-<sup>Since: 25.08</sup> By default (unless [manually configured](./Configuration:-Input.md#layout) otherwise), tiri reads keyboard layout settings from systemd-localed at `org.freedesktop.locale1` over D-Bus.
+<sup>Upstream niri: 25.08</sup> By default (unless [manually configured](./Configuration:-Input.md#layout) otherwise), tiri reads keyboard layout settings from systemd-localed at `org.freedesktop.locale1` over D-Bus.
 Make sure your system installer sets the keyboard layout via systemd-localed, and tiri should pick it up.
 
 ### Autostart
@@ -44,7 +44,7 @@ If this is inconvenient, you can also add [`spawn-at-startup`](./Configuration:-
 
 ### Screen readers
 
-<sup>Since: 25.08</sup> Tiri works with the [Orca](https://orca.gnome.org) screen reader.
+<sup>Upstream niri: 25.08</sup> Tiri works with the [Orca](https://orca.gnome.org) screen reader.
 Please see the [Accessibility](./Accessibility.md) page for details and advice for accessibility-focused distributions.
 
 ### Desktop components

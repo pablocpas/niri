@@ -58,7 +58,7 @@ config-notification {
 
 ### `spawn-at-startup`
 
-Add lines like this to spawn processes at niri startup.
+Add lines like this to spawn processes at tiri startup.
 
 `spawn-at-startup` accepts a path to the program binary as the first argument, followed by arguments to the program.
 
@@ -69,14 +69,14 @@ spawn-at-startup "waybar"
 spawn-at-startup "alacritty"
 ```
 
-Note that running niri as a systemd session supports xdg-desktop-autostart out of the box, which may be more convenient to use.
-Thanks to this, apps that you configured to autostart in GNOME will also "just work" in niri, without any manual `spawn-at-startup` configuration.
+Note that running tiri as a systemd session supports xdg-desktop-autostart out of the box, which may be more convenient to use.
+Thanks to this, apps that you configured to autostart in GNOME will also "just work" in tiri, without any manual `spawn-at-startup` configuration.
 
 ### `spawn-sh-at-startup`
 
-<sup>Since: 25.08</sup>
+<sup>Upstream niri: 25.08</sup>
 
-Add lines like this to run shell commands at niri startup.
+Add lines like this to run shell commands at tiri startup.
 
 The argument is a single string that is passed verbatim to `sh`.
 You can use shell variables, pipelines, `~` expansion and everything else as expected.
@@ -90,7 +90,7 @@ spawn-sh-at-startup "qs -c ~/source/qs/MyAwesomeShell"
 
 ### `prefer-no-csd`
 
-This flag will make niri ask the applications to omit their client-side decorations.
+This flag will make tiri ask the applications to omit their client-side decorations.
 
 If an application will specifically ask for CSD, the request will be honored.
 Additionally, clients will be informed that they are tiled, removing some rounded corners.
@@ -100,7 +100,7 @@ With `prefer-no-csd` set, applications that negotiate server-side decorations th
 > [!NOTE]
 > Unlike most other options, changing `prefer-no-csd` will not entirely affect already running applications.
 > It will make some windows rectangular, but won't remove the title bars.
-> This mainly has to do with niri working around a [bug in SDL2](https://github.com/libsdl-org/SDL/issues/8173) that prevents SDL2 applications from starting.
+> This mainly has to do with tiri working around a [bug in SDL2](https://github.com/libsdl-org/SDL/issues/8173) that prevents SDL2 applications from starting.
 >
 > Restart applications after changing `prefer-no-csd` in the config to fully apply it.
 
@@ -161,7 +161,7 @@ cursor {
 
 #### `hide-when-typing`
 
-<sup>Since: 0.1.10</sup>
+<sup>Upstream niri: 0.1.10</sup>
 
 If set, hides the cursor when pressing a key on the keyboard.
 
@@ -177,7 +177,7 @@ cursor {
 
 #### `hide-after-inactive-ms`
 
-<sup>Since: 0.1.10</sup>
+<sup>Upstream niri: 0.1.10</sup>
 
 If set, the cursor will automatically hide once this number of milliseconds passes since the last cursor movement.
 
@@ -190,7 +190,7 @@ cursor {
 
 ### `overview`
 
-<sup>Since: 25.05</sup>
+<sup>Upstream niri: 25.05</sup>
 
 Settings for the [Overview](./Overview.md).
 
@@ -242,15 +242,15 @@ overview {
 
 ### `xwayland-satellite`
 
-<sup>Since: 25.08</sup>
+<sup>Upstream niri: 25.08</sup>
 
 Settings for integration with [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite).
 
-When a recent enough xwayland-satellite is detected, niri will create the X11 sockets and set `DISPLAY`, then automatically spawn `xwayland-satellite` when an X11 client tries to connect.
-If Xwayland dies, niri will keep watching the X11 socket and restart `xwayland-satellite` as needed.
+When a recent enough xwayland-satellite is detected, tiri will create the X11 sockets and set `DISPLAY`, then automatically spawn `xwayland-satellite` when an X11 client tries to connect.
+If Xwayland dies, tiri will keep watching the X11 socket and restart `xwayland-satellite` as needed.
 This is very similar to how built-in Xwayland works in other compositors.
 
-`off` disables the integration: niri won't create an X11 socket and won't set the `DISPLAY` environment variable.
+`off` disables the integration: tiri won't create an X11 socket and won't set the `DISPLAY` environment variable.
 
 `path` sets the path to the `xwayland-satellite` binary.
 By default, it's just `xwayland-satellite`, so it's looked up like any other non-absolute program name.
@@ -264,7 +264,7 @@ xwayland-satellite {
 
 ### `clipboard`
 
-<sup>Since: 25.02</sup>
+<sup>Upstream niri: 25.02</sup>
 
 Clipboard settings.
 
@@ -283,7 +283,7 @@ Settings for the "Important Hotkeys" overlay.
 
 #### `skip-at-startup`
 
-Set the `skip-at-startup` flag if you don't want to see the hotkey help at niri startup.
+Set the `skip-at-startup` flag if you don't want to see the hotkey help at tiri startup.
 
 ```kdl
 hotkey-overlay {
@@ -293,9 +293,9 @@ hotkey-overlay {
 
 #### `hide-not-bound`
 
-<sup>Since: 25.08</sup>
+<sup>Upstream niri: 25.08</sup>
 
-By default, niri will show the most important actions even if they aren't bound to any key, to prevent confusion.
+By default, tiri will show the most important actions even if they aren't bound to any key, to prevent confusion.
 Set the `hide-not-bound` flag if you want to hide all actions not bound to any key.
 
 ```kdl
@@ -308,7 +308,7 @@ You can customize which binds the hotkey overlay shows using the [`hotkey-overla
 
 ### `config-notification`
 
-<sup>Since: 25.08</sup>
+<sup>Upstream niri: 25.08</sup>
 
 Settings for the config created/failed notification.
 

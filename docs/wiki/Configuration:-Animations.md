@@ -84,14 +84,14 @@ animations {
 }
 ```
 
-Currently, niri only supports five curves.
+Currently, tiri only supports five curves.
 You can get a feel for them on pages like [easings.net](https://easings.net/).
 
-- `ease-out-quad` <sup>Since: 0.1.5</sup>
+- `ease-out-quad` <sup>Upstream niri: 0.1.5</sup>
 - `ease-out-cubic`
 - `ease-out-expo`
-- `linear` <sup>Since: 0.1.6</sup>
-- `cubic-bezier` <sup>Since: 25.08</sup>
+- `linear` <sup>Upstream niri: 0.1.6</sup>
+- `cubic-bezier` <sup>Upstream niri: 25.08</sup>
     A custom [cubic Bézier curve](https://www.w3.org/TR/css-easing-1/#cubic-bezier-easing-functions). You need to set 4 numbers defining the control points of the curve, for example:
     ```kdl
     animations {
@@ -177,19 +177,19 @@ animations {
 
 ##### `custom-shader`
 
-<sup>Since: 0.1.6</sup>
+<sup>Upstream niri: 0.1.6</sup>
 
 You can write a custom shader for drawing the window during an open animation.
 
 See [this example shader](./examples/open_custom_shader.frag) for a full documentation with several animations to experiment with.
 
-If a custom shader fails to compile, niri will print a warning and fall back to the default, or previous successfully compiled shader.
-When running niri as a systemd service, you can see the warnings in the journal: `journalctl -ef /usr/bin/niri`
+If a custom shader fails to compile, tiri will print a warning and fall back to the default, or previous successfully compiled shader.
+When running tiri as a systemd service, you can see the warnings in the journal: `journalctl -ef /usr/bin/tiri`
 
 > [!WARNING]
 >
 > Custom shaders do not have a backwards compatibility guarantee.
-> I may need to change their interface as I'm developing new features.
+> Their interface may change as new features are developed.
 
 Example: open will fill the current geometry with a solid gradient that gradually fades in.
 
@@ -220,7 +220,7 @@ animations {
 
 #### `window-close`
 
-<sup>Since: 0.1.5</sup>
+<sup>Upstream niri: 0.1.5</sup>
 
 Window closing animation.
 
@@ -237,19 +237,19 @@ animations {
 
 ##### `custom-shader`
 
-<sup>Since: 0.1.6</sup>
+<sup>Upstream niri: 0.1.6</sup>
 
 You can write a custom shader for drawing the window during a close animation.
 
 See [this example shader](./examples/close_custom_shader.frag) for a full documentation with several animations to experiment with.
 
-If a custom shader fails to compile, niri will print a warning and fall back to the default, or previous successfully compiled shader.
-When running niri as a systemd service, you can see the warnings in the journal: `journalctl -ef /usr/bin/niri`
+If a custom shader fails to compile, tiri will print a warning and fall back to the default, or previous successfully compiled shader.
+When running tiri as a systemd service, you can see the warnings in the journal: `journalctl -ef /usr/bin/tiri`
 
 > [!WARNING]
 >
 > Custom shaders do not have a backwards compatibility guarantee.
-> I may need to change their interface as I'm developing new features.
+> Their interface may change as new features are developed.
 
 Example: close will fill the current geometry with a solid gradient that gradually fades away.
 
@@ -277,7 +277,7 @@ animations {
 
 #### `window-movement`
 
-<sup>Since: 0.1.5</sup>
+<sup>Upstream niri: 0.1.5</sup>
 
 Movement of individual windows within a workspace.
 
@@ -297,7 +297,7 @@ animations {
 
 #### `window-resize`
 
-<sup>Since: 0.1.5</sup>
+<sup>Upstream niri: 0.1.5</sup>
 
 Window resize animation.
 
@@ -314,19 +314,19 @@ animations {
 
 ##### `custom-shader`
 
-<sup>Since: 0.1.6</sup>
+<sup>Upstream niri: 0.1.6</sup>
 
 You can write a custom shader for drawing the window during a resize animation.
 
 See [this example shader](./examples/resize_custom_shader.frag) for a full documentation with several animations to experiment with.
 
-If a custom shader fails to compile, niri will print a warning and fall back to the default, or previous successfully compiled shader.
-When running niri as a systemd service, you can see the warnings in the journal: `journalctl -ef /usr/bin/niri`
+If a custom shader fails to compile, tiri will print a warning and fall back to the default, or previous successfully compiled shader.
+When running tiri as a systemd service, you can see the warnings in the journal: `journalctl -ef /usr/bin/tiri`
 
 > [!WARNING]
 >
 > Custom shaders do not have a backwards compatibility guarantee.
-> I may need to change their interface as I'm developing new features.
+> Their interface may change as new features are developed.
 
 Example: resize will show the next (after resize) window texture right away, stretched to the current geometry.
 
@@ -360,7 +360,7 @@ animations {
 
 #### `exit-confirmation-open-close`
 
-<sup>Since: 25.08</sup>
+<sup>Upstream niri: 25.08</sup>
 
 The open/close animation of the exit confirmation dialog.
 
@@ -376,7 +376,7 @@ animations {
 
 #### `screenshot-ui-open`
 
-<sup>Since: 0.1.8</sup>
+<sup>Upstream niri: 0.1.8</sup>
 
 The open (fade-in) animation of the screenshot UI.
 
@@ -391,7 +391,7 @@ animations {
 
 #### `overview-open-close`
 
-<sup>Since: 25.05</sup>
+<sup>Upstream niri: 25.05</sup>
 
 The open/close zoom animation of the [Overview](./Overview.md).
 
@@ -405,7 +405,7 @@ animations {
 
 #### `recent-windows-close`
 
-<sup>Since: 25.11</sup>
+<sup>Upstream niri: 25.11</sup>
 
 The close fade-out animation of the recent windows switcher.
 
@@ -419,9 +419,9 @@ animations {
 
 ### Synchronized Animations
 
-<sup>Since: 0.1.5</sup>
+<sup>Upstream niri: 0.1.5</sup>
 
-Sometimes, when two animations are meant to play together synchronized, niri will drive them both with the same configuration.
+Sometimes, when two animations are meant to play together synchronized, tiri will drive them both with the same configuration.
 
 For example, resizing a window in a column vertically causes other windows to move up or down into their new position.
 This movement will use the `window-resize` configuration, rather than the `window-movement` configuration, to keep the animations synchronized.

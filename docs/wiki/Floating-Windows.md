@@ -1,6 +1,6 @@
 ### Overview
 
-<sup>Since: 25.01</sup>
+<sup>Upstream niri: 25.01</sup>
 
 Floating windows always show on top of the tiled windows.
 Each workspace/monitor has its own floating layout, just like each workspace/monitor has its own tiling layout.
@@ -12,4 +12,4 @@ You can also use the `open-floating true/false` window rule to either force a wi
 Use `switch-focus-between-floating-and-tiling` to switch the focus between the two layouts.
 When focused on the floating layout, binds (like `focus-column-right`) will operate on the floating window.
 
-You can precisely position a floating window with a command like `niri msg action move-floating-window -x 100 -y 200`.
+You can precisely position a floating window with a command like `tiri msg action move-floating-window -x 100 -y 200`.

@@ -144,7 +144,7 @@ Every tiri release comes with a vendored dependencies archive from `cargo vendor
 You can use it to build the corresponding tiri release completely offline.
 
 If you don't want to use vendored dependencies, consider following the tiri release's `Cargo.lock`.
-It contains the exact dependency versions that I used when testing the release.
+It contains the exact dependency versions used when testing the release.
 
 If you need to change the versions of some dependencies, pay extra attention to `smithay` and `smithay-drm-extras` commit hash.
 These crates don't currently have regular stable releases, so tiri uses git snapshots.

@@ -1,4 +1,4 @@
-<sup>Since: 25.11</sup>
+<sup>Upstream niri: 25.11</sup>
 
 You can include other files at the top level of the config.
 
@@ -116,7 +116,7 @@ window-rule {
 
 ### Optional includes
 
-<sup>Since: next release</sup>
+<sup>Upstream niri: next release</sup>
 
 By default, including a nonexistent file will cause an error.
 You can allow nonexistent includes by setting `optional=true`:
@@ -129,7 +129,7 @@ include optional=true "optional-config.kdl"
 include "required-config.kdl"
 ```
 
-When an optional include file is missing, niri will emit a warning in the logs on every config reload.
+When an optional include file is missing, tiri will emit a warning in the logs on every config reload.
 This reminds you that the file is missing while still loading the config successfully.
 
 The optional file is still watched for changes, so if you create it later, the config will automatically reload and apply the new settings.
@@ -289,6 +289,6 @@ layout {
 }
 ```
 
-The reason for this special case is that this is how it historically worked: back when I added borders, we didn't have any `on` flags, so I made writing the `border {}` section enable the border, with an explicit `off` to disable it.
+The reason for this special case is that this is how it historically worked: when borders were first added, there were no `on` flags, so writing the `border {}` section would enable the border, with an explicit `off` to disable it.
 It wouldn't be too problematic to change it, however the default config always had a pre-filled `layout { border { off; } }` section with a note saying that commenting out the `off` is enough to enable the border.
 Many people likely have this part of the default config embedded in their configs now, so changing how it works would just cause a lot of confusion.

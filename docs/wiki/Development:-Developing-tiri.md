@@ -34,7 +34,7 @@ Some tests are a bit too slow to run normally, like the randomized tests of the 
 env RUN_SLOW_TESTS=1 cargo test --all
 ```
 
-It also usually helps to run the randomized tests for a longer period, so that they can explore more inputs. You can control this with environment variables. This is how I usually run tests before pushing:
+It also usually helps to run the randomized tests for a longer period, so that they can explore more inputs. You can control this with environment variables. Here is a recommended way to run tests before pushing:
 
 ```
 env RUN_SLOW_TESTS=1 PROPTEST_CASES=200000 PROPTEST_MAX_GLOBAL_REJECTS=200000 RUST_BACKTRACE=1 cargo test --release --all

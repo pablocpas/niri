@@ -41,7 +41,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! tiri-ipc = "=25.11.0"
+//! tiri-ipc = "=0.1.0"
 //! ```
 //!
 //! ## Features
