@@ -7150,6 +7150,42 @@ fn start_interactive_move_then_remove_window() {
 }
 
 #[test]
+fn maximize_during_interactive_move_start_is_ignored() {
+    let layout = check_ops([
+        Op::AddOutput(2),
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::InteractiveMoveBegin {
+            window: 3,
+            output_idx: 2,
+            px: 0.,
+            py: 0.,
+        },
+        Op::MaximizeWindowToEdges { id: None },
+        Op::AddWindowNextTo {
+            params: TestWindowParams::new(1),
+            next_to_id: 3,
+        },
+        Op::InteractiveMoveUpdate {
+            window: 3,
+            dx: 0.,
+            dy: -10406.186649509411,
+            output_idx: 2,
+            px: 0.,
+            py: 0.,
+        },
+    ]);
+
+    let Some(InteractiveMoveState::Moving(move_)) = &layout.interactive_move else {
+        panic!("interactive move should still be active");
+    };
+
+    assert_eq!(move_.tile.window().id(), &3);
+    assert!(move_.tile.window().pending_sizing_mode().is_normal());
+}
+
+#[test]
 fn interactive_move_onto_empty_output() {
     let ops = [
         Op::AddOutput(1),

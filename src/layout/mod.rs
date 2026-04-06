@@ -5146,10 +5146,8 @@ impl<W: LayoutElement> Layout<W> {
             }
         }
 
-        if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
-            if move_.tile.window().id() == id {
-                return;
-            }
+        if self.interactive_move_targets_window(id) {
+            return;
         }
 
         for ws in self.workspaces_mut() {
@@ -5161,10 +5159,8 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn toggle_fullscreen(&mut self, id: &W::Id) {
-        if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
-            if move_.tile.window().id() == id {
-                return;
-            }
+        if self.interactive_move_targets_window(id) {
+            return;
         }
 
         for ws in self.workspaces_mut() {
@@ -5176,6 +5172,10 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn set_windowed_fullscreen(&mut self, id: &W::Id, is_fullscreen: bool) {
+        if self.interactive_move_targets_window(id) {
+            return;
+        }
+
         let Some((_, window)) = self.windows().find(|(_, win)| win.id() == id) else {
             return;
         };
@@ -5217,10 +5217,8 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn set_maximized(&mut self, id: &W::Id, maximize: bool) {
-        if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
-            if move_.tile.window().id() == id {
-                return;
-            }
+        if self.interactive_move_targets_window(id) {
+            return;
         }
 
         for ws in self.workspaces_mut() {
@@ -5232,10 +5230,8 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn toggle_maximized(&mut self, id: &W::Id) {
-        if let Some(InteractiveMoveState::Moving(move_)) = &self.interactive_move {
-            if move_.tile.window().id() == id {
-                return;
-            }
+        if self.interactive_move_targets_window(id) {
+            return;
         }
 
         for ws in self.workspaces_mut() {
@@ -5243,6 +5239,15 @@ impl<W: LayoutElement> Layout<W> {
                 ws.toggle_maximized(id);
                 return;
             }
+        }
+    }
+
+    fn interactive_move_targets_window(&self, id: &W::Id) -> bool {
+        match &self.interactive_move {
+            Some(InteractiveMoveState::Starting { window_id, .. }) => window_id == id,
+            Some(InteractiveMoveState::Moving(move_)) => move_.tile.window().id() == id,
+            Some(InteractiveMoveState::MovingContainer(move_)) => &move_.window_id == id,
+            None => false,
         }
     }
 
