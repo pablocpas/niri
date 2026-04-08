@@ -1,7 +1,5 @@
 ### Overview
 
-<sup>Upstream niri: 25.05</sup>
-
 The Overview is a zoomed-out view of your workspaces and windows.
 It lets you see what's going on at a glance, navigate, and drag windows around.
 
@@ -11,12 +9,12 @@ https://github.com/user-attachments/assets/379a5d1f-acdb-4c11-b36c-e85fd91f0995
 
 </video>
 
-Open it with the `toggle-overview` bind, via the top-left hot corner, or using a touchpad four-finger swipe up.
+Open it with the `toggle-overview` bind, via a configured hot corner, or using a touchpad four-finger swipe.
 While in the overview, all keyboard shortcuts keep working, while pointing devices get easier:
 
-- Mouse: left click and drag windows to move them, right click and drag to scroll workspaces up/down, scroll to switch workspaces (no holding Mod required).
-- Touchpad: two-finger scrolling that matches the normal three-finger gestures.
-- Touchscreen: one-finger scrolling, or one-finger long press to move a window.
+- Mouse: click a window or workspace to activate it, or drag windows around directly.
+- Touchpad: use the overview gesture to open/close it, and the normal workspace switching gestures to move between workspaces.
+- Touchscreen: tap to activate, drag to move through workspaces, and long-press a window to begin moving it.
 
 > [!TIP]
 > The overview needs to draw a background under every workspace.
@@ -33,7 +31,7 @@ https://github.com/user-attachments/assets/5f09c5b7-ff40-462b-8b9c-f1b8073a2cbb
 
 </video>
 
-You can also drag-and-drop a window to a new workspace above, below, or between existing workspaces.
+You can also drag-and-drop a window onto another workspace from the overview.
 
 <video controls src="https://github.com/user-attachments/assets/b76d5349-aa20-4889-ab90-0a51554c789d">
 

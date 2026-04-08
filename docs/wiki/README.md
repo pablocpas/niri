@@ -6,8 +6,6 @@ If you're looking for ways to configure tiri, check out the [introduction to con
 If you'd like to help with tiri, there are plenty of both coding- and non-coding-related ways to do so.
 See `CONTRIBUTING.md` in the repository for an overview.
 
-If you're not already here, check out the documentation site: https://pablocpas.github.io/tiri/
-
 > [!NOTE]
 > **About this documentation:**
 > Tiri is a fork of [niri](https://github.com/YaLTeR/niri), the scrollable-tiling Wayland compositor by Ivan Molodetskikh.
