@@ -318,7 +318,7 @@ jobs:
   publish-wiki:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
-      - publish-docs
+      - test
     permissions:
       contents: write
     runs-on: ubuntu-24.04
@@ -333,7 +333,7 @@ jobs:
           path: docs/wiki/
 
   publish-docs:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: false && github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
       - test
     permissions:
