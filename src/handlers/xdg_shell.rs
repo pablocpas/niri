@@ -1389,11 +1389,6 @@ pub fn add_mapped_toplevel_pre_commit_hook(toplevel: &ToplevelSurface) -> HookId
             trace_span!("toplevel pre-commit", surface = %surface.id(), serial = Empty).entered();
         let resize_animations_enabled = state.niri.layout.are_window_resize_animations_enabled();
 
-        let Some((mapped, _)) = state.niri.layout.find_window_and_output_mut(surface) else {
-            error!("pre-commit hook for mapped surfaces must be removed upon unmapping");
-            return;
-        };
-
         let (got_unmapped, dmabuf, commit_serial) = with_states(surface, |states| {
             let (got_unmapped, dmabuf) = {
                 let mut guard = states.cached_state.get::<SurfaceAttributes>();
@@ -1418,6 +1413,11 @@ pub fn add_mapped_toplevel_pre_commit_hook(toplevel: &ToplevelSurface) -> HookId
             (got_unmapped, dmabuf, serial)
         });
 
+        let Some((mapped, _)) = state.niri.layout.find_window_and_output_mut(surface) else {
+            error!("pre-commit hook for mapped surfaces must be removed upon unmapping");
+            return;
+        };
+
         let mut transaction_for_dmabuf = None;
         let mut animate = false;
         if let Some(serial) = commit_serial {
@@ -1434,7 +1434,6 @@ pub fn add_mapped_toplevel_pre_commit_hook(toplevel: &ToplevelSurface) -> HookId
                     transaction.register_deadline_timer(&state.niri.event_loop);
 
                     let is_last = transaction.is_last();
-
                     // If this is the last transaction, we don't need to add a separate
                     // notification, because the transaction will complete in our dmabuf blocker
                     // callback, which already calls blocker_cleared(), or by the end of this
@@ -1464,6 +1463,8 @@ pub fn add_mapped_toplevel_pre_commit_hook(toplevel: &ToplevelSurface) -> HookId
             error!("commit on a mapped surface without a configured serial");
         };
 
+        let window = mapped.window.clone();
+
         if let Some((blocker, source)) =
             dmabuf.and_then(|dmabuf| dmabuf.generate_blocker(Interest::READ).ok())
         {
@@ -1489,7 +1490,6 @@ pub fn add_mapped_toplevel_pre_commit_hook(toplevel: &ToplevelSurface) -> HookId
             }
         }
 
-        let window = mapped.window.clone();
         if got_unmapped {
             state.backend.with_primary_renderer(|renderer| {
                 state.niri.layout.store_unmap_snapshot(renderer, &window);
@@ -1500,7 +1500,6 @@ pub fn add_mapped_toplevel_pre_commit_hook(toplevel: &ToplevelSurface) -> HookId
                     mapped.store_animation_snapshot(renderer);
                 });
             }
-
             // The toplevel remains mapped; clear any stored unmap snapshot.
             state.niri.layout.clear_unmap_snapshot(&window);
         }

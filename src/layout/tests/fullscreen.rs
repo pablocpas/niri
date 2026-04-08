@@ -57,6 +57,61 @@ fn fullscreen_disables_resize_hits() {
 }
 
 #[test]
+fn fullscreen_visuals_wait_for_commit() {
+    let mut layout = Layout::default();
+    let output = make_test_output("output0");
+    layout.add_output(output.clone(), None);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(2)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    let right_tile = tile_rect(&layout, 2);
+    let probe = Point::from((
+        right_tile.loc.x + right_tile.size.w / 2.0,
+        right_tile.loc.y + right_tile.size.h / 2.0,
+    ));
+
+    let hit = layout.window_under(&output, probe).expect("window 2 should be visible");
+    assert_eq!(*hit.0.id(), 2);
+
+    layout.set_fullscreen(&1, true);
+
+    let hit = layout
+        .window_under(&output, probe)
+        .expect("other tiles should remain visible until fullscreen commit");
+    assert_eq!(*hit.0.id(), 2);
+
+    let window = layout
+        .windows()
+        .find(|(_, win)| *win.id() == 1)
+        .map(|(_, win)| win.clone())
+        .expect("window 1 should exist");
+    assert!(window.communicate(), "fullscreen configure should resize window 1");
+    layout.update_window(window.id(), None);
+
+    let hit = layout
+        .window_under(&output, probe)
+        .expect("fullscreen window should cover the previous probe after commit");
+    assert_eq!(*hit.0.id(), 1);
+}
+
+#[test]
 fn unfullscreen_window_in_column() {
     let ops = [
         Op::AddOutput(1),

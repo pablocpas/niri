@@ -3081,8 +3081,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
             Some((resize.data, ids))
         });
         for tile in self.tiles_mut() {
-            let win = tile.window_mut();
+            let resize_data = resize_target
+                .as_ref()
+                .and_then(|(data, ids)| ids.iter().any(|id| id == tile.window().id()).then_some(*data));
 
+            let win = tile.window_mut();
             win.set_active_in_column(true);
             win.set_floating(true);
 
@@ -3092,9 +3095,6 @@ impl<W: LayoutElement> FloatingSpace<W> {
             }
             win.set_activated(is_active);
 
-            let resize_data = resize_target
-                .as_ref()
-                .and_then(|(data, ids)| ids.iter().any(|id| id == win.id()).then_some(*data));
             win.set_interactive_resize(resize_data);
 
             let border_config = border_base.merged_with(&win.rules().border);

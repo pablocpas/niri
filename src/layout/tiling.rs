@@ -102,11 +102,6 @@ struct ResizeTarget {
     original_span: f64,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct ResizeBoundary {
-    coord: f64,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WorkspaceLayoutTargetKind {
     RootLeaf,
@@ -124,19 +119,41 @@ struct InteractiveResizeState<W: LayoutElement> {
     vertical: Option<ResizeTarget>,
 }
 
-fn path_matches_resize_target(path: &[usize], target: &ResizeTarget) -> bool {
+fn resize_edge_for_path_at_target(
+    path: &[usize],
+    target: &ResizeTarget,
+    near_edge: ResizeEdge,
+    far_edge: ResizeEdge,
+) -> Option<ResizeEdge> {
     if !path.starts_with(&target.parent_path) {
-        return false;
+        return None;
     }
 
     let next_idx = target.parent_path.len();
     if path.len() <= next_idx {
-        return false;
+        return None;
     }
 
     let child_idx = path[next_idx];
-    child_idx == target.child_idx || child_idx == target.neighbor_idx
+    if child_idx == target.child_idx {
+        return Some(if target.neighbor_idx > target.child_idx {
+            far_edge
+        } else {
+            near_edge
+        });
+    }
+
+    if child_idx == target.neighbor_idx {
+        return Some(if target.neighbor_idx > target.child_idx {
+            near_edge
+        } else {
+            far_edge
+        });
+    }
+
+    None
 }
+
 niri_render_elements! {
     TilingSpaceRenderElement<R> => {
         Tile = TileRenderElement<R>,
@@ -286,6 +303,20 @@ impl<'a, W: LayoutElement> Iterator for TileRenderPositionsMut<'a, W> {
 // ============================================================================
 
 impl<W: LayoutElement> TilingSpace<W> {
+    fn render_fullscreen_window(&self) -> Option<W::Id> {
+        let id = self.fullscreen_window.as_ref()?;
+        let path = self.tree.find_window(id)?;
+        let tile = self.tree.tile_at_path(&path)?;
+        tile.window()
+            .sizing_mode()
+            .is_fullscreen()
+            .then(|| id.clone())
+    }
+
+    fn pending_fullscreen_window(&self) -> Option<&W::Id> {
+        self.fullscreen_window.as_ref()
+    }
+
     /// Returns a reference to the current layout information, avoiding clones.
     fn display_layouts(&self) -> &[LeafLayoutInfo] {
         if self.tree.leaf_layouts().is_empty() {
@@ -609,11 +640,12 @@ impl<W: LayoutElement> TilingSpace<W> {
     fn resize_target_for_edge(
         &self,
         path: &[usize],
-        pos: Point<f64, Logical>,
         edge: ResizeEdge,
         layout: Layout,
-    ) -> Option<(ResizeTarget, f64)> {
+        pos: Option<Point<f64, Logical>>,
+    ) -> Option<ResizeTarget> {
         let mut best: Option<(ResizeTarget, f64)> = None;
+        let mut fallback = None;
         let mut current_path = path.to_vec();
 
         while !current_path.is_empty() {
@@ -652,25 +684,29 @@ impl<W: LayoutElement> TilingSpace<W> {
                             },
                         };
 
-                        let Some(boundary) = self.resize_boundary_for_target(&target, edge) else {
-                            current_path.pop();
-                            continue;
-                        };
+                        fallback.get_or_insert_with(|| target.clone());
 
-                        let dist = if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT {
-                            (pos.x - boundary.coord).abs()
-                        } else if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
-                            (pos.y - boundary.coord).abs()
-                        } else {
-                            f64::MAX
-                        };
+                        if let Some(pos) = pos {
+                            let Some(boundary) = self.resize_boundary_coord(&target, edge) else {
+                                current_path.pop();
+                                continue;
+                            };
 
-                        let should_update = match &best {
-                            None => true,
-                            Some((_, best_dist)) => dist + f64::EPSILON < *best_dist,
-                        };
-                        if should_update {
-                            best = Some((target, dist));
+                            let dist = if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT {
+                                (pos.x - boundary).abs()
+                            } else if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
+                                (pos.y - boundary).abs()
+                            } else {
+                                f64::MAX
+                            };
+
+                            let should_update = match &best {
+                                None => true,
+                                Some((_, best_dist)) => dist + f64::EPSILON < *best_dist,
+                            };
+                            if should_update {
+                                best = Some((target, dist));
+                            }
                         }
                     }
                 }
@@ -679,14 +715,10 @@ impl<W: LayoutElement> TilingSpace<W> {
             current_path.pop();
         }
 
-        best
+        best.map(|(target, _)| target).or(fallback)
     }
 
-    fn resize_boundary_for_target(
-        &self,
-        target: &ResizeTarget,
-        edge: ResizeEdge,
-    ) -> Option<ResizeBoundary> {
+    fn resize_boundary_coord(&self, target: &ResizeTarget, edge: ResizeEdge) -> Option<f64> {
         let child_rect = self
             .tree
             .child_rect_at(target.parent_path.as_slice(), target.child_idx)?;
@@ -700,8 +732,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             } else {
                 (child_rect.loc.x + child_rect.size.w, neighbor_rect.loc.x)
             };
-            let coord = (left_edge + right_edge) / 2.0;
-            return Some(ResizeBoundary { coord });
+            return Some((left_edge + right_edge) / 2.0);
         }
 
         if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
@@ -710,61 +741,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             } else {
                 (child_rect.loc.y + child_rect.size.h, neighbor_rect.loc.y)
             };
-            let coord = (top_edge + bottom_edge) / 2.0;
-            return Some(ResizeBoundary { coord });
-        }
-
-        None
-    }
-
-    fn fallback_resize_target(
-        &self,
-        path: &[usize],
-        edge: ResizeEdge,
-        layout: Layout,
-    ) -> Option<ResizeTarget> {
-        let mut current_path = path.to_vec();
-
-        while !current_path.is_empty() {
-            let child_idx = *current_path.last().unwrap();
-            let parent_path = &current_path[..current_path.len() - 1];
-
-            let Some((container_layout, _rect, child_count)) =
-                self.tree.container_info(parent_path)
-            else {
-                current_path.pop();
-                continue;
-            };
-
-            if container_layout == layout && child_count > 1 {
-                let neighbor_idx = if edge == ResizeEdge::LEFT || edge == ResizeEdge::TOP {
-                    child_idx.checked_sub(1)
-                } else if edge == ResizeEdge::RIGHT || edge == ResizeEdge::BOTTOM {
-                    (child_idx + 1 < child_count).then_some(child_idx + 1)
-                } else {
-                    None
-                };
-
-                if let Some(neighbor_idx) = neighbor_idx {
-                    if let Some(child_rect) = self.tree.child_rect_at(parent_path, child_idx) {
-                        return Some(ResizeTarget {
-                            parent_path: parent_path.to_vec(),
-                            child_idx,
-                            neighbor_idx,
-                            original_span: if edge == ResizeEdge::LEFT || edge == ResizeEdge::RIGHT
-                            {
-                                child_rect.size.w
-                            } else if edge == ResizeEdge::TOP || edge == ResizeEdge::BOTTOM {
-                                child_rect.size.h
-                            } else {
-                                0.0
-                            },
-                        });
-                    }
-                }
-            }
-
-            current_path.pop();
+            return Some((top_edge + bottom_edge) / 2.0);
         }
 
         None
@@ -796,12 +773,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             } else {
                 ResizeEdge::RIGHT
             };
-            horizontal = pos
-                .and_then(|pos| {
-                    self.resize_target_for_edge(&path, pos, edge, Layout::SplitH)
-                        .map(|(target, _)| target)
-                })
-                .or_else(|| self.fallback_resize_target(&path, edge, Layout::SplitH));
+            horizontal = self.resize_target_for_edge(&path, edge, Layout::SplitH, pos);
             if horizontal.is_none() {
                 edges.remove(ResizeEdge::LEFT_RIGHT);
             }
@@ -813,12 +785,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             } else {
                 ResizeEdge::BOTTOM
             };
-            vertical = pos
-                .and_then(|pos| {
-                    self.resize_target_for_edge(&path, pos, edge, Layout::SplitV)
-                        .map(|(target, _)| target)
-                })
-                .or_else(|| self.fallback_resize_target(&path, edge, Layout::SplitV));
+            vertical = self.resize_target_for_edge(&path, edge, Layout::SplitV, pos);
             if vertical.is_none() {
                 edges.remove(ResizeEdge::TOP_BOTTOM);
             }
@@ -831,16 +798,31 @@ impl<W: LayoutElement> TilingSpace<W> {
         Some((edges, horizontal, vertical))
     }
 
-    fn resize_affects_path(path: &[usize], resize: &InteractiveResizeState<W>) -> bool {
-        resize
-            .horizontal
-            .as_ref()
-            .is_some_and(|target| path_matches_resize_target(path, target))
-            || resize
-                .vertical
-                .as_ref()
-                .is_some_and(|target| path_matches_resize_target(path, target))
+    fn interactive_resize_data_for_path(
+        path: &[usize],
+        resize: &InteractiveResizeState<W>,
+    ) -> Option<InteractiveResizeData> {
+        let mut edges = ResizeEdge::empty();
+
+        if let Some(target) = resize.horizontal.as_ref() {
+            if let Some(edge) =
+                resize_edge_for_path_at_target(path, target, ResizeEdge::LEFT, ResizeEdge::RIGHT)
+            {
+                edges |= edge;
+            }
+        }
+
+        if let Some(target) = resize.vertical.as_ref() {
+            if let Some(edge) =
+                resize_edge_for_path_at_target(path, target, ResizeEdge::TOP, ResizeEdge::BOTTOM)
+            {
+                edges |= edge;
+            }
+        }
+
+        (!edges.is_empty()).then_some(InteractiveResizeData { edges })
     }
+
     pub fn new(
         view_size: Size<f64, Logical>,
         working_area: Rectangle<f64, Logical>,
@@ -1030,7 +1012,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         let scale = Scale::from(self.scale);
         let focus_path = self.tree.focus_path();
         let selection_is_container = self.tree.selected_is_container();
-        let fullscreen_id = self.fullscreen_window.as_ref();
+        let fullscreen_id = self.render_fullscreen_window();
         let windowed_fullscreen_id = if fullscreen_id.is_none() {
             self.tree.focused_tile().and_then(|tile| {
                 tile.window()
@@ -1082,7 +1064,9 @@ impl<W: LayoutElement> TilingSpace<W> {
         for info in render_layouts.iter().rev() {
             // Use O(1) key lookup instead of O(depth) path lookup.
             if let Some(tile) = self.tree.get_tile(info.key) {
-                let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_tile = fullscreen_id
+                    .as_ref()
+                    .is_some_and(|id| id == tile.window().id());
                 let is_windowed_fullscreen_tile = windowed_fullscreen_id
                     .as_ref()
                     .is_some_and(|id| id == tile.window().id());
@@ -1306,8 +1290,9 @@ impl<W: LayoutElement> TilingSpace<W> {
         let focus_path = self.tree.focus_path();
         let selection_is_container = self.tree.selected_is_container();
         let scale = Scale::from(self.scale);
-        let fullscreen_id = self.fullscreen_window.as_ref();
-        let windowed_fullscreen_id = if fullscreen_id.is_none() {
+        let logical_fullscreen_id = self.pending_fullscreen_window().cloned();
+        let visual_fullscreen_id = self.render_fullscreen_window();
+        let windowed_fullscreen_id = if visual_fullscreen_id.is_none() {
             self.tree.focused_tile().and_then(|tile| {
                 tile.window()
                     .is_pending_windowed_fullscreen()
@@ -1316,7 +1301,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         } else {
             None
         };
-        let has_fullscreen_like = fullscreen_id.is_some() || windowed_fullscreen_id.is_some();
+        let has_fullscreen_like = visual_fullscreen_id.is_some() || windowed_fullscreen_id.is_some();
         let layout_rect = self.tree.layout_area();
         let is_single_window = self.tree.window_count() <= 1;
         // Clone here because we need mutable access to tree in the loop below.
@@ -1339,11 +1324,10 @@ impl<W: LayoutElement> TilingSpace<W> {
         for info in state_layouts {
             // Use O(1) key lookup instead of O(depth) path lookup.
             if let Some(tile) = self.tree.get_tile_mut(info.key) {
-                let resize = self.interactive_resize.as_ref().and_then(|resize| {
-                    let matches = &resize.window == tile.window().id()
-                        || Self::resize_affects_path(&info.path, resize);
-                    matches.then_some(resize.data)
-                });
+                let resize = self
+                    .interactive_resize
+                    .as_ref()
+                    .and_then(|resize| Self::interactive_resize_data_for_path(&info.path, resize));
                 Self::update_window_state(
                     tile,
                     &info,
@@ -1354,7 +1338,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                     !has_pending,
                     self.working_area.size,
                     &self.options,
-                    fullscreen_id,
+                    logical_fullscreen_id.as_ref(),
                     windowed_fullscreen_id.as_ref(),
                     self.view_size,
                 );
@@ -1364,7 +1348,9 @@ impl<W: LayoutElement> TilingSpace<W> {
         for (info, (edges, indicator_edge)) in render_layouts.into_iter().zip(render_edges) {
             // Use O(1) key lookup instead of O(depth) path lookup.
             if let Some(tile) = self.tree.get_tile_mut(info.key) {
-                let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_tile = visual_fullscreen_id
+                    .as_ref()
+                    .is_some_and(|id| id == tile.window().id());
                 let is_windowed_fullscreen_tile = windowed_fullscreen_id
                     .as_ref()
                     .is_some_and(|id| id == tile.window().id());
@@ -1561,7 +1547,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn resize_hit_under(&mut self, pos: Point<f64, Logical>) -> Option<ResizeHit<W::Id>> {
-        let has_fullscreen_like = self.fullscreen_window.is_some()
+        let has_fullscreen_like = self.render_fullscreen_window().is_some()
             || self
                 .tree
                 .focused_tile()
@@ -1593,10 +1579,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             if !edges.contains(edge) || !cross_ok || dist > edge_threshold {
                 return;
             }
-            if self
-                .resize_target_for_edge(&path, pos, edge, layout)
-                .is_none()
-            {
+            if self.resize_target_for_edge(&path, edge, layout, Some(pos)).is_none() {
                 return;
             }
             let score = dist / edge_threshold.max(1.0);
@@ -2291,7 +2274,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         pos: Point<f64, Logical>,
     ) -> Option<(Vec<usize>, Rectangle<f64, Logical>)> {
         let scale = Scale::from(self.scale);
-        let fullscreen_id = self.fullscreen_window.as_ref();
+        let fullscreen_id = self.render_fullscreen_window();
         let windowed_fullscreen_id = if fullscreen_id.is_none() {
             self.tree.focused_tile().and_then(|tile| {
                 tile.window()
@@ -2307,7 +2290,9 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         for info in self.display_layouts() {
             if let Some(tile) = self.tree.get_tile(info.key) {
-                let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_tile = fullscreen_id
+                    .as_ref()
+                    .is_some_and(|id| id == tile.window().id());
                 let is_windowed_fullscreen_tile = windowed_fullscreen_id
                     .as_ref()
                     .is_some_and(|id| id == tile.window().id());
@@ -2517,7 +2502,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     // Window queries
     fn tab_bar_hit(&self, pos: Point<f64, Logical>) -> Option<(&W, super::HitType)> {
-        if self.fullscreen_window.is_some() || self.options.layout.tab_bar.off {
+        if self.render_fullscreen_window().is_some() || self.options.layout.tab_bar.off {
             return None;
         }
 
@@ -2615,7 +2600,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn window_under(&self, pos: Point<f64, Logical>) -> Option<(&W, super::HitType)> {
         let scale = Scale::from(self.scale);
-        let fullscreen_id = self.fullscreen_window.as_ref();
+        let fullscreen_id = self.render_fullscreen_window();
         let windowed_fullscreen_id = if fullscreen_id.is_none() {
             self.tree.focused_tile().and_then(|tile| {
                 tile.window()
@@ -2635,7 +2620,9 @@ impl<W: LayoutElement> TilingSpace<W> {
         for info in render_layouts.iter().rev() {
             // Use O(1) key lookup instead of O(depth) path lookup.
             if let Some(tile) = self.tree.get_tile(info.key) {
-                let is_fullscreen_tile = fullscreen_id.is_some_and(|id| id == tile.window().id());
+                let is_fullscreen_tile = fullscreen_id
+                    .as_ref()
+                    .is_some_and(|id| id == tile.window().id());
                 let is_windowed_fullscreen_tile = windowed_fullscreen_id
                     .as_ref()
                     .is_some_and(|id| id == tile.window().id());
@@ -3595,7 +3582,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             self.tree.leaf_layouts_cloned()
         };
         let focus_path = self.tree.focus_path();
-        let fullscreen_id = self.fullscreen_window.as_ref();
+        let fullscreen_id = self.pending_fullscreen_window().cloned();
         let windowed_fullscreen_id = if fullscreen_id.is_none() {
             self.tree.focused_tile().and_then(|tile| {
                 tile.window()
@@ -3611,11 +3598,10 @@ impl<W: LayoutElement> TilingSpace<W> {
             if let Some(tile) = self.tree.get_tile_mut(info.key) {
                 let deactivate_unfocused = self.options.deactivate_unfocused_windows && !is_focused;
 
-                let resize = self.interactive_resize.as_ref().and_then(|resize| {
-                    let matches = &resize.window == tile.window().id()
-                        || Self::resize_affects_path(&info.path, resize);
-                    matches.then_some(resize.data)
-                });
+                let resize = self
+                    .interactive_resize
+                    .as_ref()
+                    .and_then(|resize| Self::interactive_resize_data_for_path(&info.path, resize));
                 Self::update_window_state(
                     tile,
                     &info,
@@ -3626,7 +3612,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                     !has_pending,
                     self.working_area.size,
                     &self.options,
-                    fullscreen_id,
+                    fullscreen_id.as_ref(),
                     windowed_fullscreen_id.as_ref(),
                     self.view_size,
                 );
@@ -3635,7 +3621,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
     pub fn render_above_top_layer(&self) -> bool {
         // Render above the top layer (e.g. waybar) when a window is fullscreen
-        self.fullscreen_window.is_some()
+        self.render_fullscreen_window().is_some()
             || self
                 .tree
                 .focused_tile()
@@ -3725,8 +3711,6 @@ impl<W: LayoutElement> TilingSpace<W> {
             }
         }
 
-        let window = tile.window_mut();
-
         let mut active = workspace_active && is_focused_tile;
 
         if has_fullscreen_like && !is_fullscreen_like_tile {
@@ -3737,6 +3721,7 @@ impl<W: LayoutElement> TilingSpace<W> {
 
         let active_in_column = is_focused_tile && (!has_fullscreen_like || is_fullscreen_like_tile);
 
+        let window = tile.window_mut();
         window.set_active_in_column(active_in_column);
         window.set_floating(false);
         window.set_activated(active);
