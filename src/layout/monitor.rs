@@ -794,6 +794,51 @@ impl<W: LayoutElement> Monitor<W> {
         self.add_workspace_at(self.workspaces.len());
     }
 
+    pub(super) fn adopt_workspace_name_by_visible_idx(&mut self, name: &str) -> Option<usize> {
+        let Ok(target_idx) = name.parse::<usize>() else {
+            return None;
+        };
+
+        let mut visible_idx = 0;
+        let mut workspace_idx = None;
+        for idx in 0..self.workspaces.len() {
+            if self.is_internal_empty_workspace(idx) {
+                continue;
+            }
+
+            visible_idx += 1;
+            if visible_idx == target_idx {
+                if self.workspaces[idx].name().is_some() {
+                    return None;
+                }
+
+                workspace_idx = Some(idx);
+                break;
+            }
+        }
+
+        let workspace_idx = workspace_idx?;
+
+        if self.options.layout.empty_workspace_above_first
+            && self.workspaces.len() == 1
+            && workspace_idx == 0
+        {
+            self.add_workspace_bottom();
+            self.workspaces[1].set_name(name.to_owned(), false);
+            self.add_workspace_bottom();
+            self.active_workspace_idx = 1;
+            return Some(1);
+        }
+
+        self.workspaces[workspace_idx].set_name(name.to_owned(), false);
+
+        if workspace_idx == self.workspaces.len() - 1 {
+            self.add_workspace_bottom();
+        }
+
+        Some(workspace_idx)
+    }
+
     pub fn activate_workspace(&mut self, idx: usize) {
         self.activate_workspace_with_anim_config(idx, None);
     }

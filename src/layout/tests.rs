@@ -7681,6 +7681,104 @@ fn set_last_workspace_name() {
 }
 
 #[test]
+fn numeric_workspace_one_adopts_initial_unnamed_workspace() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output = make_test_output("eDP-1");
+    layout.add_output(output.clone(), None);
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let active_workspace_id = layout.active_workspace().unwrap().id();
+    let workspace_count = layout.monitor_for_output(&output).unwrap().workspace_count();
+
+    let (target_output, idx) = layout.ensure_workspace_by_name_transient("1").unwrap();
+    layout.verify_invariants();
+
+    assert_eq!(target_output.as_ref().map(|out| out.name()), Some(output.name()));
+    assert_eq!(idx, 0);
+    assert_eq!(
+        layout.find_workspace_by_name("1").map(|(_, ws)| ws.id()),
+        Some(active_workspace_id),
+    );
+    assert_eq!(
+        layout.monitor_for_output(&output).unwrap().workspace_count(),
+        workspace_count,
+    );
+}
+
+#[test]
+fn numeric_workspace_one_adopts_initial_workspace_after_switching_to_two() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output = make_test_output("eDP-1");
+    layout.add_output(output.clone(), None);
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let initial_workspace_id = layout.active_workspace().unwrap().id();
+    let (_, ws_2_idx) = layout.ensure_workspace_by_name_transient("2").unwrap();
+    let (_, ws_2) = layout.find_workspace_by_name("2").unwrap();
+    layout.focus_workspace_by_id(ws_2.id(), false);
+
+    let (target_output, ws_1_idx) = layout.ensure_workspace_by_name_transient("1").unwrap();
+    layout.verify_invariants();
+
+    assert_eq!(target_output.as_ref().map(|out| out.name()), Some(output.name()));
+    assert_eq!(ws_1_idx, 0);
+    assert_eq!(ws_2_idx, 1);
+    assert_eq!(
+        layout.find_workspace_by_name("1").map(|(_, ws)| ws.id()),
+        Some(initial_workspace_id),
+    );
+
+    let mon = layout.monitor_for_output(&output).unwrap();
+    let names: Vec<_> = mon
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().map(String::as_str))
+        .collect();
+    assert_eq!(names, vec!["1", "2"]);
+}
+
+#[test]
+fn numeric_workspace_one_adoption_keeps_empty_above_first_invariant() {
+    let mut layout: Layout<TestWindow> = Layout::with_options(
+        Clock::with_time(Duration::ZERO),
+        Options {
+            layout: tiri_config::Layout {
+                empty_workspace_above_first: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    let output = make_test_output("eDP-1");
+    layout.add_output(output.clone(), None);
+    layout.ensure_workspace_by_name_transient("1");
+    layout.verify_invariants();
+
+    let mon = layout.monitor_for_output(&output).unwrap();
+    assert_eq!(mon.workspace_count(), 3);
+    assert_eq!(mon.active_workspace_idx(), 1);
+    assert_eq!(mon.workspaces[0].name(), None);
+    assert_eq!(mon.workspaces[1].name().map(String::as_str), Some("1"));
+    assert_eq!(mon.workspaces[2].name(), None);
+}
+
+#[test]
 fn ensure_workspace_by_name_creates_named_workspace() {
     let mut layout: Layout<TestWindow> = Layout::default();
     let output = make_test_output("eDP-1");

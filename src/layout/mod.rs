@@ -1442,6 +1442,11 @@ impl<W: LayoutElement> Layout<W> {
                 ..
             } => {
                 let mon = &mut monitors[*active_monitor_idx];
+                if transient {
+                    if let Some(idx) = mon.adopt_workspace_name_by_visible_idx(&name) {
+                        return Some((Some(mon.output().clone()), idx));
+                    }
+                }
 
                 // Insert before the trailing internal empty workspace.
                 let idx = mon.workspace_count().saturating_sub(1);
