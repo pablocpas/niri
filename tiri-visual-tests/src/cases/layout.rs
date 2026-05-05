@@ -8,7 +8,7 @@ use smithay::output::{Mode, Output, PhysicalProperties, Subpixel};
 use smithay::utils::{Physical, Size};
 use tiri::animation::Clock;
 use tiri::layout::{ActivateWindow, AddWindowTarget, LayoutElement as _, Options, SizingMode};
-use tiri::render_helpers::RenderTarget;
+use tiri::render_helpers::{RenderCtx, RenderTarget};
 use tiri_config::{Color, OutputName, PresetSize};
 
 use super::{Args, TestCase};
@@ -345,12 +345,15 @@ impl TestCase for Layout {
         self.layout.update_render_elements(Some(&self.output));
 
         let mut rv = Vec::new();
+        let ctx = RenderCtx {
+            renderer,
+            target: RenderTarget::Output,
+            xray: None,
+        };
         self.layout
             .monitor_for_output(&self.output)
             .unwrap()
-            .render_workspaces(renderer, RenderTarget::Output, true, &mut |elem| {
-                rv.push(Box::new(elem) as _)
-            });
+            .render_workspaces(ctx, true, &mut |elem| rv.push(Box::new(elem) as _));
         rv
     }
 }

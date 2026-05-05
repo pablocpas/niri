@@ -614,7 +614,7 @@ impl XdgShellHandler for State {
         toplevel: ToplevelSurface,
         wl_output: Option<wl_output::WlOutput>,
     ) {
-        let requested_output = wl_output.as_ref().and_then(Output::from_resource);
+        let requested_output = wl_output.and_then(|o| self.niri.output_from_resource(&o));
 
         if let Some((mapped, current_output)) = self
             .niri
@@ -789,9 +789,7 @@ impl XdgShellHandler for State {
         self.niri
             .stop_casts_for_target(CastTarget::Window { id: id.get() });
 
-        self.backend.with_primary_renderer(|renderer| {
-            self.niri.layout.store_unmap_snapshot(renderer, &window);
-        });
+        self.store_unmap_snapshot(&window, output.as_ref());
 
         let transaction = Transaction::new();
         let blocker = transaction.blocker();
@@ -1389,6 +1387,11 @@ pub fn add_mapped_toplevel_pre_commit_hook(toplevel: &ToplevelSurface) -> HookId
             trace_span!("toplevel pre-commit", surface = %surface.id(), serial = Empty).entered();
         let resize_animations_enabled = state.niri.layout.are_window_resize_animations_enabled();
 
+        let Some((mapped, output)) = state.niri.layout.find_window_and_output_mut(surface) else {
+            error!("pre-commit hook for mapped surfaces must be removed upon unmapping");
+            return;
+        };
+
         let (got_unmapped, dmabuf, commit_serial) = with_states(surface, |states| {
             let (got_unmapped, dmabuf) = {
                 let mut guard = states.cached_state.get::<SurfaceAttributes>();
@@ -1412,11 +1415,6 @@ pub fn add_mapped_toplevel_pre_commit_hook(toplevel: &ToplevelSurface) -> HookId
 
             (got_unmapped, dmabuf, serial)
         });
-
-        let Some((mapped, _)) = state.niri.layout.find_window_and_output_mut(surface) else {
-            error!("pre-commit hook for mapped surfaces must be removed upon unmapping");
-            return;
-        };
 
         let mut transaction_for_dmabuf = None;
         let mut animate = false;
@@ -1491,9 +1489,8 @@ pub fn add_mapped_toplevel_pre_commit_hook(toplevel: &ToplevelSurface) -> HookId
         }
 
         if got_unmapped {
-            state.backend.with_primary_renderer(|renderer| {
-                state.niri.layout.store_unmap_snapshot(renderer, &window);
-            });
+            let output = output.cloned();
+            state.store_unmap_snapshot(&window, output.as_ref());
         } else {
             if animate {
                 state.backend.with_primary_renderer(|renderer| {

@@ -635,23 +635,8 @@ impl State {
         let focused_ws_id = layout.active_workspace().map(|ws| ws.id().get());
 
         let visible_workspace_idx = |mon: Option<&crate::layout::monitor::Monitor<Mapped>>,
-                                     ws_idx: usize|
-         -> Option<usize> {
-            let Some(mon) = mon else {
-                return Some(ws_idx + 1);
-            };
-
-            if mon.is_internal_empty_workspace(ws_idx) {
-                return None;
-            }
-
-            let mut idx = 0usize;
-            for i in 0..=ws_idx {
-                if !mon.is_internal_empty_workspace(i) {
-                    idx += 1;
-                }
-            }
-            Some(idx)
+                                     ws_idx: usize| {
+            mon.map_or(Some(ws_idx + 1), |mon| mon.visible_workspace_idx(ws_idx))
         };
 
         // Check for workspace changes.

@@ -87,7 +87,9 @@ fn fullscreen_visuals_wait_for_commit() {
         right_tile.loc.y + right_tile.size.h / 2.0,
     ));
 
-    let hit = layout.window_under(&output, probe).expect("window 2 should be visible");
+    let hit = layout
+        .window_under(&output, probe)
+        .expect("window 2 should be visible");
     assert_eq!(*hit.0.id(), 2);
 
     layout.set_fullscreen(&1, true);
@@ -102,7 +104,10 @@ fn fullscreen_visuals_wait_for_commit() {
         .find(|(_, win)| *win.id() == 1)
         .map(|(_, win)| win.clone())
         .expect("window 1 should exist");
-    assert!(window.communicate(), "fullscreen configure should resize window 1");
+    assert!(
+        window.communicate(),
+        "fullscreen configure should resize window 1"
+    );
     layout.update_window(window.id(), None);
 
     let hit = layout

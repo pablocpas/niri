@@ -7,6 +7,8 @@ pub struct Workspace {
     #[knuffel(argument)]
     pub name: WorkspaceName,
     #[knuffel(child, unwrap(argument))]
+    pub number: Option<u32>,
+    #[knuffel(child, unwrap(argument))]
     pub open_on_output: Option<String>,
     #[knuffel(child)]
     pub layout: Option<WorkspaceLayoutPart>,

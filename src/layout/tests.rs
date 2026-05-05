@@ -152,10 +152,12 @@ impl TestWindow {
                 if self.0.animate_next_configure.get() {
                     self.0.animation_snapshot.replace(Some(RenderSnapshot {
                         contents: Vec::new(),
+                        contents_with_blocked_out_bg: None,
                         blocked_out_contents: Vec::new(),
                         block_out_from: None,
                         size: self.0.bbox.get().size.to_f64(),
                         texture: OnceCell::new(),
+                        texture_with_blocked_out_bg: Default::default(),
                         blocked_out_texture: OnceCell::new(),
                     }));
                 }
@@ -283,6 +285,10 @@ impl LayoutElement for TestWindow {
 
     fn requested_size(&self) -> Option<Size<i32, Logical>> {
         self.0.requested_size.get()
+    }
+
+    fn is_windowed_fullscreen(&self) -> bool {
+        self.0.is_windowed_fullscreen.get()
     }
 
     fn is_pending_windowed_fullscreen(&self) -> bool {
@@ -929,6 +935,7 @@ impl Op {
             } => {
                 layout.ensure_named_workspace(&WorkspaceConfig {
                     name: WorkspaceName(format!("ws{ws_name}")),
+                    number: None,
                     open_on_output: output_name.map(|name| format!("output{name}")),
                     layout: layout_config.map(|x| tiri_config::WorkspaceLayoutPart(*x)),
                 });
@@ -1078,8 +1085,7 @@ impl Op {
                                 }
 
                                 if ws
-                                    .name
-                                    .as_ref()
+                                    .name()
                                     .is_some_and(|name| name.eq_ignore_ascii_case(&ws_name))
                                 {
                                     ws_id = Some(ws.id());
@@ -1096,8 +1102,7 @@ impl Op {
                             }
 
                             if ws
-                                .name
-                                .as_ref()
+                                .name()
                                 .is_some_and(|name| name.eq_ignore_ascii_case(&ws_name))
                             {
                                 ws_id = Some(ws.id());
@@ -1316,7 +1321,10 @@ impl Op {
                         .iter()
                         .enumerate()
                         .find_map(|(i, ws)| {
-                            if ws.name == Some(format!("ws{ws_name}")) {
+                            if ws
+                                .name()
+                                .is_some_and(|name| name == &format!("ws{ws_name}"))
+                            {
                                 Some(i)
                             } else {
                                 None
@@ -1361,7 +1369,10 @@ impl Op {
                         .iter()
                         .enumerate()
                         .find_map(|(i, ws)| {
-                            if ws.name == Some(format!("ws{ws_name}")) {
+                            if ws
+                                .name()
+                                .is_some_and(|name| name == &format!("ws{ws_name}"))
+                            {
                                 Some(i)
                             } else {
                                 None
@@ -5678,7 +5689,7 @@ fn scratchpad_show_after_move_to_workspace_cleans_empty_non_active_workspace() {
     for (idx, ws) in monitor.workspaces.iter().enumerate().skip(1) {
         if idx != monitor.active_workspace_idx && idx != monitor.workspaces.len() - 1 {
             assert!(
-                ws.has_windows_or_name(),
+                ws.has_windows() || ws.name().is_some(),
                 "workspace {idx} should not be left empty and unnamed"
             );
         }
@@ -5793,7 +5804,7 @@ fn move_to_scratchpad_cleans_empty_non_active_workspace() {
     let last_idx = monitor.workspaces.len() - 1;
     for (idx, workspace) in monitor.workspaces.iter().enumerate() {
         if idx != monitor.active_workspace_idx && idx != last_idx {
-            assert!(workspace.has_windows_or_name());
+            assert!(workspace.has_windows_or_persistent_identity());
         }
     }
 }
@@ -8144,6 +8155,125 @@ fn set_last_workspace_name() {
 }
 
 #[test]
+fn initial_numeric_workspace_one_is_seeded() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output = make_test_output("eDP-1");
+    layout.add_output(output.clone(), None);
+    layout.verify_invariants();
+
+    let active_workspace_id = layout.active_workspace().unwrap().id();
+    let workspace_count = layout
+        .monitor_for_output(&output)
+        .unwrap()
+        .workspace_count();
+    let (target_output, idx) = layout.ensure_numeric_workspace(1).unwrap();
+
+    assert_eq!(
+        target_output.as_ref().map(|out| out.name()),
+        Some(output.name())
+    );
+    assert_eq!(idx, 0);
+    assert_eq!(
+        layout.find_workspace_by_number(1).map(|(_, ws)| ws.id()),
+        Some(active_workspace_id),
+    );
+    assert_eq!(
+        layout
+            .monitor_for_output(&output)
+            .unwrap()
+            .workspace_count(),
+        workspace_count,
+    );
+}
+
+#[test]
+fn numeric_workspace_one_is_reused_after_switching_to_two() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output = make_test_output("eDP-1");
+    layout.add_output(output.clone(), None);
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(1)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let initial_workspace_id = layout.active_workspace().unwrap().id();
+    let (_, ws_2_idx) = layout.ensure_numeric_workspace(2).unwrap();
+    let (_, ws_2) = layout.find_workspace_by_number(2).unwrap();
+    layout.focus_workspace_by_id(ws_2.id(), false);
+
+    let (target_output, ws_1_idx) = layout.ensure_numeric_workspace(1).unwrap();
+    layout.verify_invariants();
+
+    assert_eq!(
+        target_output.as_ref().map(|out| out.name()),
+        Some(output.name())
+    );
+    assert_eq!(ws_1_idx, 0);
+    assert_eq!(ws_2_idx, 1);
+    assert_eq!(
+        layout.find_workspace_by_number(1).map(|(_, ws)| ws.id()),
+        Some(initial_workspace_id),
+    );
+
+    let mon = layout.monitor_for_output(&output).unwrap();
+    let names: Vec<_> = mon
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().map(String::as_str))
+        .collect();
+    assert_eq!(names, vec!["1", "2"]);
+}
+
+#[test]
+fn initial_numeric_workspace_one_keeps_empty_above_first_invariant() {
+    let mut layout: Layout<TestWindow> = Layout::with_options(
+        Clock::with_time(Duration::ZERO),
+        Options {
+            layout: tiri_config::Layout {
+                empty_workspace_above_first: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    );
+    let output = make_test_output("eDP-1");
+    layout.add_output(output.clone(), None);
+    layout.verify_invariants();
+
+    let mon = layout.monitor_for_output(&output).unwrap();
+    assert_eq!(mon.workspace_count(), 3);
+    assert_eq!(mon.active_workspace_idx(), 1);
+    assert_eq!(mon.workspaces[0].name(), None);
+    assert_eq!(mon.workspaces[1].name().map(String::as_str), Some("1"));
+    assert_eq!(mon.workspaces[2].name(), None);
+}
+
+fn add_window_to_numeric_workspace(
+    layout: &mut Layout<TestWindow>,
+    number: u32,
+    window_id: usize,
+) -> WorkspaceId {
+    layout.ensure_numeric_workspace(number).unwrap();
+    let workspace_id = layout.find_workspace_by_number(number).unwrap().1.id();
+    layout.focus_workspace_by_id(workspace_id, false);
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(window_id)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+    workspace_id
+}
+
+#[test]
 fn ensure_workspace_by_name_creates_named_workspace() {
     let mut layout: Layout<TestWindow> = Layout::default();
     let output = make_test_output("eDP-1");
@@ -8154,20 +8284,180 @@ fn ensure_workspace_by_name_creates_named_workspace() {
         target_output.as_ref().map(|out| out.name()),
         Some(output.name())
     );
-    assert_eq!(idx, 0);
+    assert_eq!(idx, 1);
 
     let (found_idx, ws) = layout.find_workspace_by_name("3").unwrap();
-    assert_eq!(found_idx, 0);
+    assert_eq!(found_idx, 1);
     assert_eq!(ws.name().map(String::as_str), Some("3"));
+    assert!(layout.find_workspace_by_number(3).is_none());
 }
 
 #[test]
-fn find_workspace_by_ref_index_prefers_numeric_named_workspace() {
+fn numeric_config_workspace_has_numeric_identity() {
+    let output = make_test_output("eDP-1");
+    let mut config = Config::default();
+    config.workspaces.push(WorkspaceConfig {
+        name: WorkspaceName("code".to_owned()),
+        number: Some(2),
+        open_on_output: Some(output.name()),
+        layout: None,
+    });
+    let mut layout: Layout<TestWindow> = Layout::new(Clock::with_time(Duration::ZERO), &config);
+
+    layout.add_output(output.clone(), None);
+
+    let workspace_id = layout
+        .find_workspace_by_number(2)
+        .map(|(_, ws)| ws.id())
+        .expect("configured workspace 2 must have numeric identity");
+    let (target_output, idx) = layout.ensure_numeric_workspace(2).unwrap();
+
+    assert_eq!(
+        target_output.as_ref().map(|out| out.name()),
+        Some(output.name())
+    );
+    assert_eq!(idx, 0);
+    assert_eq!(
+        layout.find_workspace_by_name("code").map(|(_, ws)| ws.id()),
+        Some(workspace_id),
+    );
+    assert!(layout.find_workspace_by_name("2").is_none());
+}
+
+#[test]
+fn sway_style_numeric_config_workspace_uses_prefix_as_number() {
+    let output = make_test_output("eDP-1");
+    let mut config = Config::default();
+    config.workspaces.push(WorkspaceConfig {
+        name: WorkspaceName("5:files".to_owned()),
+        number: None,
+        open_on_output: Some(output.name()),
+        layout: None,
+    });
+    let mut layout: Layout<TestWindow> = Layout::new(Clock::with_time(Duration::ZERO), &config);
+
+    layout.add_output(output.clone(), None);
+
+    let workspace_id = layout
+        .find_workspace_by_number(5)
+        .map(|(_, ws)| ws.id())
+        .expect("configured workspace 5 must have numeric identity");
+
+    assert_eq!(
+        layout
+            .find_workspace_by_name("5:files")
+            .map(|(_, ws)| ws.id()),
+        Some(workspace_id),
+    );
+}
+
+#[test]
+fn numeric_workspaces_are_inserted_in_number_order() {
     let mut layout: Layout<TestWindow> = Layout::default();
     layout.add_output(make_test_output("eDP-1"), None);
 
-    layout.ensure_workspace_by_name("3");
-    let (_, ws) = layout.find_workspace_by_name("3").unwrap();
+    layout.ensure_numeric_workspace(5);
+    layout.ensure_numeric_workspace(2);
+    layout.ensure_numeric_workspace(3);
+
+    let MonitorSet::Normal { monitors, .. } = &layout.monitor_set else {
+        unreachable!()
+    };
+    let names: Vec<_> = monitors[0]
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().cloned())
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            "1".to_owned(),
+            "2".to_owned(),
+            "3".to_owned(),
+            "5".to_owned(),
+        ],
+    );
+}
+
+#[test]
+fn named_workspaces_are_inserted_after_numeric_workspaces() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    layout.add_output(make_test_output("eDP-1"), None);
+    add_window_to_numeric_workspace(&mut layout, 1, 1);
+    add_window_to_numeric_workspace(&mut layout, 5, 5);
+    add_window_to_numeric_workspace(&mut layout, 2, 2);
+
+    layout.ensure_named_workspace(&WorkspaceConfig {
+        name: WorkspaceName("web".to_owned()),
+        number: None,
+        open_on_output: None,
+        layout: None,
+    });
+
+    let MonitorSet::Normal { monitors, .. } = &layout.monitor_set else {
+        unreachable!()
+    };
+    let names: Vec<_> = monitors[0]
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().cloned())
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            "1".to_owned(),
+            "2".to_owned(),
+            "5".to_owned(),
+            "web".to_owned(),
+        ],
+    );
+}
+
+#[test]
+fn empty_inactive_numeric_workspace_is_destroyed_without_renumbering() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output = make_test_output("eDP-1");
+    layout.add_output(output.clone(), None);
+
+    layout.ensure_numeric_workspace(3);
+    let (_, ws_3) = layout.find_workspace_by_number(3).unwrap();
+    layout.focus_workspace_by_id(ws_3.id(), false);
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(3)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let (_, ws_1) = layout.find_workspace_by_number(1).unwrap();
+    layout.focus_workspace_by_id(ws_1.id(), false);
+    let MonitorSet::Normal { monitors, .. } = &mut layout.monitor_set else {
+        unreachable!()
+    };
+    monitors[0].workspace_switch = None;
+    layout.remove_window(&3, Transaction::new());
+    layout.verify_invariants();
+
+    assert!(layout.find_workspace_by_number(3).is_none());
+    let mon = layout.monitor_for_output(&output).unwrap();
+    let names: Vec<_> = mon
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().map(String::as_str))
+        .collect();
+    assert_eq!(names, vec!["1"]);
+}
+
+#[test]
+fn find_workspace_by_ref_index_uses_numeric_workspace_identity() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    layout.add_output(make_test_output("eDP-1"), None);
+
+    layout.ensure_numeric_workspace(3);
+    let (_, ws) = layout.find_workspace_by_number(3).unwrap();
     let ws_id = ws.id();
 
     let resolved = layout
@@ -8177,7 +8467,7 @@ fn find_workspace_by_ref_index_prefers_numeric_named_workspace() {
 }
 
 #[test]
-fn find_workspace_by_ref_index_without_numeric_named_workspace_returns_none() {
+fn find_workspace_by_ref_index_without_numeric_identity_returns_none() {
     let mut layout: Layout<TestWindow> = Layout::default();
     layout.add_output(make_test_output("eDP-1"), None);
 
@@ -8204,17 +8494,14 @@ fn set_workspace_name_by_index_does_not_use_positional_fallback() {
 fn internal_empty_workspace_tail_is_hidden_only_when_inactive() {
     let mut layout: Layout<TestWindow> = Layout::default();
     layout.add_output(make_test_output("eDP-1"), None);
-    layout.ensure_workspace_by_name("1");
+    layout.ensure_numeric_workspace(1);
 
     let MonitorSet::Normal { monitors, .. } = &mut layout.monitor_set else {
         unreachable!()
     };
     let mon = &mut monitors[0];
 
-    // Right after creating "1", the old trailing empty workspace stays focused.
     assert!(!mon.is_internal_empty_workspace(mon.active_workspace_idx()));
-
-    mon.activate_workspace(0);
     assert!(mon.is_internal_empty_workspace(1));
 }
 
@@ -8223,7 +8510,7 @@ fn transient_numeric_workspace_is_cleaned_when_empty_and_unfocused() {
     let mut layout: Layout<TestWindow> = Layout::default();
     layout.add_output(make_test_output("eDP-1"), None);
     layout
-        .ensure_workspace_by_name_transient("93")
+        .ensure_numeric_workspace(93)
         .expect("must create transient workspace");
 
     {
@@ -8235,13 +8522,13 @@ fn transient_numeric_workspace_is_cleaned_when_empty_and_unfocused() {
             .find_named_workspace_index("93")
             .expect("workspace 93 must exist");
         mon.activate_workspace(idx);
-        mon.activate_workspace(1);
+        mon.activate_workspace(0);
         // Simulate workspace switch animation completion for cleanup.
         mon.workspace_switch = None;
         mon.clean_up_workspaces();
     }
 
-    assert!(layout.find_workspace_by_name("93").is_none());
+    assert!(layout.find_workspace_by_number(93).is_none());
 }
 
 #[test]
@@ -8253,16 +8540,16 @@ fn move_workspace_to_output_by_workspace_id_moves_correct_workspace() {
     layout.add_output(output_b.clone(), None);
     layout.focus_output(&output_a);
 
-    layout.ensure_workspace_by_name("10");
+    layout.ensure_numeric_workspace(10);
     let workspace_id = layout
-        .find_workspace_by_name("10")
+        .find_workspace_by_number(10)
         .map(|(_, ws)| ws.id())
         .expect("workspace 10 must exist");
 
     layout.move_workspace_to_output_by_workspace_id(workspace_id, &output_b);
 
     let (_, ws) = layout
-        .find_workspace_by_name("10")
+        .find_workspace_by_number(10)
         .expect("workspace 10 must still exist");
     assert_eq!(
         ws.current_output().map(|out| out.name()),
@@ -8271,15 +8558,116 @@ fn move_workspace_to_output_by_workspace_id_moves_correct_workspace() {
 }
 
 #[test]
-fn move_workspace_to_idx_by_workspace_id_reorders_correct_workspace() {
+fn numeric_workspace_lookup_reuses_workspace_on_other_output() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output_a = make_test_output("eDP-1");
+    let output_b = make_test_output("HDMI-A-1");
+    layout.add_output(output_a.clone(), None);
+    layout.add_output(output_b.clone(), None);
+    layout.focus_output(&output_a);
+
+    let workspace_id = add_window_to_numeric_workspace(&mut layout, 2, 2);
+
+    layout.move_workspace_to_output_by_workspace_id(workspace_id, &output_b);
+    layout.focus_output(&output_a);
+
+    let (target_output, idx) = layout
+        .ensure_numeric_workspace(2)
+        .expect("workspace 2 must resolve");
+    layout.focus_workspace_by_id(workspace_id, false);
+    layout.verify_invariants();
+
+    let count = layout
+        .monitors()
+        .flat_map(|mon| mon.workspaces.iter())
+        .filter(|ws| ws.name().is_some_and(|name| name == "2"))
+        .count();
+
+    assert_eq!(
+        target_output.as_ref().map(|out| out.name()),
+        Some(output_b.name())
+    );
+    assert_eq!(idx, 0);
+    assert_eq!(count, 1);
+    assert_eq!(
+        layout.active_output().map(|out| out.name()),
+        Some(output_b.name())
+    );
+    assert_eq!(
+        layout.active_workspace().map(|ws| ws.id()),
+        Some(workspace_id)
+    );
+}
+
+#[test]
+fn numeric_workspaces_keep_order_when_moved_between_outputs() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output_a = make_test_output("eDP-1");
+    let output_b = make_test_output("HDMI-A-1");
+    layout.add_output(output_a.clone(), None);
+    layout.add_output(output_b.clone(), None);
+    layout.focus_output(&output_a);
+
+    add_window_to_numeric_workspace(&mut layout, 10, 10);
+    add_window_to_numeric_workspace(&mut layout, 5, 5);
+    add_window_to_numeric_workspace(&mut layout, 2, 2);
+
+    for number in [5, 2] {
+        let workspace_id = layout
+            .find_workspace_by_number(number)
+            .map(|(_, ws)| ws.id())
+            .expect("numeric workspace must exist");
+        layout.move_workspace_to_output_by_workspace_id(workspace_id, &output_b);
+    }
+
+    layout.verify_invariants();
+
+    let names: Vec<_> = layout
+        .monitor_for_output(&output_b)
+        .unwrap()
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().cloned())
+        .collect();
+
+    assert_eq!(names, vec!["2".to_owned(), "5".to_owned()]);
+}
+
+#[test]
+fn numeric_workspaces_keep_order_when_outputs_are_merged() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output_a = make_test_output("eDP-1");
+    let output_b = make_test_output("HDMI-A-1");
+    layout.add_output(output_a.clone(), None);
+    layout.add_output(output_b.clone(), None);
+    layout.focus_output(&output_b);
+
+    add_window_to_numeric_workspace(&mut layout, 5, 5);
+    add_window_to_numeric_workspace(&mut layout, 2, 2);
+    layout.remove_output(&output_b);
+    layout.verify_invariants();
+
+    let names: Vec<_> = layout
+        .monitor_for_output(&output_a)
+        .unwrap()
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().cloned())
+        .collect();
+
+    assert_eq!(names, vec!["1".to_owned(), "2".to_owned(), "5".to_owned()],);
+}
+
+#[test]
+fn move_workspace_to_idx_by_workspace_id_does_not_reorder_numeric_workspaces() {
     let mut layout: Layout<TestWindow> = Layout::default();
     layout.add_output(make_test_output("eDP-1"), None);
-    layout.ensure_workspace_by_name("10");
-    layout.ensure_workspace_by_name("20");
-    layout.ensure_workspace_by_name("30");
+    layout.ensure_numeric_workspace(10);
+    layout.ensure_numeric_workspace(20);
+    layout.ensure_numeric_workspace(30);
 
     let workspace_id = layout
-        .find_workspace_by_name("20")
+        .find_workspace_by_number(20)
         .map(|(_, ws)| ws.id())
         .expect("workspace 20 must exist");
 

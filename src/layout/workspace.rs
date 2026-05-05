@@ -37,7 +37,8 @@ use crate::render_helpers::offscreen::OffscreenRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
-use crate::render_helpers::RenderTarget;
+use crate::render_helpers::xray::{Xray, XrayPos};
+use crate::render_helpers::{RenderCtx, RenderTarget};
 use crate::utils::id::IdCounter;
 use crate::utils::transaction::{Transaction, TransactionBlocker};
 use crate::utils::{
@@ -116,16 +117,29 @@ pub struct Workspace<W: LayoutElement> {
     /// Configurable properties of the layout with logical sizes adjusted for the current `scale`.
     pub(super) options: Rc<Options>,
 
-    /// Optional name of this workspace.
-    pub(super) name: Option<String>,
-    /// Whether the workspace name was auto-assigned for transient numeric access.
-    name_is_transient: bool,
+    /// Stable identity of this workspace.
+    identity: WorkspaceIdentity,
+    /// Whether the workspace should survive when empty and inactive.
+    lifetime: WorkspaceLifetime,
 
     /// Layout config overrides for this workspace.
     layout_config: Option<tiri_config::LayoutPart>,
 
     /// Unique ID of this workspace.
     id: WorkspaceId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum WorkspaceIdentity {
+    Anonymous,
+    Numeric { number: u32, name: String },
+    Named(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WorkspaceLifetime {
+    Persistent,
+    Transient,
 }
 
 #[derive(Debug, Clone)]
@@ -347,6 +361,32 @@ fn external_resize_cursor_icon(edges: ResizeEdge) -> CursorIcon {
 }
 
 impl<W: LayoutElement> Workspace<W> {
+    fn numeric_identity_from_name(name: &str) -> Option<u32> {
+        let (number, rest) = match name.split_once(':') {
+            Some((number, rest)) if !rest.is_empty() => (number, Some(rest)),
+            Some(_) => return None,
+            None => (name, None),
+        };
+
+        let number = number.parse::<u32>().ok()?;
+        (number.to_string() == name || rest.is_some()).then_some(number)
+    }
+
+    fn identity_from_config(config: Option<&WorkspaceConfig>) -> WorkspaceIdentity {
+        let Some(config) = config else {
+            return WorkspaceIdentity::Anonymous;
+        };
+
+        let name = config.name.0.clone();
+        match config
+            .number
+            .or_else(|| Self::numeric_identity_from_name(&name))
+        {
+            Some(number) => WorkspaceIdentity::Numeric { number, name },
+            None => WorkspaceIdentity::Named(name),
+        }
+    }
+
     pub fn new(output: Output, clock: Clock, options: Rc<Options>) -> Self {
         Self::new_with_config(output, None, clock, options)
     }
@@ -363,6 +403,7 @@ impl<W: LayoutElement> Workspace<W> {
             .map(OutputId)
             .unwrap_or(OutputId::new(&output));
 
+        let identity = Self::identity_from_config(config.as_ref());
         let layout_config = config.as_mut().and_then(|c| c.layout.take().map(|x| x.0));
 
         let scale = output.current_scale();
@@ -412,8 +453,8 @@ impl<W: LayoutElement> Workspace<W> {
             clock,
             base_options,
             options,
-            name: config.map(|c| c.name.0),
-            name_is_transient: false,
+            identity,
+            lifetime: WorkspaceLifetime::Persistent,
             layout_config,
             id: WorkspaceId::next(),
         }
@@ -431,6 +472,7 @@ impl<W: LayoutElement> Workspace<W> {
                 .unwrap_or_default(),
         );
 
+        let identity = Self::identity_from_config(config.as_ref());
         let layout_config = config.as_mut().and_then(|c| c.layout.take().map(|x| x.0));
 
         let scale = smithay::output::Scale::Integer(1);
@@ -480,8 +522,8 @@ impl<W: LayoutElement> Workspace<W> {
             clock,
             base_options,
             options,
-            name: config.map(|c| c.name.0),
-            name_is_transient: false,
+            identity,
+            lifetime: WorkspaceLifetime::Persistent,
             layout_config,
             id: WorkspaceId::next(),
         }
@@ -520,21 +562,71 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn name(&self) -> Option<&String> {
-        self.name.as_ref()
+        match &self.identity {
+            WorkspaceIdentity::Anonymous => None,
+            WorkspaceIdentity::Numeric { name, .. } | WorkspaceIdentity::Named(name) => Some(name),
+        }
     }
 
-    pub fn set_name(&mut self, name: String, is_transient: bool) {
-        self.name = Some(name);
-        self.name_is_transient = is_transient;
+    pub(super) fn numeric_number(&self) -> Option<u32> {
+        match &self.identity {
+            WorkspaceIdentity::Numeric { number, .. } => Some(*number),
+            WorkspaceIdentity::Anonymous | WorkspaceIdentity::Named(_) => None,
+        }
     }
 
-    pub fn unname(&mut self) {
-        self.name = None;
-        self.name_is_transient = false;
+    pub(super) fn has_persistent_identity(&self) -> bool {
+        self.name().is_some() && self.lifetime == WorkspaceLifetime::Persistent
     }
 
-    pub fn has_windows_or_name(&self) -> bool {
-        self.has_windows() || (self.name.is_some() && !self.name_is_transient)
+    pub(super) fn make_identity_persistent(&mut self) {
+        if self.name().is_some() {
+            self.lifetime = WorkspaceLifetime::Persistent;
+        }
+    }
+
+    pub(super) fn is_empty_transient_numeric(&self, number: u32) -> bool {
+        self.numeric_number() == Some(number)
+            && self.lifetime == WorkspaceLifetime::Transient
+            && !self.has_windows()
+    }
+
+    pub(super) fn identity(&self) -> &WorkspaceIdentity {
+        &self.identity
+    }
+
+    pub(super) fn set_numeric_identity(&mut self, number: u32, lifetime: WorkspaceLifetime) {
+        self.identity = WorkspaceIdentity::Numeric {
+            number,
+            name: number.to_string(),
+        };
+        self.lifetime = lifetime;
+    }
+
+    pub(super) fn set_name(&mut self, name: String, lifetime: WorkspaceLifetime) {
+        self.identity = WorkspaceIdentity::Named(name);
+        self.lifetime = lifetime;
+    }
+
+    pub(super) fn unname(&mut self) {
+        self.identity = WorkspaceIdentity::Anonymous;
+        self.lifetime = WorkspaceLifetime::Transient;
+    }
+
+    pub fn has_windows_or_persistent_identity(&self) -> bool {
+        self.has_windows() || self.has_persistent_identity()
+    }
+
+    pub(super) fn should_remove_when_empty(
+        &self,
+        is_active: bool,
+        is_internal_placeholder: bool,
+    ) -> bool {
+        if is_active || is_internal_placeholder || self.has_windows() {
+            return false;
+        }
+
+        self.name().is_none() || self.lifetime == WorkspaceLifetime::Transient
     }
 
     pub fn scale(&self) -> smithay::output::Scale {
@@ -2887,9 +2979,9 @@ impl<W: LayoutElement> Workspace<W> {
         floating.chain(tiling)
     }
 
-    pub fn active_tile_visual_rectangle(&self) -> Option<Rectangle<f64, Logical>> {
+    pub fn active_window_visual_rectangle(&self) -> Option<Rectangle<f64, Logical>> {
         if self.floating_is_active.get() {
-            self.floating.active_tile_visual_rectangle()
+            self.floating.active_window_visual_rectangle()
         } else {
             self.tiling.active_tile_visual_rectangle()
         }
@@ -2905,14 +2997,14 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn render_tiling<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
-        target: RenderTarget,
+        ctx: RenderCtx<R>,
+        xray_pos: XrayPos,
         focus_ring: bool,
         push: &mut dyn FnMut(WorkspaceRenderElement<R>),
     ) {
         let tiling_focus_ring = focus_ring && !self.floating_is_active();
         self.tiling
-            .render(renderer, target, tiling_focus_ring, &mut |elem| {
+            .render(ctx, xray_pos, tiling_focus_ring, &mut |elem| {
                 push(elem.into())
             });
     }
@@ -2935,8 +3027,8 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn render_floating<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
-        target: RenderTarget,
+        ctx: RenderCtx<R>,
+        xray_pos: XrayPos,
         focus_ring: bool,
         push: &mut dyn FnMut(WorkspaceRenderElement<R>),
     ) {
@@ -2946,13 +3038,10 @@ impl<W: LayoutElement> Workspace<W> {
 
         let view_rect = Rectangle::from_size(self.view_size);
         let floating_focus_ring = focus_ring && self.floating_is_active();
-        self.floating.render(
-            renderer,
-            view_rect,
-            target,
-            floating_focus_ring,
-            &mut |elem| push(elem.into()),
-        );
+        self.floating
+            .render(ctx, xray_pos, view_rect, floating_focus_ring, &mut |elem| {
+                push(elem.into())
+            });
     }
 
     pub fn render_shadow<R: NiriRenderer>(
@@ -2984,7 +3073,14 @@ impl<W: LayoutElement> Workspace<W> {
         ) || !self.render_above_top_layer()
     }
 
-    pub fn store_unmap_snapshot_if_empty(&mut self, renderer: &mut GlesRenderer, window: &W::Id) {
+    pub fn store_unmap_snapshot_if_empty(
+        &mut self,
+        renderer: &mut GlesRenderer,
+        xray: Option<&mut Xray>,
+        xray_has_blocked_out_layers: bool,
+        xray_pos: XrayPos,
+        window: &W::Id,
+    ) {
         let view_size = self.view_size();
         for (tile, tile_pos) in self.tiles_with_render_positions_mut(false) {
             if tile.window().id() == window {
@@ -2997,7 +3093,13 @@ impl<W: LayoutElement> Workspace<W> {
                     None,
                     view_rect,
                 );
-                tile.store_unmap_snapshot_if_empty(renderer);
+                let xray_pos = xray_pos.offset(tile_pos);
+                tile.store_unmap_snapshot_if_empty(
+                    renderer,
+                    xray,
+                    xray_has_blocked_out_layers,
+                    xray_pos,
+                );
                 return;
             }
         }

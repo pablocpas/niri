@@ -1,4 +1,5 @@
-use std::collections::HashSet;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -814,7 +815,7 @@ impl From<tiri_ipc::Action> for Action {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum WorkspaceReference {
     Id(u64),
-    Index(u8),
+    Index(u32),
     Name(String),
 }
 
@@ -876,7 +877,7 @@ where
     ) -> Result<Self, DecodeError<S>> {
         expect_only_children(node, ctx);
 
-        let mut seen_keys = HashSet::new();
+        let mut seen_keys: HashMap<Key, &knuffel::ast::SpannedNode<S>> = HashMap::new();
 
         let mut binds = Vec::new();
 
@@ -886,39 +887,26 @@ where
                     ctx.emit_error(e);
                 }
                 Ok(bind) => {
-                    if seen_keys.insert(bind.key) {
-                        binds.push(bind);
-                    } else {
-                        // ideally, this error should point to the previous instance of this keybind
-                        //
-                        // i (sodiboo) have tried to implement this in various ways:
-                        // miette!(), #[derive(Diagnostic)]
-                        // DecodeError::Custom, DecodeError::Conversion
-                        // nothing seems to work, and i suspect it's not possible.
-                        //
-                        // DecodeError is fairly restrictive.
-                        // even DecodeError::Custom just wraps a std::error::Error
-                        // and this erases all rich information from miette. (why???)
-                        //
-                        // why does knuffel do this?
-                        // from what i can tell, it doesn't even use DecodeError for much.
-                        // it only ever converts them to a Report anyways!
-                        // https://github.com/tailhook/knuffel/blob/c44c6b0c0f31ea6d1174d5d2ed41064922ea44ca/src/wrappers.rs#L55-L58
-                        //
-                        // besides like, allowing downstream users (such as us!)
-                        // to match on parse failure, i don't understand why
-                        // it doesn't just use a generic error type
-                        //
-                        // even the matching isn't consistent,
-                        // because errors can also be omitted as ctx.emit_error.
-                        // why does *that one* especially, require a DecodeError?
-                        //
-                        // anyways if you can make it format nicely, definitely do fix this
-                        ctx.emit_error(DecodeError::unexpected(
-                            &child.node_name,
-                            "keybind",
-                            "duplicate keybind",
-                        ));
+                    match seen_keys.entry(bind.key) {
+                        Entry::Occupied(entry) => {
+                            // Even though it's technically incorrect, we use
+                            // `DecodeError::Missing` here because it labels the bind with
+                            // "node starts here", which is the least bad option
+                            ctx.emit_error(DecodeError::missing(
+                                entry.get(),
+                                "keybind first defined here",
+                            ));
+
+                            ctx.emit_error(DecodeError::unexpected(
+                                &child.node_name,
+                                "keybind",
+                                "duplicate keybind later defined here",
+                            ));
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(child);
+                            binds.push(bind);
+                        }
                     }
                 }
             }
@@ -1226,7 +1214,7 @@ impl FromStr for Key {
             // [0]: https://github.com/xkbcommon/libxkbcommon/blob/45a118d5325b051343b4b174f60c1434196fa7d4/src/keysym.c#L276
             // [1]: https://docs.rs/xkbcommon/latest/xkbcommon/xkb/keysyms/index.html#:~:text=KEY%5FXF86ScreenSaver
             //
-            // See https://github.com/YaLTeR/niri/issues/1969
+            // See https://github.com/niri-wm/niri/issues/1969
             if keysym == Keysym::XF86_Screensaver {
                 keysym = keysym_from_name(key, KEYSYM_NO_FLAGS);
                 if keysym.raw() == KEY_NoSymbol {

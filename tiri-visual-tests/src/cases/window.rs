@@ -2,7 +2,7 @@ use smithay::backend::renderer::element::RenderElement;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Physical, Point, Scale, Size};
 use tiri::layout::{LayoutElement, SizingMode};
-use tiri::render_helpers::RenderTarget;
+use tiri::render_helpers::{RenderCtx, RenderTarget};
 
 use super::{Args, TestCase};
 use crate::test_window::TestWindow;
@@ -53,14 +53,15 @@ impl TestCase for Window {
             .downscale(2.);
 
         let mut rv = Vec::new();
-        self.window.render_normal(
+        let ctx = RenderCtx {
             renderer,
-            location,
-            Scale::from(1.),
-            1.,
-            RenderTarget::Output,
-            &mut |elem| rv.push(Box::new(elem) as _),
-        );
+            target: RenderTarget::Output,
+            xray: None,
+        };
+        self.window
+            .render_normal(ctx, location, Scale::from(1.), 1., &mut |elem| {
+                rv.push(Box::new(elem) as _)
+            });
         rv
     }
 }

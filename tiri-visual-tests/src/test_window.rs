@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::cmp::{max, min};
 use std::rc::Rc;
 
-use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::element::Kind;
+use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::output::{self, Output};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Scale, Serial, Size, Transform};
@@ -14,7 +14,7 @@ use tiri::layout::{
 use tiri::render_helpers::offscreen::OffscreenData;
 use tiri::render_helpers::renderer::NiriRenderer;
 use tiri::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
-use tiri::render_helpers::RenderTarget;
+use tiri::render_helpers::RenderCtx;
 use tiri::utils::transaction::Transaction;
 use tiri::window::ResolvedWindowRules;
 
@@ -152,11 +152,10 @@ impl LayoutElement for TestWindow {
 
     fn render_normal<R: NiriRenderer>(
         &self,
-        _renderer: &mut R,
+        _ctx: RenderCtx<R>,
         location: Point<f64, Logical>,
         _scale: Scale<f64>,
         alpha: f32,
-        _target: RenderTarget,
         push: &mut dyn FnMut(LayoutElementRenderElement<R>),
     ) {
         let inner = self.inner.borrow();

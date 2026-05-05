@@ -46,7 +46,8 @@ use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::texture::TextureRenderElement;
-use crate::render_helpers::RenderTarget;
+use crate::render_helpers::xray::XrayPos;
+use crate::render_helpers::{RenderCtx, RenderTarget};
 use crate::utils::transaction::Transaction;
 use crate::utils::ResizeEdge;
 use crate::utils::{round_logical_in_physical_max1, to_physical_precise_round};
@@ -1000,8 +1001,8 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn render_elements<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
-        target: RenderTarget,
+        mut ctx: RenderCtx<R>,
+        xray_pos: XrayPos,
         tiling_focus_ring: bool,
     ) -> Vec<TilingSpaceRenderElement<R>> {
         // Pre-allocate: ~4 elements per tile + closing windows + tab bars
@@ -1026,7 +1027,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         let view_rect = Rectangle::from_size(self.view_size);
 
         for closing in self.closing_windows.iter().rev() {
-            let elem = closing.render(renderer.as_gles_renderer(), view_rect, scale, target);
+            let elem = closing.render(ctx.as_gles(), view_rect, scale);
             elements.push(TilingSpaceRenderElement::ClosingWindow(elem));
         }
 
@@ -1047,7 +1048,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                     }
                 }
                 render_container_selection(
-                    renderer,
+                    ctx.renderer,
                     rect,
                     view_rect,
                     self.scale,
@@ -1095,7 +1096,8 @@ impl<W: LayoutElement> TilingSpace<W> {
                 } else {
                     &mut elements
                 };
-                tile.render(renderer, pos, draw_focus, is_focused, target, &mut |elem| {
+                let tile_xray_pos = xray_pos.offset(pos);
+                tile.render(ctx.r(), pos, tile_xray_pos, draw_focus, &mut |elem| {
                     target_elements.push(TilingSpaceRenderElement::from(elem));
                 });
             }
@@ -1108,9 +1110,10 @@ impl<W: LayoutElement> TilingSpace<W> {
             let mut cache = self.tab_bar_cache.borrow_mut();
             let mut next_cache = self.tab_bar_cache_alt.borrow_mut();
             next_cache.clear();
-            let gles = renderer.as_gles_renderer();
+            let gles = ctx.renderer.as_gles_renderer();
             let tab_bar_config = self.effective_tab_bar_config();
             let is_active_workspace = self.is_active;
+            let target = ctx.target;
             for info in tab_bar_infos {
                 let state = tab_bar_state_from_info(
                     &info,
@@ -1179,12 +1182,12 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn render<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
-        target: RenderTarget,
+        ctx: RenderCtx<R>,
+        xray_pos: XrayPos,
         tiling_focus_ring: bool,
         push: &mut dyn FnMut(TilingSpaceRenderElement<R>),
     ) {
-        for elem in self.render_elements(renderer, target, tiling_focus_ring) {
+        for elem in self.render_elements(ctx, xray_pos, tiling_focus_ring) {
             push(elem);
         }
     }
@@ -1199,7 +1202,12 @@ impl<W: LayoutElement> TilingSpace<W> {
             tile.window().set_offscreen_data(None);
         }
 
-        let mut elements = self.render_elements(renderer, target, tiling_focus_ring);
+        let ctx = RenderCtx {
+            renderer,
+            target,
+            xray: None,
+        };
+        let mut elements = self.render_elements(ctx, XrayPos::default(), tiling_focus_ring);
         if elements.is_empty() {
             return None;
         }
@@ -1301,7 +1309,8 @@ impl<W: LayoutElement> TilingSpace<W> {
         } else {
             None
         };
-        let has_fullscreen_like = visual_fullscreen_id.is_some() || windowed_fullscreen_id.is_some();
+        let has_fullscreen_like =
+            visual_fullscreen_id.is_some() || windowed_fullscreen_id.is_some();
         let layout_rect = self.tree.layout_area();
         let is_single_window = self.tree.window_count() <= 1;
         // Clone here because we need mutable access to tree in the loop below.
@@ -1579,7 +1588,10 @@ impl<W: LayoutElement> TilingSpace<W> {
             if !edges.contains(edge) || !cross_ok || dist > edge_threshold {
                 return;
             }
-            if self.resize_target_for_edge(&path, edge, layout, Some(pos)).is_none() {
+            if self
+                .resize_target_for_edge(&path, edge, layout, Some(pos))
+                .is_none()
+            {
                 return;
             }
             let score = dist / edge_threshold.max(1.0);

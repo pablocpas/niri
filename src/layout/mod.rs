@@ -51,7 +51,7 @@ use tiri_config::{
     Config, CornerRadius, LayoutPart, PresetSize, Workspace as WorkspaceConfig, WorkspaceReference,
 };
 use tiri_ipc::{ColumnDisplay, LayoutTree, PositionChange, SizeChange, WindowLayout};
-use workspace::{WorkspaceAddWindowTarget, WorkspaceId};
+use workspace::{WorkspaceAddWindowTarget, WorkspaceId, WorkspaceLifetime};
 
 pub use self::container::Layout as ContainerLayout;
 use self::container::{Direction, InsertParentInfo};
@@ -63,12 +63,14 @@ use crate::animation::{Animation, Clock};
 use crate::input::swipe_tracker::SwipeTracker;
 use crate::layout::tiling::ScrollDirection;
 use crate::niri_render_elements;
+use crate::render_helpers::background_effect::BackgroundEffectElement;
 use crate::render_helpers::offscreen::OffscreenData;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::snapshot::RenderSnapshot;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::texture::TextureBuffer;
-use crate::render_helpers::{BakedBuffer, RenderTarget};
+use crate::render_helpers::xray::{Xray, XrayPos};
+use crate::render_helpers::{BakedBuffer, RenderCtx};
 use crate::rubber_band::RubberBand;
 use crate::utils::transaction::{Transaction, TransactionBlocker};
 use crate::utils::{
@@ -122,6 +124,7 @@ niri_render_elements! {
     LayoutElementRenderElement<R> => {
         Wayland = WaylandSurfaceRenderElement<R>,
         SolidColor = SolidColorRenderElement,
+        BackgroundEffect = BackgroundEffectElement,
     }
 }
 
@@ -171,6 +174,11 @@ pub trait LayoutElement {
         None
     }
 
+    /// Updates the config for the element.
+    fn update_config(&mut self, blur_config: tiri_config::Blur) {
+        let _ = blur_config;
+    }
+
     /// Visual size of the element.
     ///
     /// This is what the user would consider the size, i.e. excluding CSD shadows and whatnot.
@@ -193,41 +201,55 @@ pub trait LayoutElement {
     /// location.
     fn render<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
+        mut ctx: RenderCtx<R>,
         location: Point<f64, Logical>,
         scale: Scale<f64>,
         alpha: f32,
-        target: RenderTarget,
+        xray_pos: XrayPos,
         push: &mut dyn FnMut(LayoutElementRenderElement<R>),
     ) {
-        self.render_popups(renderer, location, scale, alpha, target, push);
-        self.render_normal(renderer, location, scale, alpha, target, push);
+        self.render_popups(ctx.r(), location, scale, alpha, xray_pos, push);
+        self.render_normal(ctx.r(), location, scale, alpha, push);
     }
 
     /// Renders the non-popup parts of the element.
     fn render_normal<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
+        ctx: RenderCtx<R>,
         location: Point<f64, Logical>,
         scale: Scale<f64>,
         alpha: f32,
-        target: RenderTarget,
         push: &mut dyn FnMut(LayoutElementRenderElement<R>),
     ) {
-        let _ = (renderer, location, scale, alpha, target, push);
+        let _ = (ctx, location, scale, alpha, push);
     }
 
     /// Renders the popups of the element.
     fn render_popups<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
+        ctx: RenderCtx<R>,
         location: Point<f64, Logical>,
         scale: Scale<f64>,
         alpha: f32,
-        target: RenderTarget,
+        xray_pos: XrayPos,
         push: &mut dyn FnMut(LayoutElementRenderElement<R>),
     ) {
-        let _ = (renderer, location, scale, alpha, target, push);
+        let _ = (ctx, location, scale, alpha, xray_pos, push);
+    }
+
+    /// Renders the background effect behind the main surface of the element.
+    #[allow(clippy::too_many_arguments)]
+    fn render_background_effect(
+        &self,
+        _ctx: RenderCtx<GlesRenderer>,
+        _geometry: Rectangle<f64, Logical>,
+        _scale: f64,
+        _clip_to_geometry: bool,
+        _surface_anim_scale: Scale<f64>,
+        _radius: CornerRadius,
+        _xray_pos: XrayPos,
+        _push: &mut dyn FnMut(BackgroundEffectElement),
+    ) {
     }
 
     /// Requests the element to change its size.
@@ -307,11 +329,30 @@ pub trait LayoutElement {
         Some(requested)
     }
 
+    fn is_windowed_fullscreen(&self) -> bool {
+        false
+    }
     fn is_pending_windowed_fullscreen(&self) -> bool {
         false
     }
     fn request_windowed_fullscreen(&mut self, value: bool) {
         let _ = value;
+    }
+
+    /// The effective geometry corner radius for this element.
+    ///
+    /// Returns zero when the element is in windowed fullscreen, since fullscreen windows have
+    /// square corners.
+    ///
+    /// This method only handles windowed fullscreen and not maximized/real fullscreen. This is
+    /// because windowed fullscreen is handled by the element itself, whereas other sizing modes
+    /// are handled externally by the Tile, so the corner radius changes for those modes is also
+    /// handled externally.
+    fn geometry_corner_radius(&self) -> CornerRadius {
+        if self.is_windowed_fullscreen() {
+            return CornerRadius::default();
+        }
+        self.rules().geometry_corner_radius.unwrap_or_default()
     }
 
     fn is_child_of(&self, parent: &Self) -> bool;
@@ -388,12 +429,29 @@ enum MonitorSet<W: LayoutElement> {
     },
 }
 
+fn ensure_no_outputs_workspace_idx<W: LayoutElement>(
+    workspaces: &mut Vec<Workspace<W>>,
+    clock: Clock,
+    options: Rc<Options>,
+) -> usize {
+    if let Some(idx) = workspaces
+        .iter()
+        .position(|ws| !ws.has_windows_or_persistent_identity())
+    {
+        idx
+    } else {
+        workspaces.push(Workspace::new_no_outputs(clock, options));
+        workspaces.len() - 1
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Options {
     pub layout: tiri_config::Layout,
     pub animations: tiri_config::Animations,
     pub gestures: tiri_config::Gestures,
     pub overview: tiri_config::Overview,
+    pub blur: tiri_config::Blur,
     // Debug flags.
     pub disable_resize_throttling: bool,
     pub deactivate_unfocused_windows: bool,
@@ -712,6 +770,7 @@ impl Options {
             animations: config.animations.clone(),
             gestures: config.gestures,
             overview: config.overview,
+            blur: config.blur,
             disable_resize_throttling: config.debug.disable_resize_throttling,
             deactivate_unfocused_windows: config.debug.deactivate_unfocused_windows,
         }
@@ -820,7 +879,7 @@ impl<W: LayoutElement> Layout<W> {
                         // The user could've closed a window while remaining on this workspace, on
                         // another monitor. However, we will add an empty workspace in the end
                         // instead.
-                        if ws.has_windows_or_name() {
+                        if ws.has_windows_or_persistent_identity() {
                             workspaces.push(ws);
                         }
 
@@ -879,6 +938,7 @@ impl<W: LayoutElement> Layout<W> {
                 }
             }
             MonitorSet::NoOutputs { workspaces } => {
+                let seed_initial_workspace = workspaces.is_empty();
                 let ws_id_to_activate = self.last_active_workspace_id.remove(&output.name());
 
                 let mut monitor = Monitor::new(
@@ -889,6 +949,9 @@ impl<W: LayoutElement> Layout<W> {
                     self.options.clone(),
                     layout_config,
                 );
+                if seed_initial_workspace {
+                    monitor.set_initial_numeric_workspace(1, WorkspaceLifetime::Transient);
+                }
                 monitor.overview_open = self.overview_open;
                 monitor.set_overview_progress(self.overview_progress.as_ref());
 
@@ -1258,15 +1321,19 @@ impl<W: LayoutElement> Layout<W> {
         match &mut self.monitor_set {
             MonitorSet::Normal { monitors, .. } => {
                 for mon in monitors {
+                    let last_workspace_idx = mon.workspaces.len() - 1;
+                    let empty_workspace_above_first =
+                        mon.options.layout.empty_workspace_above_first;
                     for (idx, ws) in mon.workspaces.iter_mut().enumerate() {
                         if ws.has_window(window) {
                             let removed = ws.remove_tile(window, transaction);
 
-                            // Clean up empty workspaces that are not active and not last.
-                            if !ws.has_windows_or_name()
-                                && idx != mon.active_workspace_idx
-                                && idx != mon.workspaces.len() - 1
-                                && mon.workspace_switch.is_none()
+                            let is_internal_placeholder = idx == last_workspace_idx
+                                || (empty_workspace_above_first && idx == 0);
+                            if ws.should_remove_when_empty(
+                                idx == mon.active_workspace_idx,
+                                is_internal_placeholder,
+                            ) && mon.workspace_switch.is_none()
                             {
                                 mon.workspaces.remove(idx);
 
@@ -1281,8 +1348,8 @@ impl<W: LayoutElement> Layout<W> {
                                 && mon.workspaces.len() == 2
                                 && mon.workspace_switch.is_none()
                             {
-                                assert!(!mon.workspaces[0].has_windows_or_name());
-                                assert!(!mon.workspaces[1].has_windows_or_name());
+                                assert!(!mon.workspaces[0].has_windows_or_persistent_identity());
+                                assert!(!mon.workspaces[1].has_windows_or_persistent_identity());
                                 mon.workspaces.remove(1);
                                 mon.active_workspace_idx = 0;
                             }
@@ -1297,7 +1364,7 @@ impl<W: LayoutElement> Layout<W> {
                         let removed = ws.remove_tile(window, transaction);
 
                         // Clean up empty workspaces.
-                        if !ws.has_windows_or_name() {
+                        if !ws.has_windows_or_persistent_identity() {
                             workspaces.remove(idx);
                         }
 
@@ -1411,8 +1478,7 @@ impl<W: LayoutElement> Layout<W> {
                 for mon in monitors {
                     if let Some((index, workspace)) =
                         mon.workspaces.iter().enumerate().find(|(_, w)| {
-                            w.name
-                                .as_ref()
+                            w.name()
                                 .is_some_and(|name| name.eq_ignore_ascii_case(workspace_name))
                         })
                     {
@@ -1422,8 +1488,7 @@ impl<W: LayoutElement> Layout<W> {
             }
             MonitorSet::NoOutputs { workspaces } => {
                 if let Some((index, workspace)) = workspaces.iter().enumerate().find(|(_, w)| {
-                    w.name
-                        .as_ref()
+                    w.name()
                         .is_some_and(|name| name.eq_ignore_ascii_case(workspace_name))
                 }) {
                     return Some((index, workspace));
@@ -1454,25 +1519,84 @@ impl<W: LayoutElement> Layout<W> {
                 let mon = &mut monitors[*active_monitor_idx];
 
                 // Insert before the trailing internal empty workspace.
-                let idx = mon.workspace_count().saturating_sub(1);
+                let idx = mon.named_workspace_insert_idx();
                 mon.add_workspace_at(idx);
-                mon.workspaces[idx].set_name(name, transient);
+                let lifetime = if transient {
+                    WorkspaceLifetime::Transient
+                } else {
+                    WorkspaceLifetime::Persistent
+                };
+                mon.workspaces[idx].set_name(name, lifetime);
 
                 Some((Some(mon.output().clone()), idx))
             }
             MonitorSet::NoOutputs { workspaces } => {
-                let idx =
-                    if let Some(idx) = workspaces.iter().position(|ws| !ws.has_windows_or_name()) {
-                        idx
-                    } else {
-                        workspaces.push(Workspace::new_no_outputs(
-                            self.clock.clone(),
-                            self.options.clone(),
-                        ));
-                        workspaces.len() - 1
-                    };
+                let idx = ensure_no_outputs_workspace_idx(
+                    workspaces,
+                    self.clock.clone(),
+                    self.options.clone(),
+                );
+                let lifetime = if transient {
+                    WorkspaceLifetime::Transient
+                } else {
+                    WorkspaceLifetime::Persistent
+                };
+                workspaces[idx].set_name(name, lifetime);
+                Some((None, idx))
+            }
+        }
+    }
 
-                workspaces[idx].set_name(name, transient);
+    pub fn find_workspace_by_number(&self, number: u32) -> Option<(usize, &Workspace<W>)> {
+        match &self.monitor_set {
+            MonitorSet::Normal { ref monitors, .. } => {
+                for mon in monitors {
+                    if let Some((index, workspace)) = mon
+                        .workspaces
+                        .iter()
+                        .enumerate()
+                        .find(|(_, w)| w.numeric_number() == Some(number))
+                    {
+                        return Some((index, workspace));
+                    }
+                }
+            }
+            MonitorSet::NoOutputs { workspaces } => {
+                if let Some((index, workspace)) = workspaces
+                    .iter()
+                    .enumerate()
+                    .find(|(_, w)| w.numeric_number() == Some(number))
+                {
+                    return Some((index, workspace));
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn ensure_numeric_workspace(&mut self, number: u32) -> Option<(Option<Output>, usize)> {
+        if let Some((idx, ws)) = self.find_workspace_by_number(number) {
+            return Some((ws.current_output().cloned(), idx));
+        }
+
+        match &mut self.monitor_set {
+            MonitorSet::Normal {
+                monitors,
+                active_monitor_idx,
+                ..
+            } => {
+                let mon = &mut monitors[*active_monitor_idx];
+                let idx = mon.add_numeric_workspace(number, WorkspaceLifetime::Transient);
+                Some((Some(mon.output().clone()), idx))
+            }
+            MonitorSet::NoOutputs { workspaces } => {
+                let idx = ensure_no_outputs_workspace_idx(
+                    workspaces,
+                    self.clock.clone(),
+                    self.options.clone(),
+                );
+                workspaces[idx].set_numeric_identity(number, WorkspaceLifetime::Transient);
                 Some((None, idx))
             }
         }
@@ -1497,16 +1621,12 @@ impl<W: LayoutElement> Layout<W> {
         reference: WorkspaceReference,
     ) -> Option<&mut Workspace<W>> {
         if let WorkspaceReference::Index(index) = reference {
-            let numeric_name = index.to_string();
-            let workspace_id = self
-                .find_workspace_by_name(&numeric_name)
-                .map(|(_, ws)| ws.id());
+            let workspace_id = self.find_workspace_by_number(index).map(|(_, ws)| ws.id());
             return workspace_id.and_then(|id| self.workspaces_mut().find(|ws| ws.id() == id));
         } else {
             self.workspaces_mut().find(|ws| match &reference {
                 WorkspaceReference::Name(ref_name) => ws
-                    .name
-                    .as_ref()
+                    .name()
                     .is_some_and(|name| name.eq_ignore_ascii_case(ref_name)),
                 WorkspaceReference::Id(id) => ws.id().get() == *id,
                 WorkspaceReference::Index(_) => unreachable!(),
@@ -2577,8 +2697,7 @@ impl<W: LayoutElement> Layout<W> {
     pub fn monitor_for_workspace(&self, workspace_name: &str) -> Option<&Monitor<W>> {
         self.monitors().find(|monitor| {
             monitor.workspaces.iter().any(|ws| {
-                ws.name
-                    .as_ref()
+                ws.name()
                     .is_some_and(|name| name.eq_ignore_ascii_case(workspace_name))
             })
         })
@@ -3597,7 +3716,7 @@ impl<W: LayoutElement> Layout<W> {
             MonitorSet::NoOutputs { workspaces } => {
                 for workspace in workspaces {
                     assert!(
-                        workspace.has_windows_or_name(),
+                        workspace.has_windows_or_persistent_identity(),
                         "with no outputs there cannot be empty unnamed workspaces"
                     );
 
@@ -3613,7 +3732,7 @@ impl<W: LayoutElement> Layout<W> {
                         "workspace id must be unique"
                     );
 
-                    if let Some(name) = &workspace.name {
+                    if let Some(name) = workspace.name() {
                         assert!(
                             !seen_workspace_name
                                 .iter()
@@ -3684,7 +3803,7 @@ impl<W: LayoutElement> Layout<W> {
                     "workspace id must be unique"
                 );
 
-                if let Some(name) = &workspace.name {
+                if let Some(name) = workspace.name() {
                     assert!(
                         !seen_workspace_name
                             .iter()
@@ -3905,8 +4024,17 @@ impl<W: LayoutElement> Layout<W> {
         if let Some(InteractiveMoveState::Moving(move_)) = &mut self.interactive_move {
             if output.is_none_or(|output| move_.output == *output) {
                 let pos_within_output = move_.tile_render_location(zoom);
+
+                // We're not on any specific workspace so we can't compute a "workspace view" rect.
+                // Let's instead compute a rect relative to the output.
+                //
+                // FIXME: we could make the colors match up better in the overview by figuring out
+                // where a centered workspace would currently be, and computing the view rect
+                // against that. Since most of the time the dragged window will be on a centered
+                // workspace.
                 let view_rect =
-                    Rectangle::new(pos_within_output.upscale(-1.), output_size(&move_.output));
+                    Rectangle::new(pos_within_output.upscale(-1.), output_size(&move_.output))
+                        .downscale(zoom);
                 move_.tile.update_render_elements(
                     true,
                     true,
@@ -3925,7 +4053,9 @@ impl<W: LayoutElement> Layout<W> {
             ..
         } = &mut self.monitor_set
         else {
-            error!("update_render_elements called with no monitors");
+            if output.is_some() {
+                error!("update_render_elements called with no monitors but Some output");
+            }
             return;
         };
 
@@ -4000,13 +4130,12 @@ impl<W: LayoutElement> Layout<W> {
                         ws.tiling_insert_position(pos_within_workspace)
                     };
 
-                    let rules = move_.tile.window().rules();
                     let border_width = move_.tile.effective_border_width().unwrap_or(0.);
-                    let corner_radius = rules
-                        .geometry_corner_radius
-                        .map_or(CornerRadius::default(), |radius| {
-                            radius.expanded_by(border_width as f32)
-                        });
+                    let corner_radius = move_
+                        .tile
+                        .window()
+                        .geometry_corner_radius()
+                        .expanded_by(border_width as f32);
                     mon.insert_hint = Some(InsertHint {
                         workspace: insert_ws,
                         position,
@@ -4063,12 +4192,12 @@ impl<W: LayoutElement> Layout<W> {
                     clock,
                     options,
                 );
-                mon.insert_workspace(ws, 0, false);
+                mon.insert_workspace(ws, mon.named_workspace_insert_idx(), false);
             }
             MonitorSet::NoOutputs { workspaces } => {
                 let ws =
                     Workspace::new_with_config_no_outputs(Some(ws_config.clone()), clock, options);
-                workspaces.insert(0, ws);
+                workspaces.push(ws);
             }
         }
     }
@@ -4579,7 +4708,7 @@ impl<W: LayoutElement> Layout<W> {
                     return;
                 };
                 self.scratchpad.push_back(tile);
-                workspaces.retain(|ws| ws.has_windows_or_name());
+                workspaces.retain(|ws| ws.has_windows_or_persistent_identity());
             }
         }
     }
@@ -6559,7 +6688,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
 
-        ws.set_name(name, false);
+        ws.set_name(name, WorkspaceLifetime::Persistent);
 
         let wsid = ws.id();
 
@@ -6676,12 +6805,39 @@ impl<W: LayoutElement> Layout<W> {
         }
     }
 
-    pub fn store_unmap_snapshot(&mut self, renderer: &mut GlesRenderer, window: &W::Id) {
+    pub fn store_unmap_snapshot(
+        &mut self,
+        renderer: &mut GlesRenderer,
+        xray: Option<&mut Xray>,
+        xray_has_blocked_out_layers: bool,
+        window: &W::Id,
+    ) {
         let _span = tracy_client::span!("Layout::store_unmap_snapshot");
+
+        let zoom = self.overview_zoom();
 
         if let Some(InteractiveMoveState::Moving(move_)) = &mut self.interactive_move {
             if move_.tile.window().id() == window {
-                move_.tile.store_unmap_snapshot_if_empty(renderer);
+                let pos_within_output = move_.tile_render_location(zoom);
+
+                // Computation matches update_render_elements().
+                let view_rect =
+                    Rectangle::new(pos_within_output.upscale(-1.), output_size(&move_.output))
+                        .downscale(zoom);
+                move_.tile.update_render_elements(
+                    false,
+                    false,
+                    crate::layout::focus_ring::FocusRingEdges::all(),
+                    None,
+                    view_rect,
+                );
+
+                move_.tile.store_unmap_snapshot_if_empty(
+                    renderer,
+                    xray,
+                    xray_has_blocked_out_layers,
+                    XrayPos::new(pos_within_output, zoom),
+                );
                 return;
             }
         }
@@ -6689,9 +6845,15 @@ impl<W: LayoutElement> Layout<W> {
         match &mut self.monitor_set {
             MonitorSet::Normal { monitors, .. } => {
                 for mon in monitors {
-                    for ws in &mut mon.workspaces {
+                    for (ws, geo) in mon.workspaces_with_render_geo_mut(false) {
                         if ws.has_window(window) {
-                            ws.store_unmap_snapshot_if_empty(renderer, window);
+                            ws.store_unmap_snapshot_if_empty(
+                                renderer,
+                                xray,
+                                xray_has_blocked_out_layers,
+                                XrayPos::new(geo.loc, zoom),
+                                window,
+                            );
                             return;
                         }
                     }
@@ -6700,7 +6862,13 @@ impl<W: LayoutElement> Layout<W> {
             MonitorSet::NoOutputs { workspaces, .. } => {
                 for ws in workspaces {
                     if ws.has_window(window) {
-                        ws.store_unmap_snapshot_if_empty(renderer, window);
+                        ws.store_unmap_snapshot_if_empty(
+                            renderer,
+                            xray,
+                            xray_has_blocked_out_layers,
+                            XrayPos::default(),
+                            window,
+                        );
                         return;
                     }
                 }
@@ -6807,9 +6975,8 @@ impl<W: LayoutElement> Layout<W> {
 
     pub fn render_interactive_move_for_output<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
+        ctx: RenderCtx<R>,
         output: &Output,
-        target: RenderTarget,
         push: &mut dyn FnMut(RescaleRenderElement<TileRenderElement<R>>),
     ) {
         if self.update_render_elements_time != self.clock.now() {
@@ -6826,13 +6993,15 @@ impl<W: LayoutElement> Layout<W> {
 
         let scale = Scale::from(move_.output.current_scale().fractional_scale());
         let zoom = self.overview_zoom();
-        let location = move_.tile_render_location(zoom);
+        let pos_in_backdrop = move_.tile_render_location(zoom);
+        let xray_pos = XrayPos::new(pos_in_backdrop, zoom);
+
         move_
             .tile
-            .render(renderer, location, true, true, target, &mut |elem| {
+            .render(ctx, pos_in_backdrop, xray_pos, true, &mut |elem| {
                 push(RescaleRenderElement::from_element(
                     elem,
-                    location.to_physical_precise_round(scale),
+                    pos_in_backdrop.to_physical_precise_round(scale),
                     zoom,
                 ));
             });

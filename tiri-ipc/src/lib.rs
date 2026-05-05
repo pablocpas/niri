@@ -552,7 +552,7 @@ pub enum Action {
     },
     /// Consume the window to the right into the focused column.
     ConsumeWindowIntoColumn {},
-    /// Expel the focused window from the column.
+    /// Expel the bottom window from the focused column.
     ExpelWindowFromColumn {},
     /// Consume the window to the right into the focused container.
     ConsumeWindowIntoContainer {},
@@ -1157,7 +1157,7 @@ pub enum WorkspaceReferenceArg {
     /// Numeric workspace reference.
     ///
     /// This resolves workspace name `"N"` (for example, `Index(2)` refers to workspace `"2"`).
-    Index(u8),
+    Index(u32),
     /// Name of the workspace.
     Name(String),
 }
@@ -1959,11 +1959,11 @@ impl FromStr for WorkspaceReferenceArg {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let reference = if let Ok(index) = s.parse::<i32>() {
-            if let Ok(idx) = u8::try_from(index) {
+        let reference = if let Ok(index) = s.parse::<i64>() {
+            if let Ok(idx) = u32::try_from(index) {
                 Self::Index(idx)
             } else {
-                return Err("workspace index must be between 0 and 255");
+                return Err("workspace index must be between 0 and 4294967295");
             }
         } else {
             Self::Name(s.to_string())
@@ -2097,6 +2097,20 @@ impl FromStr for Transform {
                 r#"invalid transform, can be "90", "180", "270", "#,
                 r#""flipped", "flipped-90", "flipped-180" or "flipped-270""#
             )),
+        }
+    }
+}
+
+impl FromStr for Layer {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "background" => Ok(Self::Background),
+            "bottom" => Ok(Self::Bottom),
+            "top" => Ok(Self::Top),
+            "overlay" => Ok(Self::Overlay),
+            _ => Err("invalid layer, can be \"background\", \"bottom\", \"top\" or \"overlay\""),
         }
     }
 }
