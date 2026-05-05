@@ -3540,7 +3540,7 @@ impl Niri {
             WorkspaceReference::Index(index) => {
                 self.layout.ensure_numeric_workspace(index)?;
                 self.layout
-                    .find_workspace_by_name(&index.to_string())
+                    .find_workspace_by_number(index)
                     .map(|(_, ws)| ws.id())
             }
             WorkspaceReference::Name(name) => {

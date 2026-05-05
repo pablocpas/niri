@@ -115,10 +115,10 @@ pub struct Workspace<W: LayoutElement> {
     /// Configurable properties of the layout with logical sizes adjusted for the current `scale`.
     pub(super) options: Rc<Options>,
 
-    /// Optional name of this workspace.
-    pub(super) name: Option<String>,
-    /// Whether the workspace name was auto-assigned for transient numeric access.
-    name_is_transient: bool,
+    /// Stable identity of this workspace.
+    identity: WorkspaceIdentity,
+    /// Whether the workspace should survive when empty and inactive.
+    lifetime: WorkspaceLifetime,
 
     /// Layout config overrides for this workspace.
     layout_config: Option<tiri_config::LayoutPart>,
@@ -127,11 +127,17 @@ pub struct Workspace<W: LayoutElement> {
     id: WorkspaceId,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum WorkspaceIdentity {
+    Anonymous,
+    Numeric { number: u32, name: String },
+    Named(String),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum WorkspaceKind {
-    Unnamed,
-    Numeric { number: usize, is_transient: bool },
-    Named,
+pub(super) enum WorkspaceLifetime {
+    Persistent,
+    Transient,
 }
 
 #[derive(Debug, Clone)]
@@ -161,11 +167,6 @@ impl WorkspaceId {
     pub fn specific(id: u64) -> Self {
         Self(id)
     }
-}
-
-pub(super) fn parse_numeric_workspace_name(name: &str) -> Option<usize> {
-    let number = name.parse::<usize>().ok()?;
-    (number.to_string() == name).then_some(number)
 }
 
 niri_render_elements! {
@@ -355,6 +356,29 @@ fn external_resize_cursor_icon(edges: ResizeEdge) -> CursorIcon {
 }
 
 impl<W: LayoutElement> Workspace<W> {
+    fn numeric_identity_from_name(name: &str) -> Option<u32> {
+        let (number, rest) = match name.split_once(':') {
+            Some((number, rest)) if !rest.is_empty() => (number, Some(rest)),
+            Some(_) => return None,
+            None => (name, None),
+        };
+
+        let number = number.parse::<u32>().ok()?;
+        (number.to_string() == name || rest.is_some()).then_some(number)
+    }
+
+    fn identity_from_config(config: Option<&WorkspaceConfig>) -> WorkspaceIdentity {
+        let Some(config) = config else {
+            return WorkspaceIdentity::Anonymous;
+        };
+
+        let name = config.name.0.clone();
+        match config.number.or_else(|| Self::numeric_identity_from_name(&name)) {
+            Some(number) => WorkspaceIdentity::Numeric { number, name },
+            None => WorkspaceIdentity::Named(name),
+        }
+    }
+
     pub fn new(output: Output, clock: Clock, options: Rc<Options>) -> Self {
         Self::new_with_config(output, None, clock, options)
     }
@@ -371,6 +395,7 @@ impl<W: LayoutElement> Workspace<W> {
             .map(OutputId)
             .unwrap_or(OutputId::new(&output));
 
+        let identity = Self::identity_from_config(config.as_ref());
         let layout_config = config.as_mut().and_then(|c| c.layout.take().map(|x| x.0));
 
         let scale = output.current_scale();
@@ -420,8 +445,8 @@ impl<W: LayoutElement> Workspace<W> {
             clock,
             base_options,
             options,
-            name: config.map(|c| c.name.0),
-            name_is_transient: false,
+            identity,
+            lifetime: WorkspaceLifetime::Persistent,
             layout_config,
             id: WorkspaceId::next(),
         }
@@ -439,6 +464,7 @@ impl<W: LayoutElement> Workspace<W> {
                 .unwrap_or_default(),
         );
 
+        let identity = Self::identity_from_config(config.as_ref());
         let layout_config = config.as_mut().and_then(|c| c.layout.take().map(|x| x.0));
 
         let scale = smithay::output::Scale::Integer(1);
@@ -488,8 +514,8 @@ impl<W: LayoutElement> Workspace<W> {
             clock,
             base_options,
             options,
-            name: config.map(|c| c.name.0),
-            name_is_transient: false,
+            identity,
+            lifetime: WorkspaceLifetime::Persistent,
             layout_config,
             id: WorkspaceId::next(),
         }
@@ -528,54 +554,47 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn name(&self) -> Option<&String> {
-        self.name.as_ref()
-    }
-
-    pub(super) fn numeric_name(&self) -> Option<usize> {
-        match self.kind() {
-            WorkspaceKind::Numeric { number, .. } => Some(number),
-            WorkspaceKind::Unnamed | WorkspaceKind::Named => None,
+        match &self.identity {
+            WorkspaceIdentity::Anonymous => None,
+            WorkspaceIdentity::Numeric { name, .. } | WorkspaceIdentity::Named(name) => Some(name),
         }
     }
 
-    pub(super) fn has_persistent_name(&self) -> bool {
-        !matches!(
-            self.kind(),
-            WorkspaceKind::Unnamed
-                | WorkspaceKind::Numeric {
-                    is_transient: true,
-                    ..
-                }
-        )
+    pub(super) fn numeric_number(&self) -> Option<u32> {
+        match &self.identity {
+            WorkspaceIdentity::Numeric { number, .. } => Some(*number),
+            WorkspaceIdentity::Anonymous | WorkspaceIdentity::Named(_) => None,
+        }
     }
 
-    pub(super) fn kind(&self) -> WorkspaceKind {
-        let Some(name) = self.name.as_deref() else {
-            return WorkspaceKind::Unnamed;
+    pub(super) fn has_persistent_identity(&self) -> bool {
+        self.name().is_some() && self.lifetime == WorkspaceLifetime::Persistent
+    }
+
+    pub(super) fn identity(&self) -> &WorkspaceIdentity {
+        &self.identity
+    }
+
+    pub(super) fn set_numeric_identity(&mut self, number: u32, lifetime: WorkspaceLifetime) {
+        self.identity = WorkspaceIdentity::Numeric {
+            number,
+            name: number.to_string(),
         };
-
-        if let Some(number) = parse_numeric_workspace_name(name) {
-            return WorkspaceKind::Numeric {
-                number,
-                is_transient: self.name_is_transient,
-            };
-        }
-
-        WorkspaceKind::Named
+        self.lifetime = lifetime;
     }
 
-    pub fn set_name(&mut self, name: String, is_transient: bool) {
-        self.name = Some(name);
-        self.name_is_transient = is_transient;
+    pub(super) fn set_name(&mut self, name: String, lifetime: WorkspaceLifetime) {
+        self.identity = WorkspaceIdentity::Named(name);
+        self.lifetime = lifetime;
     }
 
-    pub fn unname(&mut self) {
-        self.name = None;
-        self.name_is_transient = false;
+    pub(super) fn unname(&mut self) {
+        self.identity = WorkspaceIdentity::Anonymous;
+        self.lifetime = WorkspaceLifetime::Transient;
     }
 
-    pub fn has_windows_or_name(&self) -> bool {
-        self.has_windows() || (self.name.is_some() && !self.name_is_transient)
+    pub fn has_windows_or_persistent_identity(&self) -> bool {
+        self.has_windows() || self.has_persistent_identity()
     }
 
     pub(super) fn should_remove_when_empty(
@@ -587,14 +606,7 @@ impl<W: LayoutElement> Workspace<W> {
             return false;
         }
 
-        matches!(
-            self.kind(),
-            WorkspaceKind::Unnamed
-                | WorkspaceKind::Numeric {
-                    is_transient: true,
-                    ..
-                }
-        )
+        self.name().is_none() || self.lifetime == WorkspaceLifetime::Transient
     }
 
     pub fn scale(&self) -> smithay::output::Scale {

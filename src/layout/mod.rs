@@ -51,7 +51,7 @@ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size, Transform};
 use tile::{Tile, TileRenderElement};
 use tiling::{Column, ColumnWidth};
-use workspace::{parse_numeric_workspace_name, WorkspaceAddWindowTarget, WorkspaceId};
+use workspace::{WorkspaceAddWindowTarget, WorkspaceId, WorkspaceLifetime};
 
 use self::container::{Direction, InsertParentInfo};
 pub use self::container::Layout as ContainerLayout;
@@ -393,7 +393,7 @@ fn ensure_no_outputs_workspace_idx<W: LayoutElement>(
     clock: Clock,
     options: Rc<Options>,
 ) -> usize {
-    if let Some(idx) = workspaces.iter().position(|ws| !ws.has_windows_or_name()) {
+    if let Some(idx) = workspaces.iter().position(|ws| !ws.has_windows_or_persistent_identity()) {
         idx
     } else {
         workspaces.push(Workspace::new_no_outputs(clock, options));
@@ -833,7 +833,7 @@ impl<W: LayoutElement> Layout<W> {
                         // The user could've closed a window while remaining on this workspace, on
                         // another monitor. However, we will add an empty workspace in the end
                         // instead.
-                        if ws.has_windows_or_name() {
+                        if ws.has_windows_or_persistent_identity() {
                             workspaces.push(ws);
                         }
 
@@ -904,7 +904,7 @@ impl<W: LayoutElement> Layout<W> {
                     layout_config,
                 );
                 if seed_initial_workspace {
-                    monitor.name_initial_workspace("1".to_owned(), true);
+                    monitor.set_initial_numeric_workspace(1, WorkspaceLifetime::Transient);
                 }
                 monitor.overview_open = self.overview_open;
                 monitor.set_overview_progress(self.overview_progress.as_ref());
@@ -1292,8 +1292,8 @@ impl<W: LayoutElement> Layout<W> {
                                 && mon.workspaces.len() == 2
                                 && mon.workspace_switch.is_none()
                             {
-                                assert!(!mon.workspaces[0].has_windows_or_name());
-                                assert!(!mon.workspaces[1].has_windows_or_name());
+                                assert!(!mon.workspaces[0].has_windows_or_persistent_identity());
+                                assert!(!mon.workspaces[1].has_windows_or_persistent_identity());
                                 mon.workspaces.remove(1);
                                 mon.active_workspace_idx = 0;
                             }
@@ -1308,7 +1308,7 @@ impl<W: LayoutElement> Layout<W> {
                         let removed = ws.remove_tile(window, transaction);
 
                         // Clean up empty workspaces.
-                        if !ws.has_windows_or_name() {
+                        if !ws.has_windows_or_persistent_identity() {
                             workspaces.remove(idx);
                         }
 
@@ -1422,8 +1422,7 @@ impl<W: LayoutElement> Layout<W> {
                 for mon in monitors {
                     if let Some((index, workspace)) =
                         mon.workspaces.iter().enumerate().find(|(_, w)| {
-                            w.name
-                                .as_ref()
+                            w.name()
                                 .is_some_and(|name| name.eq_ignore_ascii_case(workspace_name))
                         })
                     {
@@ -1433,8 +1432,7 @@ impl<W: LayoutElement> Layout<W> {
             }
             MonitorSet::NoOutputs { workspaces } => {
                 if let Some((index, workspace)) = workspaces.iter().enumerate().find(|(_, w)| {
-                    w.name
-                        .as_ref()
+                    w.name()
                         .is_some_and(|name| name.eq_ignore_ascii_case(workspace_name))
                 }) {
                     return Some((index, workspace));
@@ -1463,15 +1461,16 @@ impl<W: LayoutElement> Layout<W> {
                 ..
             } => {
                 let mon = &mut monitors[*active_monitor_idx];
-                if parse_numeric_workspace_name(workspace_name).is_some() {
-                    let idx = mon.add_numeric_workspace(name, transient);
-                    return Some((Some(mon.output().clone()), idx));
-                }
 
                 // Insert before the trailing internal empty workspace.
                 let idx = mon.named_workspace_insert_idx();
                 mon.add_workspace_at(idx);
-                mon.workspaces[idx].set_name(name, transient);
+                let lifetime = if transient {
+                    WorkspaceLifetime::Transient
+                } else {
+                    WorkspaceLifetime::Persistent
+                };
+                mon.workspaces[idx].set_name(name, lifetime);
 
                 Some((Some(mon.output().clone()), idx))
             }
@@ -1481,15 +1480,47 @@ impl<W: LayoutElement> Layout<W> {
                     self.clock.clone(),
                     self.options.clone(),
                 );
-                workspaces[idx].set_name(name, transient);
+                let lifetime = if transient {
+                    WorkspaceLifetime::Transient
+                } else {
+                    WorkspaceLifetime::Persistent
+                };
+                workspaces[idx].set_name(name, lifetime);
                 Some((None, idx))
             }
         }
     }
 
+    pub fn find_workspace_by_number(&self, number: u32) -> Option<(usize, &Workspace<W>)> {
+        match &self.monitor_set {
+            MonitorSet::Normal { ref monitors, .. } => {
+                for mon in monitors {
+                    if let Some((index, workspace)) = mon
+                        .workspaces
+                        .iter()
+                        .enumerate()
+                        .find(|(_, w)| w.numeric_number() == Some(number))
+                    {
+                        return Some((index, workspace));
+                    }
+                }
+            }
+            MonitorSet::NoOutputs { workspaces } => {
+                if let Some((index, workspace)) = workspaces
+                    .iter()
+                    .enumerate()
+                    .find(|(_, w)| w.numeric_number() == Some(number))
+                {
+                    return Some((index, workspace));
+                }
+            }
+        }
+
+        None
+    }
+
     pub fn ensure_numeric_workspace(&mut self, number: u32) -> Option<(Option<Output>, usize)> {
-        let name = number.to_string();
-        if let Some((idx, ws)) = self.find_workspace_by_name(&name) {
+        if let Some((idx, ws)) = self.find_workspace_by_number(number) {
             return Some((ws.current_output().cloned(), idx));
         }
 
@@ -1500,7 +1531,7 @@ impl<W: LayoutElement> Layout<W> {
                 ..
             } => {
                 let mon = &mut monitors[*active_monitor_idx];
-                let idx = mon.add_numeric_workspace(name, true);
+                let idx = mon.add_numeric_workspace(number, WorkspaceLifetime::Transient);
                 Some((Some(mon.output().clone()), idx))
             }
             MonitorSet::NoOutputs { workspaces } => {
@@ -1509,7 +1540,8 @@ impl<W: LayoutElement> Layout<W> {
                     self.clock.clone(),
                     self.options.clone(),
                 );
-                workspaces[idx].set_name(name, true);
+                workspaces[idx]
+                    .set_numeric_identity(number, WorkspaceLifetime::Transient);
                 Some((None, idx))
             }
         }
@@ -1534,14 +1566,12 @@ impl<W: LayoutElement> Layout<W> {
         reference: WorkspaceReference,
     ) -> Option<&mut Workspace<W>> {
         if let WorkspaceReference::Index(index) = reference {
-            let numeric_name = index.to_string();
-            let workspace_id = self.find_workspace_by_name(&numeric_name).map(|(_, ws)| ws.id());
+            let workspace_id = self.find_workspace_by_number(index).map(|(_, ws)| ws.id());
             return workspace_id.and_then(|id| self.workspaces_mut().find(|ws| ws.id() == id));
         } else {
             self.workspaces_mut().find(|ws| match &reference {
                 WorkspaceReference::Name(ref_name) => ws
-                    .name
-                    .as_ref()
+                    .name()
                     .is_some_and(|name| name.eq_ignore_ascii_case(ref_name)),
                 WorkspaceReference::Id(id) => ws.id().get() == *id,
                 WorkspaceReference::Index(_) => unreachable!(),
@@ -2600,8 +2630,7 @@ impl<W: LayoutElement> Layout<W> {
     pub fn monitor_for_workspace(&self, workspace_name: &str) -> Option<&Monitor<W>> {
         self.monitors().find(|monitor| {
             monitor.workspaces.iter().any(|ws| {
-                ws.name
-                    .as_ref()
+                ws.name()
                     .is_some_and(|name| name.eq_ignore_ascii_case(workspace_name))
             })
         })
@@ -3621,7 +3650,7 @@ impl<W: LayoutElement> Layout<W> {
             MonitorSet::NoOutputs { workspaces } => {
                 for workspace in workspaces {
                     assert!(
-                        workspace.has_windows_or_name(),
+                        workspace.has_windows_or_persistent_identity(),
                         "with no outputs there cannot be empty unnamed workspaces"
                     );
 
@@ -3637,7 +3666,7 @@ impl<W: LayoutElement> Layout<W> {
                         "workspace id must be unique"
                     );
 
-                    if let Some(name) = &workspace.name {
+                    if let Some(name) = workspace.name() {
                         assert!(
                             !seen_workspace_name
                                 .iter()
@@ -3708,7 +3737,7 @@ impl<W: LayoutElement> Layout<W> {
                     "workspace id must be unique"
                 );
 
-                if let Some(name) = &workspace.name {
+                if let Some(name) = workspace.name() {
                     assert!(
                         !seen_workspace_name
                             .iter()
@@ -4605,7 +4634,7 @@ impl<W: LayoutElement> Layout<W> {
                     return;
                 };
                 self.scratchpad.push_back(tile);
-                workspaces.retain(|ws| ws.has_windows_or_name());
+                workspaces.retain(|ws| ws.has_windows_or_persistent_identity());
             }
         }
     }
@@ -6568,7 +6597,7 @@ impl<W: LayoutElement> Layout<W> {
             return;
         };
 
-        ws.set_name(name, false);
+        ws.set_name(name, WorkspaceLifetime::Persistent);
 
         let wsid = ws.id();
 
