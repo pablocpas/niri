@@ -29,12 +29,13 @@ use crate::animation::{Animation, Clock};
 use crate::niri_render_elements;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
-use crate::render_helpers::RenderTarget;
 use crate::render_helpers::texture::TextureRenderElement;
 use crate::layout::tab_bar::{
     render_tab_bar, tab_bar_state_from_info, TabBarCacheEntry, TabBarRenderOutput,
 };
 use super::tile::{TilePtrIter, TilePtrIterMut, TileWithPosIterMut};
+use crate::render_helpers::xray::XrayPos;
+use crate::render_helpers::RenderCtx;
 use crate::utils::transaction::TransactionBlocker;
 use crate::utils::{
     center_preferring_top_left_in_area, clamp_preferring_top_left_in_area,
@@ -768,19 +769,20 @@ impl<W: LayoutElement> FloatingSpace<W> {
         compute_toplevel_bounds(border_config, self.working_area.size)
     }
 
-    /// Returns the geometry of the active tile relative to and clamped to the working area.
+    /// Returns the geometry of the active window relative to and clamped to the working area.
     ///
     /// During animations, assumes the final tile position.
-    pub fn active_tile_visual_rectangle(&self) -> Option<Rectangle<f64, Logical>> {
+    pub fn active_window_visual_rectangle(&self) -> Option<Rectangle<f64, Logical>> {
         let active_id = self.active_window_id.as_ref()?;
         let (tile, offset) = self
             .tiles_with_offsets_visible()
             .find(|(tile, _)| tile.window().id() == active_id)?;
 
-        let tile_size = tile.tile_size();
-        let tile_rect = Rectangle::new(offset, tile_size);
+        let window_pos = offset + tile.window_loc();
+        let window_size = tile.window_size();
+        let window_rect = Rectangle::new(window_pos, window_size);
 
-        self.working_area.intersection(tile_rect)
+        self.working_area.intersection(window_rect)
     }
 
     pub fn popup_target_rect(&self, id: &W::Id) -> Option<Rectangle<f64, Logical>> {
@@ -1220,6 +1222,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         }
 
         let mut idx = idx;
+        #[allow(clippy::explicit_counter_loop)]
         for descendant_idx in descendants.into_iter().rev() {
             self.raise_container(descendant_idx, idx);
             idx += 1;
@@ -2551,9 +2554,9 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
     fn render_elements<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
+        mut ctx: RenderCtx<R>,
+        xray_pos: XrayPos,
         view_rect: Rectangle<f64, Logical>,
-        target: RenderTarget,
         focus_ring: bool,
     ) -> Vec<FloatingSpaceRenderElement<R>> {
         let tile_count = self.tiles().count();
@@ -2565,7 +2568,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         //
         // FIXME: I guess this should rather preserve the stacking order when the window is closed.
         for closing in self.closing_windows.iter().rev() {
-            let elem = closing.render(renderer.as_gles_renderer(), view_rect, scale, target);
+            let elem = closing.render(ctx.as_gles(), view_rect, scale);
             elements.push(elem.into());
         }
 
@@ -2584,12 +2587,12 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 self.is_active && Some(tile.window().id()) == active.as_ref() && !selection_is_container;
             let draw_focus = focus_ring && is_focused;
 
+            let tile_xray_pos = xray_pos.offset(tile_pos);
             tile.render(
-                renderer,
+                ctx.r(),
                 tile_pos,
+                tile_xray_pos,
                 draw_focus,
-                is_focused,
-                target,
                 &mut |elem| elements.push(elem.into()),
             );
         }
@@ -2598,10 +2601,11 @@ impl<W: LayoutElement> FloatingSpace<W> {
             let mut cache = self.tab_bar_cache.borrow_mut();
             let mut next_cache = self.tab_bar_cache_alt.borrow_mut();
             next_cache.clear();
-            let gles = renderer.as_gles_renderer();
+            let gles = ctx.renderer.as_gles_renderer();
             let tab_bar_config = self.options.layout.tab_bar.clone();
             let is_active_workspace = self.is_active;
             let gap = self.container_gap();
+            let target = ctx.target;
 
             for container in &self.containers {
                 for info in container.tree.tab_bar_layouts() {
@@ -2687,7 +2691,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
                         local_rect.size,
                     );
                     render_container_selection(
-                        renderer,
+                        ctx.renderer,
                         rect,
                         view_rect,
                         self.scale,
@@ -2708,13 +2712,13 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
     pub fn render<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
+        ctx: RenderCtx<R>,
+        xray_pos: XrayPos,
         view_rect: Rectangle<f64, Logical>,
-        target: RenderTarget,
         focus_ring: bool,
         push: &mut dyn FnMut(FloatingSpaceRenderElement<R>),
     ) {
-        for elem in self.render_elements(renderer, view_rect, target, focus_ring) {
+        for elem in self.render_elements(ctx, xray_pos, view_rect, focus_ring) {
             push(elem);
         }
     }

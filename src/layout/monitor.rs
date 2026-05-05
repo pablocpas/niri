@@ -26,7 +26,8 @@ use crate::niri_render_elements;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::SolidColorRenderElement;
-use crate::render_helpers::RenderTarget;
+use crate::render_helpers::xray::XrayPos;
+use crate::render_helpers::RenderCtx;
 use crate::rubber_band::RubberBand;
 use crate::utils::transaction::{Transaction, TransactionBlocker};
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -2002,15 +2003,15 @@ impl<W: LayoutElement> Monitor<W> {
         self.clean_up_workspaces();
     }
 
-    /// Returns the geometry of the active tile relative to and clamped to the output.
+    /// Returns the geometry of the active window relative to and clamped to the output.
     ///
     /// During animations, assumes the final view position.
-    pub fn active_tile_visual_rectangle(&self) -> Option<Rectangle<f64, Logical>> {
+    pub fn active_window_visual_rectangle(&self) -> Option<Rectangle<f64, Logical>> {
         if self.overview_open {
             return None;
         }
 
-        self.active_workspace_ref().active_tile_visual_rectangle()
+        self.active_workspace_ref().active_window_visual_rectangle()
     }
 
     fn workspace_size(&self, zoom: f64) -> Size<f64, Logical> {
@@ -2151,6 +2152,13 @@ impl<W: LayoutElement> Monitor<W> {
         (0..=self.workspaces.len()).map(move |idx| {
             let y = first_ws_y + idx as f64 * ws_height_with_gap;
             let loc = Point::from((0., y)) + static_offset;
+
+            // Even though all components that go into loc are rounded to physical pixels, the
+            // floating point addition may lose precision. This can result for example in the
+            // current workspace having y = 0.0000000000002 and thus missing pointer hits at the
+            // monitor edge with y = 0. So, post-round the location too.
+            let loc = loc.to_physical_precise_round(scale).to_logical(scale);
+
             Rectangle::new(loc, ws_size)
         })
     }
@@ -2427,8 +2435,7 @@ impl<W: LayoutElement> Monitor<W> {
 
     pub fn render_workspaces<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
-        target: RenderTarget,
+        mut ctx: RenderCtx<R>,
         focus_ring: bool,
         push: &mut dyn FnMut(MonitorRenderElement<R>),
     ) {
@@ -2503,7 +2510,9 @@ impl<W: LayoutElement> Monitor<W> {
                 }};
             }
 
-            ws.render_floating(renderer, target, focus_ring, push!());
+            let xray_pos = XrayPos::new(geo.loc, zoom);
+
+            ws.render_floating(ctx.r(), xray_pos, focus_ring, push!());
 
             // Render sticky windows in a fixed position for the active workspace only.
             // This must be done AFTER floating but BEFORE scrolling to maintain proper z-order.
@@ -2512,9 +2521,9 @@ impl<W: LayoutElement> Monitor<W> {
                 let sticky_focus_ring = focus_ring && self.sticky_is_active;
 
                 self.sticky_floating.render(
-                    renderer,
+                    ctx.r(),
+                    xray_pos,
                     view_rect,
-                    target,
                     sticky_focus_ring,
                     &mut |elem| {
                         let elem = WorkspaceRenderElement::from(elem);
@@ -2531,11 +2540,11 @@ impl<W: LayoutElement> Monitor<W> {
             if let Some(loc) = insert_hint_render_loc {
                 if loc.workspace == InsertWorkspace::Existing(ws.id()) {
                     self.insert_hint_element
-                        .render(renderer, loc.location, push!());
+                        .render(ctx.renderer, loc.location, push!());
                 }
             }
 
-            ws.render_tiling(renderer, target, focus_ring, push!());
+            ws.render_tiling(ctx.r(), xray_pos, focus_ring, push!());
         }
     }
 

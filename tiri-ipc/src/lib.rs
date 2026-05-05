@@ -41,7 +41,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! tiri-ipc = "=25.11.0"
+//! tiri-ipc = "=26.4.0"
 //! ```
 //!
 //! ## Features
@@ -552,7 +552,7 @@ pub enum Action {
     },
     /// Consume the window to the right into the focused column.
     ConsumeWindowIntoColumn {},
-    /// Expel the focused window from the column.
+    /// Expel the bottom window from the focused column.
     ExpelWindowFromColumn {},
     /// Consume the window to the right into the focused container.
     ConsumeWindowIntoContainer {},
@@ -1111,7 +1111,13 @@ pub enum Action {
     ///
     /// Can be useful for scripts changing the config file, to avoid waiting the small duration for
     /// tiri's config file watcher to notice the changes.
-    LoadConfigFile {},
+    LoadConfigFile {
+        /// Path of a new config file to load.
+        ///
+        /// If unset, reloads the current config file.
+        #[cfg_attr(feature = "clap", arg(long))]
+        path: Option<String>,
+    },
 }
 
 /// Change in window or column size.
@@ -2091,6 +2097,20 @@ impl FromStr for Transform {
                 r#"invalid transform, can be "90", "180", "270", "#,
                 r#""flipped", "flipped-90", "flipped-180" or "flipped-270""#
             )),
+        }
+    }
+}
+
+impl FromStr for Layer {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "background" => Ok(Self::Background),
+            "bottom" => Ok(Self::Bottom),
+            "top" => Ok(Self::Top),
+            "overlay" => Ok(Self::Overlay),
+            _ => Err("invalid layer, can be \"background\", \"bottom\", \"top\" or \"overlay\""),
         }
     }
 }

@@ -36,8 +36,9 @@ use crate::animation::{Animation, Clock};
 use crate::niri_render_elements;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::renderer::NiriRenderer;
-use crate::render_helpers::RenderTarget;
 use crate::render_helpers::texture::TextureRenderElement;
+use crate::render_helpers::xray::XrayPos;
+use crate::render_helpers::RenderCtx;
 use crate::utils::transaction::Transaction;
 use crate::utils::ResizeEdge;
 use crate::window::ResolvedWindowRules;
@@ -1009,8 +1010,8 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn render_elements<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
-        target: RenderTarget,
+        mut ctx: RenderCtx<R>,
+        xray_pos: XrayPos,
         tiling_focus_ring: bool,
     ) -> Vec<TilingSpaceRenderElement<R>> {
         // Pre-allocate: ~4 elements per tile + closing windows + tab bars
@@ -1035,7 +1036,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         let view_rect = Rectangle::from_size(self.view_size);
 
         for closing in self.closing_windows.iter().rev() {
-            let elem = closing.render(renderer.as_gles_renderer(), view_rect, scale, target);
+            let elem = closing.render(ctx.as_gles(), view_rect, scale);
             elements.push(TilingSpaceRenderElement::ClosingWindow(elem));
         }
 
@@ -1056,7 +1057,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                     }
                 }
                 render_container_selection(
-                    renderer,
+                    ctx.renderer,
                     rect,
                     view_rect,
                     self.scale,
@@ -1102,7 +1103,8 @@ impl<W: LayoutElement> TilingSpace<W> {
                 } else {
                     &mut elements
                 };
-                tile.render(renderer, pos, draw_focus, is_focused, target, &mut |elem| {
+                let tile_xray_pos = xray_pos.offset(pos);
+                tile.render(ctx.r(), pos, tile_xray_pos, draw_focus, &mut |elem| {
                     target_elements.push(TilingSpaceRenderElement::from(elem));
                 });
             }
@@ -1115,9 +1117,10 @@ impl<W: LayoutElement> TilingSpace<W> {
             let mut cache = self.tab_bar_cache.borrow_mut();
             let mut next_cache = self.tab_bar_cache_alt.borrow_mut();
             next_cache.clear();
-            let gles = renderer.as_gles_renderer();
+            let gles = ctx.renderer.as_gles_renderer();
             let tab_bar_config = self.effective_tab_bar_config();
             let is_active_workspace = self.is_active;
+            let target = ctx.target;
             for info in tab_bar_infos {
                 let state = tab_bar_state_from_info(
                     &info,
@@ -1186,12 +1189,12 @@ impl<W: LayoutElement> TilingSpace<W> {
 
     pub fn render<R: NiriRenderer>(
         &self,
-        renderer: &mut R,
-        target: RenderTarget,
+        ctx: RenderCtx<R>,
+        xray_pos: XrayPos,
         tiling_focus_ring: bool,
         push: &mut dyn FnMut(TilingSpaceRenderElement<R>),
     ) {
-        for elem in self.render_elements(renderer, target, tiling_focus_ring) {
+        for elem in self.render_elements(ctx, xray_pos, tiling_focus_ring) {
             push(elem);
         }
     }

@@ -2,7 +2,8 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use tiri::layout::Options;
-use tiri::render_helpers::RenderTarget;
+use tiri::render_helpers::xray::XrayPos;
+use tiri::render_helpers::{RenderCtx, RenderTarget};
 use tiri_config::Color;
 use smithay::backend::renderer::element::RenderElement;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -124,14 +125,16 @@ impl TestCase for Tile {
         );
 
         let mut rv = Vec::new();
-        self.tile.render(
+        let ctx = RenderCtx {
             renderer,
-            location,
-            true,
-            true,
-            RenderTarget::Output,
-            &mut |elem| rv.push(Box::new(elem) as _),
-        );
+            target: RenderTarget::Output,
+            xray: None,
+        };
+        let xray_pos = XrayPos::new(location, 1.);
+        self.tile
+            .render(ctx, location, xray_pos, true, &mut |elem| {
+                rv.push(Box::new(elem) as _)
+            });
         rv
     }
 }
