@@ -127,6 +127,13 @@ pub struct Workspace<W: LayoutElement> {
     id: WorkspaceId,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WorkspaceKind {
+    Unnamed,
+    Numeric { number: usize, is_transient: bool },
+    Named,
+}
+
 #[derive(Debug, Clone)]
 pub struct OutputId(String);
 
@@ -154,6 +161,11 @@ impl WorkspaceId {
     pub fn specific(id: u64) -> Self {
         Self(id)
     }
+}
+
+pub(super) fn parse_numeric_workspace_name(name: &str) -> Option<usize> {
+    let number = name.parse::<usize>().ok()?;
+    (number.to_string() == name).then_some(number)
 }
 
 niri_render_elements! {
@@ -519,6 +531,39 @@ impl<W: LayoutElement> Workspace<W> {
         self.name.as_ref()
     }
 
+    pub(super) fn numeric_name(&self) -> Option<usize> {
+        match self.kind() {
+            WorkspaceKind::Numeric { number, .. } => Some(number),
+            WorkspaceKind::Unnamed | WorkspaceKind::Named => None,
+        }
+    }
+
+    pub(super) fn has_persistent_name(&self) -> bool {
+        !matches!(
+            self.kind(),
+            WorkspaceKind::Unnamed
+                | WorkspaceKind::Numeric {
+                    is_transient: true,
+                    ..
+                }
+        )
+    }
+
+    pub(super) fn kind(&self) -> WorkspaceKind {
+        let Some(name) = self.name.as_deref() else {
+            return WorkspaceKind::Unnamed;
+        };
+
+        if let Some(number) = parse_numeric_workspace_name(name) {
+            return WorkspaceKind::Numeric {
+                number,
+                is_transient: self.name_is_transient,
+            };
+        }
+
+        WorkspaceKind::Named
+    }
+
     pub fn set_name(&mut self, name: String, is_transient: bool) {
         self.name = Some(name);
         self.name_is_transient = is_transient;
@@ -531,6 +576,25 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn has_windows_or_name(&self) -> bool {
         self.has_windows() || (self.name.is_some() && !self.name_is_transient)
+    }
+
+    pub(super) fn should_remove_when_empty(
+        &self,
+        is_active: bool,
+        is_internal_placeholder: bool,
+    ) -> bool {
+        if is_active || is_internal_placeholder || self.has_windows() {
+            return false;
+        }
+
+        matches!(
+            self.kind(),
+            WorkspaceKind::Unnamed
+                | WorkspaceKind::Numeric {
+                    is_transient: true,
+                    ..
+                }
+        )
     }
 
     pub fn scale(&self) -> smithay::output::Scale {

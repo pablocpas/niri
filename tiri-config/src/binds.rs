@@ -828,7 +828,7 @@ impl From<tiri_ipc::Action> for Action {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum WorkspaceReference {
     Id(u64),
-    Index(u8),
+    Index(u32),
     Name(String),
 }
 

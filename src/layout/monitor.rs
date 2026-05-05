@@ -16,8 +16,8 @@ use super::insert_hint_element::{InsertHintElement, InsertHintRenderElement};
 use super::tile::Tile;
 use super::tiling::{Column, ColumnWidth};
 use super::workspace::{
-    compute_working_area, OutputId, Workspace, WorkspaceAddWindowTarget, WorkspaceId,
-    WorkspaceRenderElement,
+    compute_working_area, parse_numeric_workspace_name, OutputId, Workspace,
+    WorkspaceAddWindowTarget, WorkspaceId, WorkspaceKind, WorkspaceRenderElement,
 };
 use super::{compute_overview_zoom, ActivateWindow, HitType, LayoutElement, Options, ResizeHit};
 use crate::animation::{Animation, Clock};
@@ -452,17 +452,32 @@ impl<W: LayoutElement> Monitor<W> {
             return false;
         }
 
-        let has_other_real_workspaces = self
-            .workspaces
-            .iter()
-            .enumerate()
-            .any(|(i, ws)| i != idx && ws.has_windows_or_name());
+        let has_other_real_workspaces = self.workspaces.iter().enumerate().any(|(i, ws)| {
+            i != idx
+                && (ws.has_windows_or_name()
+                    || (i == self.active_workspace_idx && ws.name().is_some()))
+        });
         if !has_other_real_workspaces {
             return false;
         }
 
         idx == self.workspaces.len() - 1
             || (self.options.layout.empty_workspace_above_first && idx == 0)
+    }
+
+    pub fn visible_workspace_idx(&self, ws_idx: usize) -> Option<usize> {
+        if self.is_internal_empty_workspace(ws_idx) {
+            return None;
+        }
+
+        let mut visible = 0usize;
+        for idx in 0..=ws_idx {
+            if !self.is_internal_empty_workspace(idx) {
+                visible += 1;
+            }
+        }
+
+        Some(visible)
     }
 
     pub fn active_workspace_ref(&self) -> &Workspace<W> {
@@ -578,7 +593,7 @@ impl<W: LayoutElement> Monitor<W> {
             workspace.add_scratchpad_tile(tile, activate);
 
             // After adding a new window, workspace becomes this output's own.
-            if workspace.name().is_none() {
+            if !workspace.has_persistent_name() {
                 workspace.original_output = OutputId::new(&self.output);
             }
         }
@@ -794,49 +809,80 @@ impl<W: LayoutElement> Monitor<W> {
         self.add_workspace_at(self.workspaces.len());
     }
 
-    pub(super) fn adopt_workspace_name_by_visible_idx(&mut self, name: &str) -> Option<usize> {
-        let Ok(target_idx) = name.parse::<usize>() else {
-            return None;
+    fn normalize_numeric_workspace_order(&mut self) {
+        let start = if self.options.layout.empty_workspace_above_first {
+            1
+        } else {
+            0
         };
-
-        let mut visible_idx = 0;
-        let mut workspace_idx = None;
-        for idx in 0..self.workspaces.len() {
-            if self.is_internal_empty_workspace(idx) {
-                continue;
-            }
-
-            visible_idx += 1;
-            if visible_idx == target_idx {
-                if self.workspaces[idx].name().is_some() {
-                    return None;
-                }
-
-                workspace_idx = Some(idx);
-                break;
-            }
+        let end = self.workspaces.len().saturating_sub(1);
+        if start >= end {
+            return;
         }
 
-        let workspace_idx = workspace_idx?;
+        let active_id = self.workspaces[self.active_workspace_idx].id();
+        let mut workspaces: Vec<_> = self.workspaces.drain(start..end).collect();
+        workspaces.sort_by(|a, b| match (a.kind(), b.kind()) {
+            (
+                WorkspaceKind::Numeric { number: a, .. },
+                WorkspaceKind::Numeric { number: b, .. },
+            ) => a.cmp(&b),
+            (WorkspaceKind::Numeric { .. }, _) => std::cmp::Ordering::Less,
+            (_, WorkspaceKind::Numeric { .. }) => std::cmp::Ordering::Greater,
+            _ => std::cmp::Ordering::Equal,
+        });
+        self.workspaces.splice(start..start, workspaces);
+        self.active_workspace_idx = self
+            .workspaces
+            .iter()
+            .position(|ws| ws.id() == active_id)
+            .unwrap();
+    }
 
+    pub(super) fn name_initial_workspace(&mut self, name: String, is_transient: bool) {
         if self.options.layout.empty_workspace_above_first
             && self.workspaces.len() == 1
-            && workspace_idx == 0
+            && self.active_workspace_idx == 0
         {
             self.add_workspace_bottom();
-            self.workspaces[1].set_name(name.to_owned(), false);
+            self.workspaces[1].set_name(name, is_transient);
             self.add_workspace_bottom();
             self.active_workspace_idx = 1;
-            return Some(1);
+            return;
         }
 
-        self.workspaces[workspace_idx].set_name(name.to_owned(), false);
+        let idx = self.active_workspace_idx;
+        self.workspaces[idx].set_name(name, is_transient);
 
-        if workspace_idx == self.workspaces.len() - 1 {
+        if idx == self.workspaces.len() - 1 {
             self.add_workspace_bottom();
         }
+    }
 
-        Some(workspace_idx)
+    pub(super) fn add_numeric_workspace(&mut self, name: String, is_transient: bool) -> usize {
+        assert!(parse_numeric_workspace_name(&name).is_some());
+
+        let lookup_name = name.clone();
+        let idx = self.workspaces.len().saturating_sub(1);
+        self.add_workspace_at(idx);
+        self.workspaces[idx].set_name(name, is_transient);
+        self.normalize_numeric_workspace_order();
+        self.find_named_workspace_index(&lookup_name).unwrap_or(idx)
+    }
+
+    pub(super) fn named_workspace_insert_idx(&self) -> usize {
+        let start = if self.options.layout.empty_workspace_above_first {
+            1
+        } else {
+            0
+        };
+        let end = self.workspaces.len().saturating_sub(1);
+
+        self.workspaces[start..end]
+            .iter()
+            .position(|ws| ws.numeric_name().is_none())
+            .map(|idx| start + idx)
+            .unwrap_or(end)
     }
 
     pub fn activate_workspace(&mut self, idx: usize) {
@@ -949,7 +995,7 @@ impl<W: LayoutElement> Monitor<W> {
         workspace.add_column(column, activate);
 
         // After adding a new window, workspace becomes this output's own.
-        if workspace.name().is_none() {
+        if !workspace.has_persistent_name() {
             workspace.original_output = OutputId::new(&self.output);
         }
 
@@ -985,7 +1031,7 @@ impl<W: LayoutElement> Monitor<W> {
         workspace.add_tile(tile, target, activate, width, is_full_width, is_floating);
 
         // After adding a new window, workspace becomes this output's own.
-        if workspace.name().is_none() {
+        if !workspace.has_persistent_name() {
             workspace.original_output = OutputId::new(&self.output);
         }
 
@@ -1018,7 +1064,7 @@ impl<W: LayoutElement> Monitor<W> {
             let inserted = workspace.add_tile_split(target_path, direction, tile, activate);
 
             // After adding a new window, workspace becomes this output's own.
-            if inserted && workspace.name().is_none() {
+            if inserted && !workspace.has_persistent_name() {
                 workspace.original_output = OutputId::new(&self.output);
             }
 
@@ -1060,7 +1106,7 @@ impl<W: LayoutElement> Monitor<W> {
             let inserted = workspace.add_tile_split_root(direction, tile, activate);
 
             // After adding a new window, workspace becomes this output's own.
-            if inserted && workspace.name().is_none() {
+            if inserted && !workspace.has_persistent_name() {
                 workspace.original_output = OutputId::new(&self.output);
             }
 
@@ -1104,7 +1150,7 @@ impl<W: LayoutElement> Monitor<W> {
         workspace.add_tile_to_column(column_idx, tile_idx, tile, activate);
 
         // After adding a new window, workspace becomes this output's own.
-        if workspace.name().is_none() {
+        if !workspace.has_persistent_name() {
             workspace.original_output = OutputId::new(&self.output);
         }
 
@@ -1119,17 +1165,12 @@ impl<W: LayoutElement> Monitor<W> {
     pub fn clean_up_workspaces(&mut self) {
         assert!(self.workspace_switch.is_none());
 
-        let range_start = if self.options.layout.empty_workspace_above_first {
-            1
-        } else {
-            0
-        };
-        for idx in (range_start..self.workspaces.len() - 1).rev() {
-            if self.active_workspace_idx == idx {
-                continue;
-            }
-
-            if !self.workspaces[idx].has_windows_or_name() {
+        for idx in (0..self.workspaces.len()).rev() {
+            let is_internal_placeholder = idx == self.workspaces.len() - 1
+                || (self.options.layout.empty_workspace_above_first && idx == 0);
+            if self.workspaces[idx]
+                .should_remove_when_empty(self.active_workspace_idx == idx, is_internal_placeholder)
+            {
                 self.workspaces.remove(idx);
                 if self.active_workspace_idx > idx {
                     self.active_workspace_idx -= 1;
@@ -1189,6 +1230,7 @@ impl<W: LayoutElement> Monitor<W> {
     pub fn insert_workspace(&mut self, mut ws: Workspace<W>, mut idx: usize, activate: bool) {
         ws.set_output(Some(self.output.clone()));
         ws.update_config(self.options.clone());
+        let inserted_id = ws.id();
 
         // Don't insert past the last empty workspace.
         if idx == self.workspaces.len() {
@@ -1206,7 +1248,14 @@ impl<W: LayoutElement> Monitor<W> {
             self.active_workspace_idx += 1;
         }
 
+        self.normalize_numeric_workspace_order();
+
         if activate {
+            let idx = self
+                .workspaces
+                .iter()
+                .position(|ws| ws.id() == inserted_id)
+                .unwrap();
             self.workspace_switch = None;
             self.activate_workspace(idx);
         }
@@ -1240,6 +1289,8 @@ impl<W: LayoutElement> Monitor<W> {
         {
             self.add_workspace_top();
         }
+
+        self.normalize_numeric_workspace_order();
 
         // If the empty workspace was focused on the primary monitor, keep it focused.
         if empty_was_focused {
@@ -1822,6 +1873,14 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn move_workspace_down(&mut self) {
+        if self.workspaces[self.active_workspace_idx]
+            .numeric_name()
+            .is_some()
+        {
+            self.normalize_numeric_workspace_order();
+            return;
+        }
+
         let mut new_idx = min(self.active_workspace_idx + 1, self.workspaces.len() - 1);
         if new_idx == self.active_workspace_idx {
             return;
@@ -1848,6 +1907,14 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn move_workspace_up(&mut self) {
+        if self.workspaces[self.active_workspace_idx]
+            .numeric_name()
+            .is_some()
+        {
+            self.normalize_numeric_workspace_order();
+            return;
+        }
+
         let mut new_idx = self.active_workspace_idx.saturating_sub(1);
         if new_idx == self.active_workspace_idx {
             return;
@@ -1875,6 +1942,11 @@ impl<W: LayoutElement> Monitor<W> {
 
     pub fn move_workspace_to_idx(&mut self, old_idx: usize, new_idx: usize) {
         if self.workspaces.len() <= old_idx {
+            return;
+        }
+
+        if self.workspaces[old_idx].numeric_name().is_some() {
+            self.normalize_numeric_workspace_order();
             return;
         }
 

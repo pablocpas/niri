@@ -7681,25 +7681,15 @@ fn set_last_workspace_name() {
 }
 
 #[test]
-fn numeric_workspace_one_adopts_initial_unnamed_workspace() {
+fn initial_numeric_workspace_one_is_seeded() {
     let mut layout: Layout<TestWindow> = Layout::default();
     let output = make_test_output("eDP-1");
     layout.add_output(output.clone(), None);
-    layout.add_window(
-        TestWindow::new(TestWindowParams::new(1)),
-        AddWindowTarget::Auto,
-        None,
-        None,
-        false,
-        false,
-        ActivateWindow::default(),
-    );
+    layout.verify_invariants();
 
     let active_workspace_id = layout.active_workspace().unwrap().id();
     let workspace_count = layout.monitor_for_output(&output).unwrap().workspace_count();
-
     let (target_output, idx) = layout.ensure_workspace_by_name_transient("1").unwrap();
-    layout.verify_invariants();
 
     assert_eq!(target_output.as_ref().map(|out| out.name()), Some(output.name()));
     assert_eq!(idx, 0);
@@ -7714,7 +7704,7 @@ fn numeric_workspace_one_adopts_initial_unnamed_workspace() {
 }
 
 #[test]
-fn numeric_workspace_one_adopts_initial_workspace_after_switching_to_two() {
+fn numeric_workspace_one_is_reused_after_switching_to_two() {
     let mut layout: Layout<TestWindow> = Layout::default();
     let output = make_test_output("eDP-1");
     layout.add_output(output.clone(), None);
@@ -7754,7 +7744,7 @@ fn numeric_workspace_one_adopts_initial_workspace_after_switching_to_two() {
 }
 
 #[test]
-fn numeric_workspace_one_adoption_keeps_empty_above_first_invariant() {
+fn initial_numeric_workspace_one_keeps_empty_above_first_invariant() {
     let mut layout: Layout<TestWindow> = Layout::with_options(
         Clock::with_time(Duration::ZERO),
         Options {
@@ -7767,7 +7757,6 @@ fn numeric_workspace_one_adoption_keeps_empty_above_first_invariant() {
     );
     let output = make_test_output("eDP-1");
     layout.add_output(output.clone(), None);
-    layout.ensure_workspace_by_name_transient("1");
     layout.verify_invariants();
 
     let mon = layout.monitor_for_output(&output).unwrap();
@@ -7786,11 +7775,109 @@ fn ensure_workspace_by_name_creates_named_workspace() {
 
     let (target_output, idx) = layout.ensure_workspace_by_name("3").unwrap();
     assert_eq!(target_output.as_ref().map(|out| out.name()), Some(output.name()));
-    assert_eq!(idx, 0);
+    assert_eq!(idx, 1);
 
     let (found_idx, ws) = layout.find_workspace_by_name("3").unwrap();
-    assert_eq!(found_idx, 0);
+    assert_eq!(found_idx, 1);
     assert_eq!(ws.name().map(String::as_str), Some("3"));
+}
+
+#[test]
+fn numeric_workspaces_are_inserted_in_number_order() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    layout.add_output(make_test_output("eDP-1"), None);
+
+    layout.ensure_workspace_by_name_transient("5");
+    layout.ensure_workspace_by_name_transient("2");
+    layout.ensure_workspace_by_name_transient("3");
+
+    let MonitorSet::Normal { monitors, .. } = &layout.monitor_set else {
+        unreachable!()
+    };
+    let names: Vec<_> = monitors[0]
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().cloned())
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            "1".to_owned(),
+            "2".to_owned(),
+            "3".to_owned(),
+            "5".to_owned(),
+        ],
+    );
+}
+
+#[test]
+fn named_workspaces_are_inserted_after_numeric_workspaces() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    layout.add_output(make_test_output("eDP-1"), None);
+    layout.ensure_workspace_by_name("5");
+    layout.ensure_workspace_by_name("2");
+
+    layout.ensure_named_workspace(&WorkspaceConfig {
+        name: WorkspaceName("web".to_owned()),
+        open_on_output: None,
+        layout: None,
+    });
+
+    let MonitorSet::Normal { monitors, .. } = &layout.monitor_set else {
+        unreachable!()
+    };
+    let names: Vec<_> = monitors[0]
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().cloned())
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            "1".to_owned(),
+            "2".to_owned(),
+            "5".to_owned(),
+            "web".to_owned(),
+        ],
+    );
+}
+
+#[test]
+fn empty_inactive_numeric_workspace_is_destroyed_without_renumbering() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output = make_test_output("eDP-1");
+    layout.add_output(output.clone(), None);
+
+    layout.ensure_workspace_by_name_transient("3");
+    let (_, ws_3) = layout.find_workspace_by_name("3").unwrap();
+    layout.focus_workspace_by_id(ws_3.id(), false);
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(3)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+
+    let (_, ws_1) = layout.find_workspace_by_name("1").unwrap();
+    layout.focus_workspace_by_id(ws_1.id(), false);
+    let MonitorSet::Normal { monitors, .. } = &mut layout.monitor_set else {
+        unreachable!()
+    };
+    monitors[0].workspace_switch = None;
+    layout.remove_window(&3, Transaction::new());
+    layout.verify_invariants();
+
+    assert!(layout.find_workspace_by_name("3").is_none());
+    let mon = layout.monitor_for_output(&output).unwrap();
+    let names: Vec<_> = mon
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().map(String::as_str))
+        .collect();
+    assert_eq!(names, vec!["1"]);
 }
 
 #[test]
@@ -7841,10 +7928,7 @@ fn internal_empty_workspace_tail_is_hidden_only_when_inactive() {
     };
     let mon = &mut monitors[0];
 
-    // Right after creating "1", the old trailing empty workspace stays focused.
     assert!(!mon.is_internal_empty_workspace(mon.active_workspace_idx()));
-
-    mon.activate_workspace(0);
     assert!(mon.is_internal_empty_workspace(1));
 }
 
@@ -7865,7 +7949,7 @@ fn transient_numeric_workspace_is_cleaned_when_empty_and_unfocused() {
             .find_named_workspace_index("93")
             .expect("workspace 93 must exist");
         mon.activate_workspace(idx);
-        mon.activate_workspace(1);
+        mon.activate_workspace(0);
         // Simulate workspace switch animation completion for cleanup.
         mon.workspace_switch = None;
         mon.clean_up_workspaces();
@@ -7898,7 +7982,109 @@ fn move_workspace_to_output_by_workspace_id_moves_correct_workspace() {
 }
 
 #[test]
-fn move_workspace_to_idx_by_workspace_id_reorders_correct_workspace() {
+fn numeric_workspace_lookup_reuses_workspace_on_other_output() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output_a = make_test_output("eDP-1");
+    let output_b = make_test_output("HDMI-A-1");
+    layout.add_output(output_a.clone(), None);
+    layout.add_output(output_b.clone(), None);
+    layout.focus_output(&output_a);
+
+    layout.ensure_workspace_by_name("2");
+    let workspace_id = layout
+        .find_workspace_by_name("2")
+        .map(|(_, ws)| ws.id())
+        .expect("workspace 2 must exist");
+
+    layout.move_workspace_to_output_by_workspace_id(workspace_id, &output_b);
+    layout.focus_output(&output_a);
+
+    let (target_output, idx) = layout
+        .ensure_numeric_workspace(2)
+        .expect("workspace 2 must resolve");
+    layout.focus_workspace_by_id(workspace_id, false);
+    layout.verify_invariants();
+
+    let count = layout
+        .monitors()
+        .flat_map(|mon| mon.workspaces.iter())
+        .filter(|ws| ws.name().is_some_and(|name| name == "2"))
+        .count();
+
+    assert_eq!(
+        target_output.as_ref().map(|out| out.name()),
+        Some(output_b.name())
+    );
+    assert_eq!(idx, 0);
+    assert_eq!(count, 1);
+    assert_eq!(layout.active_output().map(|out| out.name()), Some(output_b.name()));
+    assert_eq!(layout.active_workspace().map(|ws| ws.id()), Some(workspace_id));
+}
+
+#[test]
+fn numeric_workspaces_keep_order_when_moved_between_outputs() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output_a = make_test_output("eDP-1");
+    let output_b = make_test_output("HDMI-A-1");
+    layout.add_output(output_a.clone(), None);
+    layout.add_output(output_b.clone(), None);
+    layout.focus_output(&output_a);
+
+    layout.ensure_workspace_by_name("10");
+    layout.ensure_workspace_by_name("5");
+    layout.ensure_workspace_by_name("2");
+
+    for name in ["5", "2"] {
+        let workspace_id = layout
+            .find_workspace_by_name(name)
+            .map(|(_, ws)| ws.id())
+            .expect("numeric workspace must exist");
+        layout.move_workspace_to_output_by_workspace_id(workspace_id, &output_b);
+    }
+
+    layout.verify_invariants();
+
+    let names: Vec<_> = layout
+        .monitor_for_output(&output_b)
+        .unwrap()
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().cloned())
+        .collect();
+
+    assert_eq!(names, vec!["2".to_owned(), "5".to_owned()]);
+}
+
+#[test]
+fn numeric_workspaces_keep_order_when_outputs_are_merged() {
+    let mut layout: Layout<TestWindow> = Layout::default();
+    let output_a = make_test_output("eDP-1");
+    let output_b = make_test_output("HDMI-A-1");
+    layout.add_output(output_a.clone(), None);
+    layout.add_output(output_b.clone(), None);
+    layout.focus_output(&output_b);
+
+    layout.ensure_workspace_by_name("5");
+    layout.ensure_workspace_by_name("2");
+    layout.remove_output(&output_b);
+    layout.verify_invariants();
+
+    let names: Vec<_> = layout
+        .monitor_for_output(&output_a)
+        .unwrap()
+        .workspaces
+        .iter()
+        .filter_map(|ws| ws.name().cloned())
+        .collect();
+
+    assert_eq!(
+        names,
+        vec!["1".to_owned(), "2".to_owned(), "5".to_owned()],
+    );
+}
+
+#[test]
+fn move_workspace_to_idx_by_workspace_id_does_not_reorder_numeric_workspaces() {
     let mut layout: Layout<TestWindow> = Layout::default();
     layout.add_output(make_test_output("eDP-1"), None);
     layout.ensure_workspace_by_name("10");
@@ -7920,7 +8106,15 @@ fn move_workspace_to_idx_by_workspace_id_reorders_correct_workspace() {
         .iter()
         .filter_map(|ws| ws.name().cloned())
         .collect();
-    assert_eq!(names, vec!["20".to_owned(), "10".to_owned(), "30".to_owned()]);
+    assert_eq!(
+        names,
+        vec![
+            "1".to_owned(),
+            "10".to_owned(),
+            "20".to_owned(),
+            "30".to_owned(),
+        ],
+    );
 }
 
 #[test]

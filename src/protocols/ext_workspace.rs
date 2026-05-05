@@ -82,19 +82,9 @@ pub struct ExtWorkspaceGlobalData {
 }
 
 fn visible_workspace_idx(mon: &Monitor<Mapped>, ws_idx: usize) -> Option<usize> {
-    if mon.is_internal_empty_workspace(ws_idx) {
-        return None;
-    }
-
-    let mut visible = 0usize;
-    for idx in 0..=ws_idx {
-        if !mon.is_internal_empty_workspace(idx) {
-            visible += 1;
-        }
-    }
-
     // ext-workspace coordinates are zero-based.
-    Some(visible.saturating_sub(1))
+    mon.visible_workspace_idx(ws_idx)
+        .map(|idx| idx.saturating_sub(1))
 }
 
 pub fn refresh(state: &mut State) {

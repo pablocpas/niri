@@ -51,7 +51,7 @@ use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size, Transform};
 use tile::{Tile, TileRenderElement};
 use tiling::{Column, ColumnWidth};
-use workspace::{WorkspaceAddWindowTarget, WorkspaceId};
+use workspace::{parse_numeric_workspace_name, WorkspaceAddWindowTarget, WorkspaceId};
 
 use self::container::{Direction, InsertParentInfo};
 pub use self::container::Layout as ContainerLayout;
@@ -386,6 +386,19 @@ enum MonitorSet<W: LayoutElement> {
         /// The workspaces.
         workspaces: Vec<Workspace<W>>,
     },
+}
+
+fn ensure_no_outputs_workspace_idx<W: LayoutElement>(
+    workspaces: &mut Vec<Workspace<W>>,
+    clock: Clock,
+    options: Rc<Options>,
+) -> usize {
+    if let Some(idx) = workspaces.iter().position(|ws| !ws.has_windows_or_name()) {
+        idx
+    } else {
+        workspaces.push(Workspace::new_no_outputs(clock, options));
+        workspaces.len() - 1
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -879,6 +892,7 @@ impl<W: LayoutElement> Layout<W> {
                 }
             }
             MonitorSet::NoOutputs { workspaces } => {
+                let seed_initial_workspace = workspaces.is_empty();
                 let ws_id_to_activate = self.last_active_workspace_id.remove(&output.name());
 
                 let mut monitor = Monitor::new(
@@ -889,6 +903,9 @@ impl<W: LayoutElement> Layout<W> {
                     self.options.clone(),
                     layout_config,
                 );
+                if seed_initial_workspace {
+                    monitor.name_initial_workspace("1".to_owned(), true);
+                }
                 monitor.overview_open = self.overview_open;
                 monitor.set_overview_progress(self.overview_progress.as_ref());
 
@@ -1248,15 +1265,19 @@ impl<W: LayoutElement> Layout<W> {
         match &mut self.monitor_set {
             MonitorSet::Normal { monitors, .. } => {
                 for mon in monitors {
+                    let last_workspace_idx = mon.workspaces.len() - 1;
+                    let empty_workspace_above_first =
+                        mon.options.layout.empty_workspace_above_first;
                     for (idx, ws) in mon.workspaces.iter_mut().enumerate() {
                         if ws.has_window(window) {
                             let removed = ws.remove_tile(window, transaction);
 
-                            // Clean up empty workspaces that are not active and not last.
-                            if !ws.has_windows_or_name()
-                                && idx != mon.active_workspace_idx
-                                && idx != mon.workspaces.len() - 1
-                                && mon.workspace_switch.is_none()
+                            let is_internal_placeholder = idx == last_workspace_idx
+                                || (empty_workspace_above_first && idx == 0);
+                            if ws.should_remove_when_empty(
+                                idx == mon.active_workspace_idx,
+                                is_internal_placeholder,
+                            ) && mon.workspace_switch.is_none()
                             {
                                 mon.workspaces.remove(idx);
 
@@ -1442,33 +1463,53 @@ impl<W: LayoutElement> Layout<W> {
                 ..
             } => {
                 let mon = &mut monitors[*active_monitor_idx];
-                if transient {
-                    if let Some(idx) = mon.adopt_workspace_name_by_visible_idx(&name) {
-                        return Some((Some(mon.output().clone()), idx));
-                    }
+                if parse_numeric_workspace_name(workspace_name).is_some() {
+                    let idx = mon.add_numeric_workspace(name, transient);
+                    return Some((Some(mon.output().clone()), idx));
                 }
 
                 // Insert before the trailing internal empty workspace.
-                let idx = mon.workspace_count().saturating_sub(1);
+                let idx = mon.named_workspace_insert_idx();
                 mon.add_workspace_at(idx);
                 mon.workspaces[idx].set_name(name, transient);
 
                 Some((Some(mon.output().clone()), idx))
             }
             MonitorSet::NoOutputs { workspaces } => {
-                let idx = if let Some(idx) =
-                    workspaces.iter().position(|ws| !ws.has_windows_or_name())
-                {
-                    idx
-                } else {
-                    workspaces.push(Workspace::new_no_outputs(
-                        self.clock.clone(),
-                        self.options.clone(),
-                    ));
-                    workspaces.len() - 1
-                };
-
+                let idx = ensure_no_outputs_workspace_idx(
+                    workspaces,
+                    self.clock.clone(),
+                    self.options.clone(),
+                );
                 workspaces[idx].set_name(name, transient);
+                Some((None, idx))
+            }
+        }
+    }
+
+    pub fn ensure_numeric_workspace(&mut self, number: u32) -> Option<(Option<Output>, usize)> {
+        let name = number.to_string();
+        if let Some((idx, ws)) = self.find_workspace_by_name(&name) {
+            return Some((ws.current_output().cloned(), idx));
+        }
+
+        match &mut self.monitor_set {
+            MonitorSet::Normal {
+                monitors,
+                active_monitor_idx,
+                ..
+            } => {
+                let mon = &mut monitors[*active_monitor_idx];
+                let idx = mon.add_numeric_workspace(name, true);
+                Some((Some(mon.output().clone()), idx))
+            }
+            MonitorSet::NoOutputs { workspaces } => {
+                let idx = ensure_no_outputs_workspace_idx(
+                    workspaces,
+                    self.clock.clone(),
+                    self.options.clone(),
+                );
+                workspaces[idx].set_name(name, true);
                 Some((None, idx))
             }
         }
@@ -4046,12 +4087,12 @@ impl<W: LayoutElement> Layout<W> {
                     clock,
                     options,
                 );
-                mon.insert_workspace(ws, 0, false);
+                mon.insert_workspace(ws, mon.named_workspace_insert_idx(), false);
             }
             MonitorSet::NoOutputs { workspaces } => {
                 let ws =
                     Workspace::new_with_config_no_outputs(Some(ws_config.clone()), clock, options);
-                workspaces.insert(0, ws);
+                workspaces.push(ws);
             }
         }
     }

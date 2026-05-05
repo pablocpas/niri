@@ -1151,7 +1151,7 @@ pub enum WorkspaceReferenceArg {
     /// Numeric workspace reference.
     ///
     /// This resolves workspace name `"N"` (for example, `Index(2)` refers to workspace `"2"`).
-    Index(u8),
+    Index(u32),
     /// Name of the workspace.
     Name(String),
 }
@@ -1953,11 +1953,11 @@ impl FromStr for WorkspaceReferenceArg {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let reference = if let Ok(index) = s.parse::<i32>() {
-            if let Ok(idx) = u8::try_from(index) {
+        let reference = if let Ok(index) = s.parse::<i64>() {
+            if let Ok(idx) = u32::try_from(index) {
                 Self::Index(idx)
             } else {
-                return Err("workspace index must be between 0 and 255");
+                return Err("workspace index must be between 0 and 4294967295");
             }
         } else {
             Self::Name(s.to_string())

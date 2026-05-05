@@ -1,16 +1,25 @@
 ### Overview
 
-Niri has dynamic workspaces that can move between monitors.
+Tiri uses i3/sway-like numeric workspaces with dynamic creation and cleanup.
 
-Each monitor contains an independent set of workspaces arranged vertically.
-You can switch between workspaces on a monitor with `focus-workspace-down` and `focus-workspace-up`.
-Empty workspaces "in the middle" automatically disappear when you switch away from them.
+The first workspace is `1`. Numeric workspaces are addressed by their number: `focus-workspace 2`
+focuses workspace `2`, creating it if needed, and `move-column-to-workspace 4` creates workspace
+`4` if needed and moves the column there.
 
-There's always one empty workspace at the end (at the bottom) of every monitor.
-When you open a window on this empty workspace, a new empty workspace will immediately appear further below it.
+Numeric workspaces are ordered by their number in the layout, IPC, and workspace protocols. For
+example, if you create workspace `5` and later create workspace `2`, they will be ordered as
+`1`, `2`, `5`.
 
-You can move workspaces up and down on the monitor with `move-workspace-up/down`.
-The way to put a window on a new workspace "in the middle" is to put it on the last (empty) workspace, then move the workspace up to where you need.
+Auto-created numeric workspaces are temporary: if they remain empty and become unfocused, they
+disappear. Existing higher-numbered workspaces keep their numbers; workspace `3` does not become
+workspace `2` just because `2` disappeared.
+
+There's still an internal empty workspace at the end of every monitor so that layout operations can
+open a new empty space. This internal workspace is not a numbered user workspace and is hidden from
+workspace lists when another real workspace exists.
+
+You can switch between visible workspaces on a monitor with `focus-workspace-down` and
+`focus-workspace-up`.
 
 Here's a visual representation that shows two monitors and their workspaces.
 The left monitor has three workspaces (two with windows, plus one empty), and the right monitor has two workspaces (one with windows, plus one empty).
@@ -21,6 +30,8 @@ The left monitor has three workspaces (two with windows, plus one empty), and th
 </picture>
 
 You can move a workspace to a different monitor using binds like `move-workspace-to-monitor-left/right/up/down` and `move-workspace-to-monitor-next/previous`.
+Numeric workspaces keep their numeric order; `move-workspace-up/down` does not reorder numbered
+workspaces.
 
 When you disconnect a monitor, its workspaces will automatically move to a different monitor.
 But, they will also "remember" their original monitor, so when you reconnect it, the workspaces will automatically move back to it.
@@ -29,23 +40,10 @@ But, they will also "remember" their original monitor, so when you reconnect it,
 > From other tiling WMs, you may be used to thinking about workspaces like this: "These are all of my workspaces. I can show workspace X on my first monitor, and workspace Y on my second monitor."
 > In niri, instead, think like this: "My first monitor contains these workspaces, including X and Y, and my second monitor contains these other workspaces. I can switch my first monitor to workspace X or Y. I can move workspace Y to my second monitor to show it there."
 
-### Addressing workspaces by index
+### Addressing Workspaces
 
-Several actions in niri can address workspaces "by index": `focus-workspace 2`, `move-column-to-workspace 4`.
-For numeric references, this index maps to workspace name `"N"` globally, like i3/sway.
-So, `focus-workspace 2` resolves workspace `"2"` regardless of monitor-local ordering.
-If it doesn't exist yet, it is created lazily.
-
-Auto-created numeric workspaces are temporary: if they remain empty and become unfocused, they disappear.
-
-When you want to have a more permanent workspace in niri, you can create a [named workspace](./Configuration:-Named-Workspaces.md) in the config or via the `set-workspace-name` action.
+When you want to have a more permanent workspace, you can create a [named workspace](./Configuration:-Named-Workspaces.md) in the config or via the `set-workspace-name` action.
 You can refer to named workspaces by name, e.g. `focus-workspace "browser"`, and they won't disappear when they become empty.
-
-> [!TIP]
-> You can try to emulate static workspaces by creating workspaces named "one", "two", "three", ..., and binding keys to `focus-workspace "one"`, `focus-workspace "two"`, ...
-> This can work to some extent, but it can become somewhat confusing, since you can still move these workspaces up and down and between monitors.
->
-> If you're coming from a static workspace WM, I suggest *not* doing that, but instead trying the dynamic workspace approach with focusing and moving up/down instead of by index.
 
 ### Example workflow
 

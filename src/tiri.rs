@@ -3538,8 +3538,7 @@ impl Niri {
     ) -> Option<WorkspaceId> {
         match workspace_reference {
             WorkspaceReference::Index(index) => {
-                self.layout
-                    .ensure_workspace_by_name_transient(&index.to_string())?;
+                self.layout.ensure_numeric_workspace(index)?;
                 self.layout
                     .find_workspace_by_name(&index.to_string())
                     .map(|(_, ws)| ws.id())
