@@ -3,7 +3,6 @@ use std::cmp::{max, min};
 use std::rc::Rc;
 
 use smithay::backend::renderer::element::Kind;
-use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::output::{self, Output};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Scale, Serial, Size, Transform};
@@ -252,17 +251,6 @@ impl LayoutElement for TestWindow {
 
     fn take_animation_snapshot(&mut self) -> Option<LayoutElementRenderSnapshot> {
         None
-    }
-
-    fn capture_render_snapshot(&self, _renderer: &mut GlesRenderer) -> LayoutElementRenderSnapshot {
-        LayoutElementRenderSnapshot {
-            contents: Vec::new(),
-            blocked_out_contents: Vec::new(),
-            block_out_from: None,
-            size: self.size().to_f64(),
-            texture: Default::default(),
-            blocked_out_texture: Default::default(),
-        }
     }
 
     fn set_interactive_resize(&mut self, _data: Option<InteractiveResizeData>) {}
