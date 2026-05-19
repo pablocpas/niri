@@ -7,8 +7,8 @@ pkgbase = tiri
 	license = GPL-3.0-or-later
 	makedepends = clang
 	makedepends = rust
-	source = tiri-0.1.0.tar.gz::https://github.com/pablocpas/tiri/releases/download/v0.1.0/tiri-0.1.0.tar.gz
-	source = tiri-0.1.0-vendored-dependencies.tar.xz::https://github.com/pablocpas/tiri/releases/download/v0.1.0/tiri-0.1.0-vendored-dependencies.tar.xz
+	source = tiri-0.1.0.tar.gz::https://github.com/pablocpas/tiri/releases/download/tiri-v0.1.0/tiri-0.1.0.tar.gz
+	source = tiri-0.1.0-vendored-dependencies.tar.xz::https://github.com/pablocpas/tiri/releases/download/tiri-v0.1.0/tiri-0.1.0-vendored-dependencies.tar.xz
 	b2sums = SKIP
 	b2sums = SKIP
 

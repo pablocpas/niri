@@ -42,8 +42,8 @@ optdepends=(
 provides=('wayland-compositor')
 conflicts=('tiri-git')
 source=(
-  "${pkgname}-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/${pkgname}-${pkgver}.tar.gz"
-  "${pkgname}-${pkgver}-vendored-dependencies.tar.xz::${url}/releases/download/v${pkgver}/${pkgname}-${pkgver}-vendored-dependencies.tar.xz"
+  "${pkgname}-${pkgver}.tar.gz::${url}/releases/download/${pkgname}-v${pkgver}/${pkgname}-${pkgver}.tar.gz"
+  "${pkgname}-${pkgver}-vendored-dependencies.tar.xz::${url}/releases/download/${pkgname}-v${pkgver}/${pkgname}-${pkgver}-vendored-dependencies.tar.xz"
 )
 b2sums=(
   'SKIP'

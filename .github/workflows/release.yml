@@ -121,6 +121,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          tag_name: v${{ github.event.inputs.version }}
+          tag_name: tiri-v${{ github.event.inputs.version }}
           files: release-artifacts/*
           fail_on_unmatched_files: true

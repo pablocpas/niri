@@ -5,8 +5,8 @@ Summary:        A tiling Wayland compositor
 
 License:        GPL-3.0-or-later
 URL:            https://github.com/pablocpas/tiri
-Source0:        %{url}/releases/download/v%{version}/%{name}-%{version}.tar.gz
-Source1:        %{url}/releases/download/v%{version}/%{name}-%{version}-vendored-dependencies.tar.xz
+Source0:        %{url}/releases/download/%{name}-v%{version}/%{name}-%{version}.tar.gz
+Source1:        %{url}/releases/download/%{name}-v%{version}/%{name}-%{version}-vendored-dependencies.tar.xz
 Provides:       wayland-compositor
 
 BuildRequires:  cargo

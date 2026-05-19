@@ -11,6 +11,7 @@ vendored Rust dependency archive. Both files are produced by the repository's
 1. Publish a GitHub release with these assets:
    - `tiri-$pkgver.tar.gz`
    - `tiri-$pkgver-vendored-dependencies.tar.xz`
+   - release tag: `tiri-v$pkgver`
 2. Update `pkgver` and reset `pkgrel=1` in `PKGBUILD`.
 3. On Arch, refresh checksums and `.SRCINFO`:
 

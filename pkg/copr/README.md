@@ -11,6 +11,9 @@ Those assets are produced by the repository's `Prepare release` GitHub Actions
 workflow. The vendored archive makes the RPM build independent from crates.io
 and git network access during `%build`.
 
+Release tags intentionally use `tiri-v$version` rather than `v$version`, because
+this fork still has historical upstream niri tags.
+
 ## First-time setup
 
 Create the COPR project once. Pick the Fedora chroots that are current when you
