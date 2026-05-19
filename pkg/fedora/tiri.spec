@@ -7,6 +7,7 @@ License:        GPL-3.0-or-later
 URL:            https://github.com/pablocpas/tiri
 Source0:        %{url}/releases/download/v%{version}/%{name}-%{version}.tar.gz
 Source1:        %{url}/releases/download/v%{version}/%{name}-%{version}-vendored-dependencies.tar.xz
+Provides:       wayland-compositor
 
 BuildRequires:  cargo
 BuildRequires:  clang
@@ -27,9 +28,16 @@ BuildRequires:  systemd-devel
 BuildRequires:  wayland-devel
 
 Requires:       libwayland-server
+Requires:       bash
 Recommends:     alacritty
 Recommends:     fuzzel
+Recommends:     gnome-keyring
 Recommends:     mako
+Recommends:     mesa-dri-drivers
+Recommends:     mesa-libEGL
+Recommends:     swaybg
+Recommends:     swaylock
+Recommends:     waybar
 Recommends:     xdg-desktop-portal-gnome
 Recommends:     xdg-desktop-portal-gtk
 Recommends:     xwayland-satellite

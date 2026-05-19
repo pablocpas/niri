@@ -4,14 +4,16 @@ Use these commands to install tiri with [DankMaterialShell](https://github.com/A
 
 Fedora:
 ```
+sudo dnf copr enable pablocpas/tiri
 sudo dnf copr enable avengemedia/dms
-sudo dnf install tiri dms
+sudo dnf install tiri dms xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk alacritty
 systemctl --user add-wants tiri.service dms
 ```
 
 Arch Linux (via [paru](https://github.com/morganamilo/paru)):
 ```
-sudo pacman -Syu tiri xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk alacritty
+paru -S tiri
+sudo pacman -Syu xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk alacritty
 paru -S dms-shell-bin matugen wl-clipboard cliphist cava qt6-multimedia-ffmpeg
 systemctl --user add-wants tiri.service dms
 ```
