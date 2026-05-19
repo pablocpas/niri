@@ -287,7 +287,7 @@ Settings specific to `tablet`:
 
 - `map-to-focused-output`: <sup>Since: 26.04</sup> will map the tablet to the focused output, takes precedence over `map-to-output`.
 
-- `map-to-focused-window`: <sup>Since: next release</sup> will map the tablet to the focused window's geometry, takes precedence over `map-to-focused-output` and `map-to-output`.
+- `map-to-focused-window`: <sup>Since: 0.1.0</sup> will map the tablet to the focused window's geometry, takes precedence over `map-to-focused-output` and `map-to-output`.
 Falls back to those when no window is focused (for example, in the overview).
 
     When the tablet is also mapped to a specific output via `map-to-output`, the `map-to-focused-window` flag will map the tablet to the active window on that output.
