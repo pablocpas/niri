@@ -67,7 +67,11 @@ jobs:
 
       - name: Create source archive
         run: |
-          git archive \
+          git \
+            -c filter.lfs.smudge= \
+            -c filter.lfs.process= \
+            -c filter.lfs.required=false \
+            archive \
             --format=tar.gz \
             --prefix=tiri-${{ github.event.inputs.version }}/ \
             -o tiri-${{ github.event.inputs.version }}.tar.gz \
