@@ -1,6 +1,6 @@
 Name:           tiri
 Version:        0.1.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        A tiling Wayland compositor
 
 License:        GPL-3.0-or-later
@@ -52,14 +52,6 @@ This spec is intended for COPR builds from GitHub release assets:
 %prep
 %autosetup -n %{name}-%{version}
 tar -xJf %{SOURCE1}
-mkdir -p .cargo
-cat > .cargo/config.toml <<'EOF'
-[source.crates-io]
-replace-with = "vendored-sources"
-
-[source.vendored-sources]
-directory = "vendor"
-EOF
 
 %build
 export TIRI_BUILD_VERSION_STRING="%{version}"
@@ -84,5 +76,8 @@ install -Dpm0644 resources/tiri-shutdown.target %{buildroot}%{_userunitdir}/tiri
 %{_userunitdir}/tiri-shutdown.target
 
 %changelog
+* Tue May 19 2026 Pablo Pascual <pablocpascual@gmail.com> - 0.1.0-2
+- Use vendored cargo config for git dependencies in COPR builds
+
 * Mon Mar 30 2026 Pablo Pascual <pablocpascual@gmail.com> - 0.1.0-1
 - Initial COPR packaging template for tiri
