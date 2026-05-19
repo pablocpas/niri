@@ -16,13 +16,20 @@ this fork still has historical upstream niri tags.
 
 ## First-time setup
 
-Create the COPR project once. Pick the Fedora chroots that are current when you
-publish:
+Create the COPR project once. Install your API token first from
+<https://copr.fedorainfracloud.org/api/> into `~/.config/copr`.
+
+Pick the Fedora chroots that are current when you publish. As of this package's
+first release, COPR exposes Fedora 42, Fedora 43, Fedora 44, and rawhide for
+x86_64:
 
 ```sh
 copr-cli create tiri \
   --description "A tiling Wayland compositor derived from niri" \
   --instructions "sudo dnf copr enable pablocpas/tiri && sudo dnf install tiri" \
+  --chroot fedora-42-x86_64 \
+  --chroot fedora-43-x86_64 \
+  --chroot fedora-44-x86_64 \
   --chroot fedora-rawhide-x86_64
 ```
 
