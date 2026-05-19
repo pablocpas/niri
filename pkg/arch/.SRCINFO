@@ -9,8 +9,8 @@ pkgbase = tiri
 	makedepends = rust
 	source = tiri-0.1.0.tar.gz::https://github.com/pablocpas/tiri/releases/download/tiri-v0.1.0/tiri-0.1.0.tar.gz
 	source = tiri-0.1.0-vendored-dependencies.tar.xz::https://github.com/pablocpas/tiri/releases/download/tiri-v0.1.0/tiri-0.1.0-vendored-dependencies.tar.xz
-	b2sums = SKIP
-	b2sums = SKIP
+	b2sums = 31fbfc9b1ee7b219aea2210ec9806d54822ebcae0a10b886f829f035001db9ff11a02d62900bde5359d392127ceb8a745a5de6e6dd4222dacd5750a33099f70c
+	b2sums = 272c0b32b5882155ab51d9ac1c7b9837549aae4b4e59f0d1ab0a22facb0ab38091729d5435a3caf7294d683b11c25711c8fc2296343262b0babfa097668d55fa
 
 pkgname = tiri
 	depends = cairo
