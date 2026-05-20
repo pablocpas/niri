@@ -88,6 +88,14 @@ After installing, choose **Tiri** in your display manager, or run `tiri-session`
 
 Tiri intentionally does not try to be a full desktop environment. Bring your bar, launcher, notification daemon, lock screen, wallpaper tool, and portal setup, just like you would for i3 or sway.
 
+<!--
+## Video Demo
+
+Add a short demo here once there is a representative recording that shows the
+tiling workflow, tabbed and stacked containers, multi-monitor behavior, and the
+default session experience.
+-->
+
 ## Status
 
 Tiri is in active development and is being refined for daily i3-like use. It inherits a mature compositor base from niri, including rendering, input, screencasting, protocol support, and multi-monitor handling.
