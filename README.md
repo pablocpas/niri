@@ -1,126 +1,132 @@
-<h1 align="center"><img alt="tiri" src="tiri.svg"></h1>
-<p align="center">An i3-like tiling Wayland compositor built as a fork of niri.</p>
+<h1 align="center">
+  <img alt="tiri" src="tiri.svg">
+</h1>
 
-![tiri with tiling windows](tiri.png)
+<p align="center">
+  <strong>An i3/sway-like tiling Wayland compositor built from niri.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/pablocpas/tiri/releases"><img alt="Release" src="https://img.shields.io/github/v/release/pablocpas/tiri?style=flat-square&label=release"></a>
+  <a href="https://aur.archlinux.org/packages/tiri-bin"><img alt="AUR tiri-bin" src="https://img.shields.io/aur/version/tiri-bin?style=flat-square&label=AUR%20tiri-bin"></a>
+  <a href="https://copr.fedorainfracloud.org/coprs/pablocpas/tiri/"><img alt="Fedora COPR" src="https://img.shields.io/badge/COPR-pablocpas%2Ftiri-51a2da?style=flat-square"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/pablocpas/tiri?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="https://pablocpas.github.io/tiri/Getting-Started.html">Getting Started</a>
+  ·
+  <a href="https://pablocpas.github.io/tiri/Configuration:-Introduction.html">Configuration</a>
+  ·
+  <a href="https://github.com/pablocpas/tiri/releases">Releases</a>
+  ·
+  <a href="https://github.com/YaLTeR/niri">niri</a>
+</p>
+
+![tiri with tiled windows](tiri.png)
 
 ## About
 
-**Tiri** is a fork of [niri](https://github.com/YaLTeR/niri) that implements traditional i3/sway-style tiling window management.
+**Tiri** is a fork of [niri](https://github.com/YaLTeR/niri) that keeps niri's Wayland compositor foundation and replaces the scrollable layout with traditional i3/sway-style tiling.
 
-### Why tiri?
+Windows live in a container tree: split horizontally, split vertically, tab them, stack them, or float them when the window calls for it. Each monitor owns its own workspace stack and tiling tree, so windows stay visible and predictable instead of flowing into another output.
 
-Tiri started from niri's excellent technical foundation: strong performance, clean architecture, and a minimalist approach. The main change is the window management model: instead of scrollable strips, tiri uses i3-style tiling with predictable, visible window positions.
+Tiri is for people who like i3/sway's direct spatial model, but want it on top of niri's rendering, protocol support, animations, screencasting, gestures, and multi-monitor infrastructure.
 
-Windows are automatically arranged using a container tree with support for:
-- **Horizontal and Vertical splits**: automatic tiling that divides space between windows
-- **Tabbed mode**: windows overlay each other with tab indicators
-- **Stacked mode**: similar to tabbed but with a vertical stack layout
-- **Floating windows**: for dialogs and special cases
+## Install
 
-Every monitor has its own separate tiling tree.
-Windows can never "overflow" onto an adjacent monitor.
+Fedora:
 
-Workspaces are dynamic and arranged vertically.
-Every monitor has an independent set of workspaces, and there's always one empty workspace present all the way down.
+```sh
+sudo dnf copr enable pablocpas/tiri
+sudo dnf install tiri
+```
 
-The workspace arrangement is preserved across disconnecting and connecting monitors where it makes sense.
-When a monitor disconnects, its workspaces will move to another monitor, but upon reconnection they will move back to the original monitor.
+Arch Linux:
 
-## Features
+```sh
+paru -S tiri-bin
+# or build from source:
+paru -S tiri
+```
 
-- **i3/sway-like tiling**: Container tree with automatic window placement
-- **Multiple container modes**: SplitH, SplitV, Tabbed, Stacked
-- Dynamic workspaces like in GNOME
-- Built-in screenshot UI
-- Monitor and window screencasting through xdg-desktop-portal-gnome
-    - Block out sensitive windows from screencasts
-    - Dynamic cast target that can change what it shows on the go
-- Touchpad and mouse gestures
-- Floating windows support
-- Configurable layout: gaps, borders, struts, window sizes
-- Gradient borders with Oklab and Oklch support
-- Smooth animations with support for custom shaders
-- Live-reloading config
-- Works with screen readers
-- All the rendering excellence from niri's codebase
+Nix:
 
-## Differences from niri
+```sh
+nix profile install github:pablocpas/tiri
+```
 
-Tiri maintains niri's excellent foundation while changing the core window management:
+Debian/Ubuntu:
 
-- **Layout system**: Container tree (like i3/sway) instead of scrollable columns
-- **Window placement**: Automatic tiling with splits instead of manual column arrangement
-- **Navigation**: Focus moves between tiled windows in the tree structure
-- **Container modes**: Support for Tabbed and Stacked modes in addition to splits
-- **Same great features**: All of niri's rendering, Wayland protocols, and compositor features remain
+Download the `.deb` from the [latest release](https://github.com/pablocpas/tiri/releases/latest).
+
+After installing, choose **Tiri** in your display manager, or run `tiri-session` from a TTY.
+
+## Highlights
+
+- **i3/sway-like tiling** with a real container tree.
+- **Split, tabbed, stacked, and floating** container modes.
+- **Independent monitor trees**: windows do not overflow into another monitor.
+- **Dynamic vertical workspaces** with an always-empty workspace at the end.
+- **Live-reloading configuration** in KDL.
+- **Screenshot UI and screencasting** through xdg-desktop-portal-gnome.
+- **Sensitive-window blocking** for screencasts.
+- **Touchpad and mouse gestures** inherited from niri.
+- **Configurable gaps, borders, struts, and window sizes**.
+- **Gradient borders, animations, and custom shaders**.
+- **Accessibility support** through the same base as niri.
+
+## Tiri vs niri
+
+| Area | niri | tiri |
+| --- | --- | --- |
+| Core layout | Scrollable columns | i3/sway-style container tree |
+| Window placement | Manual column workflow | Automatic tiling splits |
+| Spatial model | Infinite horizontal strip per workspace | Visible tree per workspace |
+| Container modes | Columns and tabs | SplitH, SplitV, tabbed, stacked, floating |
+| Foundation | Wayland compositor built in Rust | niri foundation with tiling semantics |
+
+Tiri intentionally does not try to be a full desktop environment. Bring your bar, launcher, notification daemon, lock screen, wallpaper tool, and portal setup, just like you would for i3 or sway.
 
 ## Status
 
-Tiri is in active development. It builds on niri's stable foundation and is being refined for day-to-day use with i3-style tiling.
+Tiri is in active development and is being refined for daily i3-like use. It inherits a mature compositor base from niri, including rendering, input, screencasting, protocol support, and multi-monitor handling.
 
-Being a fork of niri means tiri inherits:
-- Mature Wayland protocol support
-- Excellent rendering performance
-- Multi-monitor handling
-- All the compositor infrastructure
+Things that are already first-class:
 
-Have your [waybar]s and [fuzzel]s ready: tiri is not a complete desktop environment, just like i3/sway.
+- Multi-monitor layouts, including mixed DPI.
+- Fractional scaling with pixel-perfect compositor UI.
+- Floating windows for dialogs and special cases.
+- Xwayland through [xwayland-satellite](https://github.com/Supreeeme/xwayland-satellite).
+- Wlr protocols such as layer-shell, gamma-control, and screencopy.
+- Tablets, touchpads, and touchscreens.
 
-Here are some points you may have questions about:
+## Packaging
 
-- **Multi-monitor**: yes, a core part of the design from the very start. Mixed DPI works.
-- **Fractional scaling**: yes, plus all tiri UI stays pixel-perfect.
-- **NVIDIA**: seems to work fine.
-- **Floating windows**: yes, starting from niri 25.01.
-- **Input devices**: tiri supports tablets, touchpads, and touchscreens.
-You can map the tablet to a specific monitor, or use [OpenTabletDriver].
-We have touchpad gestures, but no touchscreen gestures yet.
-- **Wlr protocols**: yes, we have most of the important ones like layer-shell, gamma-control, screencopy.
-You can check on [wayland.app](https://wayland.app) at the bottom of each protocol's page.
-- **Performance**: performance remains a priority, and the project keeps the rendering strengths inherited from niri.
-- **Xwayland**: [integrated](https://yalter.github.io/niri/Xwayland.html#using-xwayland-satellite) via xwayland-satellite starting from niri 25.08.
+Current distribution paths:
 
-## Credits and Acknowledgments
+- Fedora: [COPR `pablocpas/tiri`](https://copr.fedorainfracloud.org/coprs/pablocpas/tiri/).
+- Arch: [`tiri-bin`](https://aur.archlinux.org/packages/tiri-bin) and [`tiri`](https://aur.archlinux.org/packages/tiri) on AUR.
+- Nix: flake package at `github:pablocpas/tiri`.
+- Debian/Ubuntu: `.deb` assets on GitHub Releases.
 
-Tiri is built on top of [niri](https://github.com/YaLTeR/niri) by Ivan Molodetskikh (YaLTeR). All of niri's excellent architecture, Wayland protocol implementations, rendering pipeline, and compositor features are the foundation of this project.
+Packagers should read [Packaging tiri](https://pablocpas.github.io/tiri/Packaging-tiri.html). Release tarballs include a matching vendored dependency archive for offline Rust builds.
 
-If you want to learn more about the underlying technology, check out these niri resources:
+## Credits
 
-- [niri: Making a Wayland compositor in Rust](https://youtu.be/Kmz8ODolnDg?list=PLRdS-n5seLRqrmWDQY4KDqtRMfIwU0U3T) - Talk about niri's internals
-- [A tour of the niri scrolling-tiling Wayland compositor](https://lwn.net/Articles/1025866/) - LWN article about niri
+Tiri is built on top of [niri](https://github.com/YaLTeR/niri) by Ivan Molodetskikh (YaLTeR). The rendering pipeline, Wayland protocol work, compositor architecture, and much of the surrounding documentation come from niri's excellent foundation.
+
+Useful niri resources:
+
+- [niri: Making a Wayland compositor in Rust](https://youtu.be/Kmz8ODolnDg?list=PLRdS-n5seLRqrmWDQY4KDqtRMfIwU0U3T)
+- [A tour of the niri scrolling-tiling Wayland compositor](https://lwn.net/Articles/1025866/)
 
 ## Contributing
 
-Contributions to tiri are welcome! This is an independent fork focused on i3-style tiling.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome, especially around i3/sway behavior parity, layout correctness, testing, documentation, packaging, and real-world bug reports.
 
-## Inspiration
-
-Tiri is inspired by [i3](https://i3wm.org/) and [sway](https://swaywm.org/), the excellent tiling window managers that pioneered the container tree approach.
-
-The project is built on [niri](https://github.com/YaLTeR/niri)'s foundation, which provides world-class Wayland compositor infrastructure.
-
-## Related Projects
-
-Other tiling window managers and compositors:
-
-- [i3](https://i3wm.org/): The original tiling WM for X11
-- [sway](https://swaywm.org/): i3-compatible tiling Wayland compositor
-- [niri](https://github.com/YaLTeR/niri): The scrollable-tiling Wayland compositor this is based on
-- [Hyprland](https://hyprland.org/): Dynamic tiling Wayland compositor
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Getting Started](https://pablocpas.github.io/tiri/Getting-Started.html) docs.
 
 ## License
 
-Tiri is licensed under GPL-3.0-or-later, the same as niri.
-
-[PaperWM]: https://github.com/paperwm/PaperWM
-[waybar]: https://github.com/Alexays/Waybar
-[fuzzel]: https://codeberg.org/dnkl/fuzzel
-[awesome-niri]: https://github.com/Vortriz/awesome-niri
-[karousel]: https://github.com/peterfajdiga/karousel
-[papersway]: https://spwhitton.name/tech/code/papersway/
-[hyprscrolling]: https://github.com/hyprwm/hyprland-plugins/tree/main/hyprscrolling
-[hyprslidr]: https://gitlab.com/magus/hyprslidr
-[PaperWM.spoon]: https://github.com/mogenson/PaperWM.spoon
-[Matrix channel]: https://matrix.to/#/#niri:matrix.org
-[OpenTabletDriver]: https://opentabletdriver.net/
+Tiri is licensed under GPL-3.0-or-later.
