@@ -46,7 +46,7 @@
 
         rustPlatform.buildRustPackage {
           pname = "tiri";
-          version = self.shortRev or self.dirtyShortRev or "unknown";
+          version = cargoToml.workspace.package.version;
 
           src = lib.fileset.toSource {
             root = ./.;
@@ -170,6 +170,7 @@
 
       forAllSystems = lib.genAttrs systems;
       nixpkgsFor = forAllSystems (system: nixpkgs.legacyPackages.${system});
+      cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
     in
     {
       checks = forAllSystems (system: {

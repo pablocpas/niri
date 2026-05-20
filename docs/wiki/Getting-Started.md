@@ -12,17 +12,15 @@ systemctl --user add-wants tiri.service dms
 
 Arch Linux (via [paru](https://github.com/morganamilo/paru)):
 ```
-paru -S tiri
+paru -S tiri-bin
 sudo pacman -Syu xwayland-satellite xdg-desktop-portal-gnome xdg-desktop-portal-gtk alacritty
 paru -S dms-shell-bin matugen wl-clipboard cliphist cava qt6-multimedia-ffmpeg
 systemctl --user add-wants tiri.service dms
 ```
 
-Ubuntu 25.10 and above:
+Nix:
 ```
-sudo add-apt-repository ppa:avengemedia/danklinux
-sudo add-apt-repository ppa:avengemedia/dms
-sudo apt install tiri dms
+nix profile install github:pablocpas/tiri
 ```
 
 After running these commands, log out, choose Tiri in your display manager, and log back in.
