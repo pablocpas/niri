@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img alt="tiri" src="tiri.svg">
+  <img alt="tiri" src="tiri.svg" width="260">
 </h1>
 
 <p align="center">
