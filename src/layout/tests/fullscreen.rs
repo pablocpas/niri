@@ -452,7 +452,7 @@ fn interactive_move_restore_to_floating_animates_view_offset() {
         // Toggle window 1 to floating.
         Op::FocusWindow(1),
         Op::ToggleWindowFloating { id: None },
-        // Fullscreen window 1 - it moves to scrolling with restore_to_floating = true.
+        // Fullscreen window 1 - it moves to tiling with restore_to_floating = true.
         Op::FullscreenWindow(1),
         Op::Communicate(1),
         Op::CompleteAnimations,
@@ -493,7 +493,7 @@ fn interactive_move_restore_to_floating_animates_view_offset() {
     assert_eq!(tiling.tiles().count(), 1);
     assert!(tiling.tiles().next().unwrap().window().id() == &2);
 
-    // In tiri, this path does not currently trigger a follow-up scrolling animation.
+    // In tiri, this path does not currently trigger a follow-up tiling animation.
     assert!(!tiling.are_animations_ongoing());
 }
 
@@ -756,4 +756,796 @@ fn removing_only_fullscreen_tile_updates_view_offset() {
     // View pos should include gap now that the column is no longer fullscreen.
     // FIXME: currently, removing a tile doesn't cause the view offset to update.
     assert_snapshot!(layout.active_workspace().unwrap().tiling().view_pos(), @"0");
+}
+
+#[test]
+fn fullscreen_directional_focus_stays_on_active_window_like_sway() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(3),
+        Op::FullscreenWindow(3),
+        Op::SplitVertical,
+    ]);
+
+    let focused_before = layout.focus().map(|win| *win.id());
+    check_ops_on_layout(&mut layout, [Op::FocusColumnLeft]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        focused_before,
+        "focus_left should not escape active fullscreen subtree (sway parity)"
+    );
+
+    check_ops_on_layout(&mut layout, [Op::FocusColumnRight]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        focused_before,
+        "focus_right should not escape active fullscreen subtree (sway parity)"
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.tiling().debug_tree();
+    assert!(
+        tree.contains("Window 3 *"),
+        "focus should remain on the fullscreen window after directional focus:\n{tree}"
+    );
+}
+#[test]
+fn fullscreen_focus_parent_is_noop_like_sway() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(2),
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(3),
+        Op::FullscreenWindow(3),
+    ]);
+
+    check_ops_on_layout(&mut layout, [Op::FocusParent]);
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    assert_eq!(layout.focus().map(|win| *win.id()), Some(3));
+    assert_eq!(workspace.debug_handler_context(), "tiling_window");
+    assert!(
+        !workspace.is_tiling_workspace_context_active(),
+        "focus_parent should not enter workspace context while fullscreen is active"
+    );
+    assert!(
+        !workspace.tiling().selected_is_container(),
+        "focus_parent should not select a tiling container while fullscreen is active"
+    );
+
+    let tree = workspace.tiling().debug_tree();
+    assert!(
+        tree.contains("Window 3 *"),
+        "focus should remain on the fullscreen window after focus_parent:\n{tree}"
+    );
+}
+#[test]
+fn fullscreen_open_window_does_not_steal_focus_like_sway() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(3),
+        Op::FullscreenWindow(3),
+        Op::SplitVertical,
+    ]);
+
+    let focused_before = layout.focus().map(|win| *win.id());
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(4)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        focused_before,
+        "open_window should not steal focus from active fullscreen tiling window (sway parity)"
+    );
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.tiling().debug_tree();
+    assert!(
+        tree.contains("Window 3 *"),
+        "focus should remain on fullscreen window after opening a new tiling window:\n{tree}"
+    );
+}
+#[test]
+fn fullscreen_open_then_focus_right_stays_locked_like_sway() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(3),
+        Op::FullscreenWindow(3),
+        Op::SplitVertical,
+    ]);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(4)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::SetLayoutTabbed,
+            Op::SetLayoutSplitV,
+            Op::FocusColumnRight,
+        ],
+    );
+
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(3),
+        "focus_right should remain locked on fullscreen tiling window after open/layout ops (sway parity)"
+    );
+}
+#[test]
+fn fullscreen_focus_down_can_move_within_fullscreen_subtree_like_sway() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+        Op::FocusWindow(3),
+        Op::FullscreenWindow(3),
+        Op::SplitVertical,
+    ]);
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(4)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::SetLayoutTabbed,
+            Op::SetLayoutSplitV,
+            Op::FocusColumnRight,
+            Op::FocusWindowDown,
+        ],
+    );
+
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(4),
+        "focus_down should move within fullscreen subtree after split/tabbed transitions (sway parity)"
+    );
+
+    check_ops_on_layout(&mut layout, [Op::FocusWindowDown]);
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(4),
+        "second focus_down at bottom of fullscreen subtree should be no-op (no wrap, sway parity)"
+    );
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(5)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::Yes,
+    );
+    assert_eq!(
+        layout.focus().map(|win| *win.id()),
+        Some(4),
+        "open_window should not steal focus even when focus is on non-fullscreen leaf inside fullscreen subtree (sway parity)"
+    );
+}
+#[test]
+fn restore_to_floating_persists_across_fullscreen_maximize() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        // Maximize then fullscreen.
+        Op::MaximizeWindowToEdges { id: None },
+        Op::FullscreenWindow(1),
+        // Unfullscreen.
+        Op::FullscreenWindow(1),
+    ];
+
+    let mut layout = check_ops(ops);
+
+    // Unfullscreening should return the window to the maximized state.
+    let tiling = layout.active_workspace().unwrap().tiling();
+    assert!(tiling.tiles().next().is_some());
+
+    let ops = [
+        // Unmaximize.
+        Op::MaximizeWindowToEdges { id: None },
+    ];
+    check_ops_on_layout(&mut layout, ops);
+
+    // The window was originally floating, so unmaximize restores it to floating.
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&1));
+}
+#[test]
+fn floating_fullscreen_roundtrip_restores_floating() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::FullscreenWindow(1),
+        Op::Communicate(1),
+        Op::FullscreenWindow(1),
+    ];
+
+    let layout = check_ops(ops);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&1));
+}
+#[test]
+fn floating_quick_fullscreen_roundtrip_restores_floating() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::FullscreenWindow(1),
+        // No communicate here: quickly toggle fullscreen off.
+        Op::FullscreenWindow(1),
+    ];
+
+    let layout = check_ops(ops);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&1));
+}
+#[test]
+fn floating_fullscreen_roundtrip_restores_floating_with_other_tiling_windows() {
+    let mut floating_params = TestWindowParams::new(2);
+    floating_params.is_floating = true;
+
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: floating_params,
+        },
+        Op::FullscreenWindow(2),
+        Op::Communicate(2),
+        Op::FullscreenWindow(2),
+    ];
+
+    let layout = check_ops(ops);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&2));
+    assert!(!workspace.is_floating(&1));
+}
+#[test]
+fn floating_windowed_fullscreen_replaces_existing_floating_fullscreen() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(5)
+            },
+        },
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(4)
+            },
+        },
+        Op::FullscreenWindow(5),
+        Op::ToggleWindowedFullscreen(4),
+    ];
+
+    let layout = check_ops(ops);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&5));
+    assert!(workspace.is_floating(&4));
+
+    let (_mon, win4) = layout
+        .windows()
+        .find(|(_, win)| *win.id() == 4)
+        .expect("window 4 should exist");
+    let (_mon, win5) = layout
+        .windows()
+        .find(|(_, win)| *win.id() == 5)
+        .expect("window 5 should exist");
+
+    assert!(win4.pending_sizing_mode().is_fullscreen());
+    assert!(!win5.pending_sizing_mode().is_fullscreen());
+}
+#[test]
+fn floating_set_fullscreen_roundtrip_restores_floating() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(1)
+            },
+        },
+        Op::SetFullscreenWindow {
+            window: 1,
+            is_fullscreen: true,
+        },
+        Op::SetFullscreenWindow {
+            window: 1,
+            is_fullscreen: false,
+        },
+    ];
+
+    let layout = check_ops(ops);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&1));
+
+    let (_mon, win) = layout
+        .windows()
+        .find(|(_, win)| *win.id() == 1)
+        .expect("window 1 should exist");
+    assert!(
+        !win.is_pending_windowed_fullscreen(),
+        "windowed fullscreen should be cleared after roundtrip"
+    );
+}
+#[test]
+fn floating_fullscreen_roundtrip_restores_size_and_position() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(1)
+            },
+        },
+        Op::Communicate(1),
+        Op::MoveFloatingWindow {
+            id: Some(1),
+            x: PositionChange::SetFixed(137.),
+            y: PositionChange::SetFixed(91.),
+            animate: false,
+        },
+        Op::SetWindowWidth {
+            id: Some(1),
+            change: SizeChange::SetFixed(777),
+        },
+        Op::SetWindowHeight {
+            id: Some(1),
+            change: SizeChange::SetFixed(444),
+        },
+        Op::Communicate(1),
+        Op::CompleteAnimations,
+    ]);
+
+    let before = tile_rect(&layout, 1);
+
+    check_ops_on_layout(
+        &mut layout,
+        [Op::SetFullscreenWindow {
+            window: 1,
+            is_fullscreen: true,
+        }],
+    );
+
+    {
+        let workspace = layout.active_workspace().unwrap();
+        assert!(
+            workspace.is_floating(&1),
+            "window should remain floating while fullscreen is active"
+        );
+        assert!(
+            workspace.floating().is_fullscreen(&1),
+            "window should be marked as fullscreen in floating"
+        );
+
+        let (_mon, win) = layout
+            .windows()
+            .find(|(_, win)| *win.id() == 1)
+            .expect("window 1 should exist");
+        assert!(
+            win.pending_sizing_mode().is_fullscreen(),
+            "floating fullscreen should request real fullscreen state"
+        );
+    }
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::Communicate(1),
+            Op::SetFullscreenWindow {
+                window: 1,
+                is_fullscreen: false,
+            },
+        ],
+    );
+
+    {
+        let workspace = layout.active_workspace().unwrap();
+        assert!(
+            workspace.is_floating(&1),
+            "window should remain floating after unfullscreen"
+        );
+        assert!(
+            !workspace.floating().is_fullscreen(&1),
+            "fullscreen flag should be cleared"
+        );
+
+        let (_mon, win) = layout
+            .windows()
+            .find(|(_, win)| *win.id() == 1)
+            .expect("window 1 should exist");
+        assert!(
+            win.pending_sizing_mode().is_normal(),
+            "unfullscreen should clear the pending fullscreen state"
+        );
+    }
+
+    check_ops_on_layout(&mut layout, [Op::Communicate(1), Op::CompleteAnimations]);
+
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&1));
+
+    let after = tile_rect(&layout, 1);
+    let close = |a: f64, b: f64| (a - b).abs() <= 1.0;
+
+    assert!(
+        close(before.loc.x, after.loc.x),
+        "x mismatch: before={} after={}",
+        before.loc.x,
+        after.loc.x
+    );
+    assert!(
+        close(before.loc.y, after.loc.y),
+        "y mismatch: before={} after={}",
+        before.loc.y,
+        after.loc.y
+    );
+    assert!(
+        close(before.size.w, after.size.w),
+        "w mismatch: before={} after={}",
+        before.size.w,
+        after.size.w
+    );
+    assert!(
+        close(before.size.h, after.size.h),
+        "h mismatch: before={} after={}",
+        before.size.h,
+        after.size.h
+    );
+}
+#[test]
+fn floating_fullscreen_move_window_preserves_restored_position() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(1)
+            },
+        },
+        Op::Communicate(1),
+        Op::MoveFloatingWindow {
+            id: Some(1),
+            x: PositionChange::SetFixed(137.),
+            y: PositionChange::SetFixed(91.),
+            animate: false,
+        },
+        Op::Communicate(1),
+        Op::CompleteAnimations,
+    ]);
+
+    let before = tile_rect(&layout, 1);
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::SetFullscreenWindow {
+                window: 1,
+                is_fullscreen: true,
+            },
+            Op::Communicate(1),
+            Op::MoveFloatingWindow {
+                id: Some(1),
+                x: PositionChange::AdjustFixed(200.),
+                y: PositionChange::AdjustFixed(150.),
+                animate: false,
+            },
+            Op::SetFullscreenWindow {
+                window: 1,
+                is_fullscreen: false,
+            },
+            Op::Communicate(1),
+            Op::CompleteAnimations,
+        ],
+    );
+
+    let after = tile_rect(&layout, 1);
+    let close = |a: f64, b: f64| (a - b).abs() <= 1.0;
+
+    assert!(
+        close(before.loc.x, after.loc.x),
+        "fullscreen move should not change restored x position: before={} after={}",
+        before.loc.x,
+        after.loc.x
+    );
+    assert!(
+        close(before.loc.y, after.loc.y),
+        "fullscreen move should not change restored y position: before={} after={}",
+        before.loc.y,
+        after.loc.y
+    );
+}
+#[test]
+fn floating_fullscreen_center_window_preserves_restored_position() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(1)
+            },
+        },
+        Op::Communicate(1),
+        Op::MoveFloatingWindow {
+            id: Some(1),
+            x: PositionChange::SetFixed(137.),
+            y: PositionChange::SetFixed(91.),
+            animate: false,
+        },
+        Op::Communicate(1),
+        Op::CompleteAnimations,
+    ]);
+
+    let before = tile_rect(&layout, 1);
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::SetFullscreenWindow {
+                window: 1,
+                is_fullscreen: true,
+            },
+            Op::Communicate(1),
+            Op::CenterWindow { id: Some(1) },
+            Op::SetFullscreenWindow {
+                window: 1,
+                is_fullscreen: false,
+            },
+            Op::Communicate(1),
+            Op::CompleteAnimations,
+        ],
+    );
+
+    let after = tile_rect(&layout, 1);
+    let close = |a: f64, b: f64| (a - b).abs() <= 1.0;
+
+    assert!(
+        close(before.loc.x, after.loc.x),
+        "fullscreen center should not change restored x position: before={} after={}",
+        before.loc.x,
+        after.loc.x
+    );
+    assert!(
+        close(before.loc.y, after.loc.y),
+        "fullscreen center should not change restored y position: before={} after={}",
+        before.loc.y,
+        after.loc.y
+    );
+}
+#[test]
+fn floating_fullscreen_roundtrip_restores_position_in_container_order() {
+    let mut p1 = TestWindowParams::new(1);
+    p1.is_floating = true;
+    let mut p2 = TestWindowParams::new(2);
+    p2.is_floating = true;
+    let mut p3 = TestWindowParams::new(3);
+    p3.is_floating = true;
+
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow { params: p1 },
+        Op::SplitHorizontal,
+        Op::AddWindow { params: p2 },
+        Op::AddWindow { params: p3 },
+        Op::Communicate(1),
+        Op::Communicate(2),
+        Op::Communicate(3),
+        Op::CompleteAnimations,
+    ]);
+
+    let ws = layout.active_workspace().unwrap();
+    assert!(ws.is_floating(&1));
+    assert!(ws.is_floating(&2));
+    assert!(ws.is_floating(&3));
+
+    let before1 = tile_rect(&layout, 1);
+    let before2 = tile_rect(&layout, 2);
+    let before3 = tile_rect(&layout, 3);
+
+    let close = |a: f64, b: f64| (a - b).abs() <= 1.0;
+
+    check_ops_on_layout(
+        &mut layout,
+        [
+            Op::FocusWindow(2),
+            Op::SetFullscreenWindow {
+                window: 2,
+                is_fullscreen: true,
+            },
+            Op::Communicate(2),
+            Op::SetFullscreenWindow {
+                window: 2,
+                is_fullscreen: false,
+            },
+            Op::Communicate(2),
+            Op::CompleteAnimations,
+        ],
+    );
+
+    let after1 = tile_rect(&layout, 1);
+    let after2 = tile_rect(&layout, 2);
+    let after3 = tile_rect(&layout, 3);
+
+    assert!(close(before1.loc.x, after1.loc.x));
+    assert!(close(before2.loc.x, after2.loc.x));
+    assert!(close(before3.loc.x, after3.loc.x));
+}
+#[test]
+fn unmaximize_during_fullscreen_does_not_float() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::ToggleWindowFloating { id: None },
+        // Maximize then fullscreen.
+        Op::MaximizeWindowToEdges { id: None },
+        Op::FullscreenWindow(1),
+        // Unmaximize.
+        Op::MaximizeWindowToEdges { id: None },
+    ];
+
+    let mut layout = check_ops(ops);
+
+    // Unmaximize shouldn't have changed the window state since it's fullscreen.
+    let tiling = layout.active_workspace().unwrap().tiling();
+    assert!(tiling.tiles().next().is_some());
+
+    let ops = [
+        // Unfullscreen.
+        Op::FullscreenWindow(1),
+    ];
+    check_ops_on_layout(&mut layout, ops);
+
+    // The window was originally floating, so unfullscreen restores it to floating.
+    let workspace = layout.active_workspace().unwrap();
+    assert!(workspace.is_floating(&1));
+}
+#[test]
+fn move_column_to_workspace_maximize_and_fullscreen() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::MaximizeWindowToEdges { id: None },
+        Op::FullscreenWindow(1),
+        Op::MoveColumnToWorkspaceDown(true),
+        Op::FullscreenWindow(1),
+    ];
+
+    let layout = check_ops(ops);
+    let (_, win) = layout.windows().next().unwrap();
+
+    // Unfullscreening should return to maximized because the window was maximized before.
+    assert_eq!(win.pending_sizing_mode(), SizingMode::Maximized);
+}
+#[test]
+fn move_window_to_workspace_maximize_and_fullscreen() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::MaximizeWindowToEdges { id: None },
+        Op::FullscreenWindow(1),
+        Op::MoveWindowToWorkspaceDown(true),
+        Op::FullscreenWindow(1),
+    ];
+
+    let layout = check_ops(ops);
+    let (_, win) = layout.windows().next().unwrap();
+
+    // Unfullscreening should return to maximized because the window was maximized before.
+    assert_eq!(win.pending_sizing_mode(), SizingMode::Maximized);
+}
+#[test]
+fn expel_pending_left_from_fullscreen_tabbed_column() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::FullscreenWindow(1),
+        Op::Communicate(1),
+        // 1 is now fullscreen, view_offset_to_restore is set.
+        Op::ToggleColumnTabbedDisplay,
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::ConsumeOrExpelWindowLeft { id: Some(2) },
+        // 2 is consumed into a fullscreen column, fullscreen is requested but not applied.
+        //
+        // Now, get it back out while keeping it focused.
+        //
+        // Importantly, we expel it *left*, which results in adding a new column with the exact
+        // same active_column_idx.
+        Op::FocusWindow(2),
+        Op::ConsumeOrExpelWindowLeft { id: None },
+    ];
+
+    check_ops(ops);
 }

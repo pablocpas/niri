@@ -311,7 +311,7 @@ fn unfullscreen_before_fullscreen_ack_doesnt_prevent_view_offset_save_restore() 
 }
 
 #[test]
-fn interactive_move_unfullscreen_to_scrolling_restores_size() {
+fn interactive_move_unfullscreen_to_tiling_restores_size() {
     let (mut f, id, surface) = set_up();
 
     let _ = f.client(id).window(&surface).recent_configures();
@@ -351,7 +351,7 @@ fn interactive_move_unfullscreen_to_scrolling_restores_size() {
 }
 
 #[test]
-fn interactive_move_unmaximize_to_scrolling_restores_size() {
+fn interactive_move_unmaximize_to_tiling_restores_size() {
     let (mut f, id, surface) = set_up();
 
     let _ = f.client(id).window(&surface).recent_configures();
