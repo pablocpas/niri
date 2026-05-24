@@ -316,7 +316,7 @@ jobs:
         continue-on-error: true
 
   publish-wiki:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: false && github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
       - test
     permissions:
