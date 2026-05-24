@@ -889,6 +889,9 @@ impl<W: LayoutElement> Monitor<W> {
             0
         };
         let end = self.workspaces.len().saturating_sub(1);
+        if start >= end {
+            return end;
+        }
 
         self.workspaces[start..end]
             .iter()

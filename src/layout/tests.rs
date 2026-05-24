@@ -7410,6 +7410,28 @@ fn named_workspace_to_output_ewaf() {
 }
 
 #[test]
+fn named_workspace_insert_on_only_empty_workspace_ewaf() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::FocusWindowOrWorkspaceDown,
+        Op::AdvanceAnimations { msec_delta: 1000 },
+        Op::AddNamedWorkspace {
+            ws_name: 1,
+            output_name: None,
+            layout_config: None,
+        },
+    ];
+    let options = Options {
+        layout: tiri_config::Layout {
+            empty_workspace_above_first: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    check_ops_with_options(options, ops);
+}
+
+#[test]
 fn move_window_to_empty_workspace_above_first() {
     let ops = [
         Op::AddOutput(1),
