@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img alt="tiri" src="tiri.svg" width="260">
+  <img alt="tiri" src="resources/readme/tiri.svg" width="260">
 </h1>
 
 <p align="center">
@@ -23,7 +23,7 @@
   <a href="https://github.com/YaLTeR/niri">niri</a>
 </p>
 
-![tiri with tiled windows](tiri.png)
+![tiri with tiled windows](resources/readme/tiri.png)
 
 ## About
 
