@@ -264,13 +264,23 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
     actions.extend(&[
         &Action::SwitchPresetColumnWidth,
         &Action::MaximizeColumn,
-        &Action::ConsumeOrExpelWindowLeft,
-        &Action::ConsumeOrExpelWindowRight,
+        &Action::SplitHorizontal,
+        &Action::SplitVertical,
+        &Action::ToggleSplitLayout,
+        &Action::SetLayoutTabbed,
+        &Action::SetLayoutStacked,
         &Action::ToggleWindowFloating,
         &Action::ToggleWindowSticky,
         &Action::SwitchFocusBetweenFloatingAndTiling,
         &Action::ToggleOverview,
     ]);
+
+    if let Some(bind) = binds
+        .iter()
+        .find(|bind| matches!(&bind.action, Action::Mode(mode) if mode == "resize"))
+    {
+        actions.push(&bind.action);
+    }
 
     // Screenshot is not as important, can omit if not bound.
     if let Some(bind) = binds
@@ -469,11 +479,11 @@ fn render(
 
 fn action_name(action: &Action) -> String {
     match action {
-        Action::Quit(_) => String::from("Exit niri"),
+        Action::Quit(_) => String::from("Exit tiri"),
         Action::ShowHotkeyOverlay => String::from("Show Important Hotkeys"),
         Action::CloseWindow => String::from("Close Focused Window"),
-        Action::FocusColumnLeft => String::from("Focus Column to the Left"),
-        Action::FocusColumnRight => String::from("Focus Column to the Right"),
+        Action::FocusColumnLeft => String::from("Focus Left"),
+        Action::FocusColumnRight => String::from("Focus Right"),
         Action::MoveColumnLeft | Action::MoveContainerLeft => String::from("Move Container Left"),
         Action::MoveColumnRight | Action::MoveContainerRight => {
             String::from("Move Container Right")
@@ -488,16 +498,25 @@ fn action_name(action: &Action) -> String {
         }
         Action::MoveWindowToWorkspaceDown(_) => String::from("Move Window to Workspace Down"),
         Action::MoveWindowToWorkspaceUp(_) => String::from("Move Window to Workspace Up"),
-        Action::SwitchPresetColumnWidth => String::from("Switch Preset Column Widths"),
-        Action::MaximizeColumn => String::from("Maximize Column"),
-        Action::ConsumeOrExpelWindowLeft => String::from("Consume or Expel Window Left"),
-        Action::ConsumeOrExpelWindowRight => String::from("Consume or Expel Window Right"),
+        Action::SwitchPresetColumnWidth => String::from("Cycle Container Width"),
+        Action::MaximizeColumn => String::from("Maximize Container"),
+        Action::SplitHorizontal => String::from("Split Horizontally"),
+        Action::SplitVertical => String::from("Split Vertically"),
+        Action::ToggleSplitLayout => String::from("Toggle Split Layout"),
+        Action::SetLayoutTabbed => String::from("Use Tabbed Layout"),
+        Action::SetLayoutStacked => String::from("Use Stacked Layout"),
+        Action::ConsumeOrExpelWindowLeft => String::from("Move Window Into/Out of Left Container"),
+        Action::ConsumeOrExpelWindowRight => {
+            String::from("Move Window Into/Out of Right Container")
+        }
         Action::ToggleWindowFloating => String::from("Move Window Between Floating and Tiling"),
         Action::ToggleWindowSticky => String::from("Toggle Sticky Window"),
         Action::SwitchFocusBetweenFloatingAndTiling => {
             String::from("Switch Focus Between Floating and Tiling")
         }
         Action::ToggleOverview => String::from("Open the Overview"),
+        Action::Mode(mode) if mode == "resize" => String::from("Enter Resize Mode"),
+        Action::Mode(mode) => format!("Enter {mode} Mode"),
         Action::Screenshot(_, _) => String::from("Take a Screenshot"),
         Action::Spawn(args) => format!(
             "Spawn <span face='monospace' bgcolor='#000000'>{}</span>",
