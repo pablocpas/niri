@@ -2,6 +2,8 @@
 // "/-" comments out the following node.
 // Check the wiki for a full description of the configuration:
 // https://github.com/pablocpas/tiri/blob/main/docs/wiki/Configuration:-Introduction.md
+//
+// For a stricter i3/sway-like profile, uncomment the include at the end.
 
 // Input device configuration.
 // Find the full list of options on the wiki:
@@ -111,7 +113,7 @@ input {
 // https://github.com/pablocpas/tiri/blob/main/docs/wiki/Configuration:-Layout.md
 layout {
     // Set gaps around windows in logical pixels.
-    gaps 8
+    gaps 16
 
     // You can customize the widths that "switch-preset-column-width" (Mod+R) toggles between.
     preset-column-widths {
@@ -148,7 +150,7 @@ layout {
     // You can change how the focus ring looks.
     focus-ring {
         // Uncomment this line to disable the focus ring.
-        // off
+        off
 
         // How many logical pixels the ring extends out from the windows.
         width 4
@@ -169,6 +171,9 @@ layout {
         // where you can see its inactive-color is on other monitors.
         inactive-color "#505050"
 
+        // Color of the ring around windows that request your attention.
+        urgent-color "#9b0000"
+
         // You can also use gradients. They take precedence over solid colors.
         // Gradients are rendered the same as CSS linear-gradient(angle, from, to).
         // The angle is the same as in linear-gradient, and is optional,
@@ -185,47 +190,50 @@ layout {
         // inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view"
     }
 
-    // Tab bar for tabbed/stacked layouts (matches focus ring by default).
+    // Tab bar for tabbed/stacked layouts.
     tab-bar {
         // Also render a single-row title bar above tiles in split layouts.
         // show-in-split false
 
-        // Height 0 means auto-calculated from font size + padding.
-        // height 0
-        padding-x 8
-        padding-y 3
+        // height 0 means auto-calculated from font size + padding.
+        height 0
+        padding-x 5
+        padding-y 4
         separator-width 1
-        // border-width 0
-        font "sans 12px"
+        border-width 1
+        font "monospace 10"
 
-        active-bg "#7fc8ff"
-        inactive-bg "#3c3c3c"
-        urgent-bg "#9b0000"
-        active-fg "#103050"
-        inactive-fg "#bbbbbb"
+        active-bg "#285577"
+        inactive-bg "#222222"
+        urgent-bg "#900000"
+        active-fg "#ffffff"
+        inactive-fg "#888888"
         urgent-fg "#ffffff"
-        separator-color "#2a2a2a"
-        active-border "#2e9ef4"
-        inactive-border "#3c3c3c"
-        urgent-border "#7a0000"
+        separator-color "#000000"
+        active-border "#4C7899"
+        inactive-border "#333333"
+        urgent-border "#2F343A"
     }
+
+    // i3/sway-style preset is enabled above:
+    // focus-ring off, border on, and Sway-like titlebar colors.
 
     // You can also add a border. It's similar to the focus ring, but always visible.
     border {
         // The settings are the same as for the focus ring.
         // If you enable the border, you probably want to disable the focus ring.
-        off
+        on
 
-        width 4
-        active-color "#ffc87f"
+        width 2
+        active-color "#4C7899"
         // Color of the split indicator for the focused window.
         active-indicator-color "#ffb347"
         // Color of borders for non-focused windows on the active workspace.
         // focused-inactive-color "#505050"
-        inactive-color "#505050"
+        inactive-color "#333333"
 
         // Color of the border around windows that request your attention.
-        urgent-color "#9b0000"
+        urgent-color "#2F343A"
 
         // Gradients can use a few different interpolation color spaces.
         // For example, this is a pastel rainbow gradient via in="oklch longer hue".
@@ -305,6 +313,9 @@ spawn-at-startup "waybar"
 hotkey-overlay {
     // Uncomment this line to disable the "Important Hotkeys" pop-up at startup.
     // skip-at-startup
+
+    // Only show commands that are bound in this config.
+    hide-not-bound
 }
 
 // Uncomment this line to ask the clients to omit their client-side decorations if possible.
@@ -391,7 +402,7 @@ binds {
     Mod+Shift+Slash { show-hotkey-overlay; }
 
     // Suggested binds for running programs: terminal, app launcher, screen locker.
-    Mod+T hotkey-overlay-title="Open a Terminal: alacritty" { spawn "alacritty"; }
+    Mod+Return hotkey-overlay-title="Open a Terminal: alacritty" { spawn "alacritty"; }
     Mod+D hotkey-overlay-title="Run an Application: fuzzel" { spawn "fuzzel"; }
     Super+Alt+L hotkey-overlay-title="Lock the Screen: swaylock" { spawn "swaylock"; }
 
@@ -427,7 +438,11 @@ binds {
     // or do a four-finger swipe up on a touchpad.
     Mod+O repeat=false { toggle-overview; }
 
-    Mod+Q repeat=false { close-window; }
+    Mod+Shift+Q repeat=false { close-window; }
+
+    // Scratchpad (i3-style).
+    Mod+Shift+Minus { move-window-to-scratchpad; }
+    Mod+Minus { scratchpad-show; }
 
     Mod+Left  { focus-column-left; }
     Mod+Down  { focus-window-down; }
@@ -438,14 +453,14 @@ binds {
     Mod+K     { focus-window-up; }
     Mod+L     { focus-column-right; }
 
-    Mod+Ctrl+Left  { move-column-left; }
-    Mod+Ctrl+Down  { move-window-down; }
-    Mod+Ctrl+Up    { move-window-up; }
-    Mod+Ctrl+Right { move-column-right; }
-    Mod+Ctrl+H     { move-column-left; }
-    Mod+Ctrl+J     { move-window-down; }
-    Mod+Ctrl+K     { move-window-up; }
-    Mod+Ctrl+L     { move-column-right; }
+    Mod+Shift+Left  { move-container-left; }
+    Mod+Shift+Down  { move-window-down; }
+    Mod+Shift+Up    { move-window-up; }
+    Mod+Shift+Right { move-container-right; }
+    Mod+Shift+H     { move-container-left; }
+    Mod+Shift+J     { move-window-down; }
+    Mod+Shift+K     { move-window-up; }
+    Mod+Shift+L     { move-container-right; }
 
     // Alternative commands that move across workspaces when reaching
     // the first or last window in a column.
@@ -456,26 +471,26 @@ binds {
 
     Mod+Home { focus-column-first; }
     Mod+End  { focus-column-last; }
-    Mod+Ctrl+Home { move-column-to-first; }
-    Mod+Ctrl+End  { move-column-to-last; }
+    Mod+Ctrl+Home { move-container-to-first; }
+    Mod+Ctrl+End  { move-container-to-last; }
 
-    Mod+Shift+Left  { swap-window-left; }
-    Mod+Shift+Down  { move-window-down; }
-    Mod+Shift+Up    { move-window-up; }
-    Mod+Shift+Right { swap-window-right; }
-    Mod+Shift+H     { swap-window-left; }
-    Mod+Shift+J     { move-window-down; }
-    Mod+Shift+K     { move-window-up; }
-    Mod+Shift+L     { swap-window-right; }
+    Mod+Ctrl+Alt+Left  { focus-monitor-left; }
+    Mod+Ctrl+Alt+Down  { focus-monitor-down; }
+    Mod+Ctrl+Alt+Up    { focus-monitor-up; }
+    Mod+Ctrl+Alt+Right { focus-monitor-right; }
+    Mod+Ctrl+Alt+H     { focus-monitor-left; }
+    Mod+Ctrl+Alt+J     { focus-monitor-down; }
+    Mod+Ctrl+Alt+K     { focus-monitor-up; }
+    Mod+Ctrl+Alt+L     { focus-monitor-right; }
 
-    Mod+Shift+Ctrl+Left  { move-column-to-monitor-left; }
-    Mod+Shift+Ctrl+Down  { move-column-to-monitor-down; }
-    Mod+Shift+Ctrl+Up    { move-column-to-monitor-up; }
-    Mod+Shift+Ctrl+Right { move-column-to-monitor-right; }
-    Mod+Shift+Ctrl+H     { move-column-to-monitor-left; }
-    Mod+Shift+Ctrl+J     { move-column-to-monitor-down; }
-    Mod+Shift+Ctrl+K     { move-column-to-monitor-up; }
-    Mod+Shift+Ctrl+L     { move-column-to-monitor-right; }
+    Mod+Shift+Ctrl+Left  { move-container-to-monitor-left; }
+    Mod+Shift+Ctrl+Down  { move-container-to-monitor-down; }
+    Mod+Shift+Ctrl+Up    { move-container-to-monitor-up; }
+    Mod+Shift+Ctrl+Right { move-container-to-monitor-right; }
+    Mod+Shift+Ctrl+H     { move-container-to-monitor-left; }
+    Mod+Shift+Ctrl+J     { move-container-to-monitor-down; }
+    Mod+Shift+Ctrl+K     { move-container-to-monitor-up; }
+    Mod+Shift+Ctrl+L     { move-container-to-monitor-right; }
 
     // Alternatively, there are commands to move just a single window:
     // Mod+Shift+Ctrl+Left  { move-window-to-monitor-left; }
@@ -489,10 +504,10 @@ binds {
     Mod+Page_Up        { focus-workspace-up; }
     Mod+U              { focus-workspace-down; }
     Mod+I              { focus-workspace-up; }
-    Mod+Ctrl+Page_Down { move-column-to-workspace-down; }
-    Mod+Ctrl+Page_Up   { move-column-to-workspace-up; }
-    Mod+Ctrl+U         { move-column-to-workspace-down; }
-    Mod+Ctrl+I         { move-column-to-workspace-up; }
+    Mod+Ctrl+Page_Down { move-container-to-workspace-down; }
+    Mod+Ctrl+Page_Up   { move-container-to-workspace-up; }
+    Mod+Ctrl+U         { move-container-to-workspace-down; }
+    Mod+Ctrl+I         { move-container-to-workspace-up; }
 
     // Alternatively, there are commands to move just a single window:
     // Mod+Ctrl+Page_Down { move-window-to-workspace-down; }
@@ -514,14 +529,9 @@ binds {
     // Mod+TouchpadScrollDown { spawn-sh "wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.02+"; }
     // Mod+TouchpadScrollUp   { spawn-sh "wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.02-"; }
 
-    // You can refer to workspaces by index. However, keep in mind that
-    // tiri is a dynamic workspace system, so these commands are kind of
-    // "best effort". Trying to refer to a workspace index bigger than
-    // the current workspace count will instead refer to the bottommost
-    // (empty) workspace.
-    //
-    // For example, with 2 workspaces + 1 empty, indices 3, 4, 5 and so on
-    // will all refer to the 3rd workspace.
+    // Numeric workspace references resolve globally by name, i3/sway-style:
+    // focus-workspace 2 refers to workspace "2" (creating it if needed),
+    // regardless of monitor-local ordering.
     Mod+1 { focus-workspace 1; }
     Mod+2 { focus-workspace 2; }
     Mod+3 { focus-workspace 3; }
@@ -531,15 +541,15 @@ binds {
     Mod+7 { focus-workspace 7; }
     Mod+8 { focus-workspace 8; }
     Mod+9 { focus-workspace 9; }
-    Mod+Ctrl+1 { move-column-to-workspace 1; }
-    Mod+Ctrl+2 { move-column-to-workspace 2; }
-    Mod+Ctrl+3 { move-column-to-workspace 3; }
-    Mod+Ctrl+4 { move-column-to-workspace 4; }
-    Mod+Ctrl+5 { move-column-to-workspace 5; }
-    Mod+Ctrl+6 { move-column-to-workspace 6; }
-    Mod+Ctrl+7 { move-column-to-workspace 7; }
-    Mod+Ctrl+8 { move-column-to-workspace 8; }
-    Mod+Ctrl+9 { move-column-to-workspace 9; }
+    Mod+Shift+1 { move-container-to-workspace 1; }
+    Mod+Shift+2 { move-container-to-workspace 2; }
+    Mod+Shift+3 { move-container-to-workspace 3; }
+    Mod+Shift+4 { move-container-to-workspace 4; }
+    Mod+Shift+5 { move-container-to-workspace 5; }
+    Mod+Shift+6 { move-container-to-workspace 6; }
+    Mod+Shift+7 { move-container-to-workspace 7; }
+    Mod+Shift+8 { move-container-to-workspace 8; }
+    Mod+Shift+9 { move-container-to-workspace 9; }
 
     // Alternatively, there are commands to move just a single window:
     // Mod+Ctrl+1 { move-window-to-workspace 1; }
@@ -547,24 +557,20 @@ binds {
     // Switches focus between the current and the previous workspace.
     // Mod+Tab { focus-workspace-previous; }
 
-    // The following binds move the focused window in and out of a column.
-    // If the window is alone, they will consume it into the nearby column to the side.
-    // If the window is already in a column, they will expel it out.
-    Mod+BracketLeft  { consume-or-expel-window-left; }
-    Mod+BracketRight { consume-or-expel-window-right; }
+    // Advanced container tree surgery. These are available for custom configs,
+    // but are not part of the default i3/sway-style tiling workflow.
+    // Mod+BracketLeft  { consume-or-expel-window-left; }
+    // Mod+BracketRight { consume-or-expel-window-right; }
+    // Mod+Comma  { consume-window-into-container; }
+    // Mod+Period { expel-window-from-container; }
 
-    // Consume one window from the right to the bottom of the focused column.
-    Mod+Comma  { consume-window-into-column; }
-    // Expel the bottom window from the focused column to the right.
-    Mod+Period { expel-window-from-column; }
-
-    Mod+R { switch-preset-column-width; }
+    Mod+R hotkey-overlay-title="Cycle Container Width" { switch-preset-column-width; }
     // Cycling through the presets in reverse order is also possible.
     // Mod+R { switch-preset-column-width-back; }
     Mod+Shift+R { switch-preset-window-height; }
     Mod+Ctrl+R { reset-window-height; }
     Mod+F { fullscreen-window; }
-    Mod+M { maximize-column; }
+    Mod+M hotkey-overlay-title="Maximize Container" { maximize-column; }
 
     // While maximize-column leaves gaps and borders around the window,
     // maximize-window-to-edges doesn't: the window expands to the edges of the screen.
@@ -589,12 +595,20 @@ binds {
     // * adjust width as a percentage of screen width: "-10%" or "+10%"
     // Pixel sizes use logical, or scaled, pixels. I.e. on an output with scale 2.0,
     // set-column-width "100" will make the column occupy 200 physical screen pixels.
-    Mod+Minus { set-column-width "-10%"; }
-    Mod+Equal { set-column-width "+10%"; }
+    Mod+Ctrl+Left  { resize-shrink-width; }
+    Mod+Ctrl+Right { resize-grow-width; }
+    Mod+Ctrl+Up    { resize-shrink-height; }
+    Mod+Ctrl+Down  { resize-grow-height; }
+    Mod+Ctrl+H     { resize-shrink-width; }
+    Mod+Ctrl+L     { resize-grow-width; }
+    Mod+Ctrl+K     { resize-shrink-height; }
+    Mod+Ctrl+J     { resize-grow-height; }
 
-    // Finer height adjustments when in column with other windows.
-    Mod+Shift+Minus { set-window-height "-10%"; }
-    Mod+Shift+Equal { set-window-height "+10%"; }
+    // Direct size adjustments are also available if you prefer percentages.
+    // Mod+Ctrl+Minus { set-window-width "-10%"; }
+    // Mod+Ctrl+Equal { set-window-width "+10%"; }
+    // Mod+Ctrl+Shift+Minus { set-window-height "-10%"; }
+    // Mod+Ctrl+Shift+Equal { set-window-height "+10%"; }
 
     // Sway/i3 layout and floating keybinds.
     Mod+A { focus-parent; }
@@ -636,3 +650,8 @@ binds {
     // moving the mouse or pressing any other key.
     Mod+Shift+P { power-off-monitors; }
 }
+
+// Uncomment to switch this config to the stricter i3/sway-style profile.
+// Tiri creates profiles/i3.kdl next to this file on first run. Keep this include
+// at the end so it overrides the broader default-style settings above.
+// include "profiles/i3.kdl"

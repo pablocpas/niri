@@ -165,11 +165,6 @@ The general system is: if a hotkey switches somewhere, then adding <kbd>Ctrl</kb
 | <kbd>Mod</kbd><kbd>E</kbd> | Toggle split layout (horizontal/vertical) |
 | <kbd>Mod</kbd><kbd>Space</kbd> | Switch focus between the floating and tiling layers |
 | <kbd>Mod</kbd><kbd>Shift</kbd><kbd>Space</kbd> | Toggle the focused window between floating and tiling |
-| **Container operations** | |
-| <kbd>Mod</kbd><kbd>,</kbd> | Consume the window to the right into the focused container |
-| <kbd>Mod</kbd><kbd>.</kbd> | Expel the bottom window from the focused container |
-| <kbd>Mod</kbd><kbd>[</kbd> | Consume or expel the focused window to the left |
-| <kbd>Mod</kbd><kbd>]</kbd> | Consume or expel the focused window to the right |
 | **Sizing and fullscreen** | |
 | <kbd>Ctrl</kbd><kbd>→</kbd> | Grow width |
 | <kbd>Ctrl</kbd><kbd>←</kbd> | Shrink width |
@@ -245,6 +240,7 @@ This defaults to `/usr/bin/tiri`.
 | `resources/tiri-session` | `/usr/local/bin/` |
 | `resources/tiri.desktop`  | `/usr/local/share/wayland-sessions/` |
 | `resources/tiri-portals.conf` | `/usr/local/share/xdg-desktop-portal/` |
+| `resources/profiles/i3.kdl` | `/usr/local/share/tiri/profiles/` |
 | `resources/tiri.service` (systemd) | `/etc/systemd/user/` |
 | `resources/tiri-shutdown.target` (systemd) | `/etc/systemd/user/` |
 | `resources/dinit/tiri` (dinit) | `/etc/dinit.d/user/` |

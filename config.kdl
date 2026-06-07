@@ -148,7 +148,7 @@ layout {
     // You can change how the focus ring looks.
     focus-ring {
         // Uncomment this line to disable the focus ring.
-        // off
+        off
 
         // How many logical pixels the ring extends out from the windows.
         width 4
@@ -188,77 +188,50 @@ layout {
         // inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view"
     }
 
-    // Tab bar for tabbed/stacked layouts (matches focus ring by default).
+    // Tab bar for tabbed/stacked layouts.
     tab-bar {
         // Also render a single-row title bar above tiles in split layouts.
         // show-in-split false
-        height 20
-        padding-x 6
-        padding-y 2
+
+        // height 0 means auto-calculated from font size + padding.
+        height 0
+        padding-x 5
+        padding-y 4
         separator-width 1
         border-width 1
-        font "sans 10px"
+        font "monospace 10"
 
-        active-bg "#7fc8ff"
-        inactive-bg "#505050"
-        urgent-bg "#9b0000"
+        active-bg "#285577"
+        inactive-bg "#222222"
+        urgent-bg "#900000"
         active-fg "#ffffff"
         inactive-fg "#888888"
         urgent-fg "#ffffff"
-        separator-color "#3c3c3c"
-        active-border "#2e9ef4"
-        inactive-border "#3c3c3c"
-        urgent-border "#7a0000"
+        separator-color "#000000"
+        active-border "#4C7899"
+        inactive-border "#333333"
+        urgent-border "#2F343A"
     }
 
-    // i3/sway-style preset (optional).
-    // This closely matches Sway's default titlebar sizing/colors.
-    //
-    // focus-ring {
-    //     off
-    // }
-    //
-    // border {
-    //     on
-    //     width 2
-    //     active-color "#4C7899"
-    //     inactive-color "#333333"
-    //     urgent-color "#2F343A"
-    // }
-    //
-    // tab-bar {
-    //     // height 0 means auto (font height + padding-y * 2)
-    //     height 0
-    //     padding-x 5
-    //     padding-y 4
-    //     separator-width 1
-    //     font "monospace 10"
-    //
-    //     active-bg "#285577"
-    //     inactive-bg "#222222"
-    //     urgent-bg "#900000"
-    //     active-fg "#ffffff"
-    //     inactive-fg "#888888"
-    //     urgent-fg "#ffffff"
-    //     separator-color "#000000"
-    // }
+    // i3/sway-style preset is enabled above:
+    // focus-ring off, border on, and Sway-like titlebar colors.
 
     // You can also add a border. It's similar to the focus ring, but always visible.
     border {
         // The settings are the same as for the focus ring.
         // If you enable the border, you probably want to disable the focus ring.
-        off
+        on
 
-        width 4
-        active-color "#ffc87f"
+        width 2
+        active-color "#4C7899"
         // Color of the split indicator for the focused window.
         active-indicator-color "#ffb347"
         // Color of borders for non-focused windows on the active workspace.
         // focused-inactive-color "#505050"
-        inactive-color "#505050"
+        inactive-color "#333333"
 
         // Color of the border around windows that request your attention.
-        urgent-color "#9b0000"
+        urgent-color "#2F343A"
 
         // Gradients can use a few different interpolation color spaces.
         // For example, this is a pastel rainbow gradient via in="oklch longer hue".
@@ -338,6 +311,9 @@ spawn-at-startup "waybar"
 hotkey-overlay {
     // Uncomment this line to disable the "Important Hotkeys" pop-up at startup.
     // skip-at-startup
+
+    // Only show commands that are bound in this config.
+    hide-not-bound
 }
 
 // Uncomment this line to ask the clients to omit their client-side decorations if possible.
@@ -424,7 +400,7 @@ binds {
     Mod+Shift+Slash { show-hotkey-overlay; }
 
     // Suggested binds for running programs: terminal, app launcher, screen locker.
-    Mod+T hotkey-overlay-title="Open a Terminal: alacritty" { spawn "alacritty"; }
+    Mod+Return hotkey-overlay-title="Open a Terminal: alacritty" { spawn "alacritty"; }
     Mod+D hotkey-overlay-title="Run an Application: fuzzel" { spawn "fuzzel"; }
     Super+Alt+L hotkey-overlay-title="Lock the Screen: swaylock" { spawn "swaylock"; }
 
@@ -461,7 +437,7 @@ binds {
 
     Mod+Shift+Q repeat=false { close-window; }
 
-    // Scratchpad (i3-style)
+    // Scratchpad (i3-style).
     Mod+Shift+Minus { move-window-to-scratchpad; }
     Mod+Minus { scratchpad-show; }
 
@@ -474,23 +450,14 @@ binds {
     Mod+K     { focus-window-up; }
     Mod+L     { focus-column-right; }
 
-    Mod+Ctrl+Left  { move-container-left; }
-    Mod+Ctrl+Down  { move-window-down; }
-    Mod+Ctrl+Up    { move-window-up; }
-    Mod+Ctrl+Right { move-container-right; }
-    Mod+Ctrl+H     { move-container-left; }
-    Mod+Ctrl+J     { move-window-down; }
-    Mod+Ctrl+K     { move-window-up; }
-    Mod+Ctrl+L     { move-container-right; }
-
-    Mod+Shift+Left  { swap-window-left; }
+    Mod+Shift+Left  { move-container-left; }
     Mod+Shift+Down  { move-window-down; }
     Mod+Shift+Up    { move-window-up; }
-    Mod+Shift+Right { swap-window-right; }
-    Mod+Shift+H     { swap-window-left; }
+    Mod+Shift+Right { move-container-right; }
+    Mod+Shift+H     { move-container-left; }
     Mod+Shift+J     { move-window-down; }
     Mod+Shift+K     { move-window-up; }
-    Mod+Shift+L     { swap-window-right; }
+    Mod+Shift+L     { move-container-right; }
 
     // Alternative commands that move across workspaces when reaching
     // the first or last window in a column.
@@ -592,15 +559,15 @@ binds {
     Mod+7 { focus-workspace 7; }
     Mod+8 { focus-workspace 8; }
     Mod+9 { focus-workspace 9; }
-    Mod+Ctrl+1 { move-container-to-workspace 1; }
-    Mod+Ctrl+2 { move-container-to-workspace 2; }
-    Mod+Ctrl+3 { move-container-to-workspace 3; }
-    Mod+Ctrl+4 { move-container-to-workspace 4; }
-    Mod+Ctrl+5 { move-container-to-workspace 5; }
-    Mod+Ctrl+6 { move-container-to-workspace 6; }
-    Mod+Ctrl+7 { move-container-to-workspace 7; }
-    Mod+Ctrl+8 { move-container-to-workspace 8; }
-    Mod+Ctrl+9 { move-container-to-workspace 9; }
+    Mod+Shift+1 { move-container-to-workspace 1; }
+    Mod+Shift+2 { move-container-to-workspace 2; }
+    Mod+Shift+3 { move-container-to-workspace 3; }
+    Mod+Shift+4 { move-container-to-workspace 4; }
+    Mod+Shift+5 { move-container-to-workspace 5; }
+    Mod+Shift+6 { move-container-to-workspace 6; }
+    Mod+Shift+7 { move-container-to-workspace 7; }
+    Mod+Shift+8 { move-container-to-workspace 8; }
+    Mod+Shift+9 { move-container-to-workspace 9; }
 
     // Alternatively, there are commands to move just a single window:
     // Mod+Ctrl+1 { move-window-to-workspace 1; }
@@ -608,34 +575,42 @@ binds {
     // Switches focus between the current and the previous workspace.
     // Mod+Tab { focus-workspace-previous; }
 
-    // i3/sway-style consume/expel container operations.
-    Mod+BracketLeft  { consume-or-expel-window-left; }
-    Mod+BracketRight { consume-or-expel-window-right; }
-    Mod+Comma  { consume-window-into-container; }
-    Mod+Period { expel-window-from-container; }
-    // Mod+R { switch-preset-column-width; }
-    // Mod+Shift+R { switch-preset-window-height; }
-    // Mod+Ctrl+R { reset-window-height; }
-    // Mod+F { maximize-column; }
-    // Mod+Ctrl+F { expand-column-to-available-width; }
-    // Mod+C { center-column; }
-    // Mod+Ctrl+C { center-visible-columns; }
+    // Advanced container tree surgery. These are available for custom configs,
+    // but are not part of the default i3/sway-style tiling workflow.
+    // Mod+BracketLeft  { consume-or-expel-window-left; }
+    // Mod+BracketRight { consume-or-expel-window-right; }
+    // Mod+Comma  { consume-window-into-container; }
+    // Mod+Period { expel-window-from-container; }
 
-    // i3-style fullscreen + maximize
+    Mod+R hotkey-overlay-title="Cycle Container Width" { switch-preset-column-width; }
+    // Cycling through the presets in reverse order is also possible.
+    // Mod+R { switch-preset-column-width-back; }
+    Mod+Shift+R { switch-preset-window-height; }
+    Mod+Ctrl+R { reset-window-height; }
     Mod+F { fullscreen-window; }
-    Mod+M { maximize-column; }
+    Mod+M hotkey-overlay-title="Maximize Container" { maximize-column; }
     Mod+Shift+M { maximize-window-to-edges; }
 
-    // i3-style resize commands (usando teclas accesibles en teclado español)
-    // Resize con Ctrl+Flechas (más compatible con teclado español)
-    Ctrl+Right { resize-grow-width; }
-    Ctrl+Left  { resize-shrink-width; }
-    Ctrl+Down  { resize-grow-height; }
-    Ctrl+Up    { resize-shrink-height; }
+    Mod+Ctrl+F { expand-column-to-available-width; }
+    Mod+C { center-column; }
+    Mod+Ctrl+C { center-visible-columns; }
 
-    // Alternativa: usar teclas numéricas
-    // Mod+Plus  { resize-grow-width; }    // Tecla +
-    // Mod+Minus { resize-shrink-width; }  // Tecla -
+    // Resize commands. These keep Mod held down, avoiding plain Ctrl+Arrow
+    // conflicts with applications.
+    Mod+Ctrl+Left  { resize-shrink-width; }
+    Mod+Ctrl+Right { resize-grow-width; }
+    Mod+Ctrl+Up    { resize-shrink-height; }
+    Mod+Ctrl+Down  { resize-grow-height; }
+    Mod+Ctrl+H     { resize-shrink-width; }
+    Mod+Ctrl+L     { resize-grow-width; }
+    Mod+Ctrl+K     { resize-shrink-height; }
+    Mod+Ctrl+J     { resize-grow-height; }
+
+    // Direct size adjustments are also available if you prefer percentages.
+    // Mod+Ctrl+Minus { set-window-width "-10%"; }
+    // Mod+Ctrl+Equal { set-window-width "+10%"; }
+    // Mod+Ctrl+Shift+Minus { set-window-height "-10%"; }
+    // Mod+Ctrl+Shift+Equal { set-window-height "+10%"; }
 
     // Sway/i3 layout and floating keybinds.
     Mod+A { focus-parent; }
@@ -646,9 +621,6 @@ binds {
     Mod+E { toggle-split-layout; }
     Mod+Shift+Space { toggle-window-floating; }
     Mod+Space       { switch-focus-between-floating-and-tiling; }
-
-    // Note: Mod+W is now used for set-layout-tabbed (i3-style)
-    // Old binding: Mod+W { toggle-column-tabbed-display; } - removed
 
     // Actions to switch layouts.
     // Note: if you uncomment these, make sure you do NOT have
@@ -680,3 +652,7 @@ binds {
     // moving the mouse or pressing any other key.
     Mod+Shift+P { power-off-monitors; }
 }
+
+// Pure i3/sway profile. Keep this include at the end so it overrides the
+// broader default-style settings above.
+include "profiles/i3.kdl"
