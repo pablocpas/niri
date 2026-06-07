@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/pablocpas/tiri/releases"><img alt="Release" src="https://img.shields.io/github/v/release/pablocpas/tiri?style=flat-square&label=release"></a>
-  <a href="https://aur.archlinux.org/packages/tiri-bin"><img alt="AUR tiri-bin" src="https://img.shields.io/aur/version/tiri-bin?style=flat-square&label=AUR%20tiri-bin"></a>
+  <a href="https://aur.archlinux.org/packages/tiri"><img alt="AUR tiri" src="https://img.shields.io/aur/version/tiri?style=flat-square&label=AUR%20tiri"></a>
   <a href="https://copr.fedorainfracloud.org/coprs/pablocpas/tiri/"><img alt="Fedora COPR" src="https://img.shields.io/badge/COPR-pablocpas%2Ftiri-51a2da?style=flat-square"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/pablocpas/tiri?style=flat-square"></a>
 </p>
@@ -45,8 +45,6 @@ sudo dnf install tiri
 Arch Linux:
 
 ```sh
-paru -S tiri-bin
-# or build from source:
 paru -S tiri
 ```
 
@@ -114,7 +112,7 @@ Things that are already first-class:
 Current distribution paths:
 
 - Fedora: [COPR `pablocpas/tiri`](https://copr.fedorainfracloud.org/coprs/pablocpas/tiri/).
-- Arch: [`tiri-bin`](https://aur.archlinux.org/packages/tiri-bin) and [`tiri`](https://aur.archlinux.org/packages/tiri) on AUR.
+- Arch: [`tiri`](https://aur.archlinux.org/packages/tiri) on AUR.
 - Nix: flake package at `github:pablocpas/tiri`.
 - Debian/Ubuntu: `.deb` assets on GitHub Releases.
 
