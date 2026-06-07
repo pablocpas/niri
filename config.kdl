@@ -148,7 +148,7 @@ layout {
     // You can change how the focus ring looks.
     focus-ring {
         // Uncomment this line to disable the focus ring.
-        off
+        // off
 
         // How many logical pixels the ring extends out from the windows.
         width 4
@@ -213,14 +213,15 @@ layout {
         urgent-border "#2F343A"
     }
 
-    // i3/sway-style preset is enabled above:
-    // focus-ring off, border on, and Sway-like titlebar colors.
+    // The default config uses a prominent focus ring because it remains visible
+    // with client-side-decorated windows. For a stricter i3/sway-style border
+    // setup, uncomment the profile include at the end of this file.
 
     // You can also add a border. It's similar to the focus ring, but always visible.
     border {
         // The settings are the same as for the focus ring.
         // If you enable the border, you probably want to disable the focus ring.
-        on
+        off
 
         width 2
         active-color "#4C7899"
@@ -653,6 +654,7 @@ binds {
     Mod+Shift+P { power-off-monitors; }
 }
 
-// Pure i3/sway profile. Keep this include at the end so it overrides the
-// broader default-style settings above.
-include "profiles/i3.kdl"
+// Uncomment to switch this config to the stricter i3/sway-style profile.
+// Tiri creates profiles/i3.kdl next to this file on first run. Keep this include
+// at the end so it overrides the broader default-style settings above.
+// include "profiles/i3.kdl"

@@ -60,6 +60,14 @@ Download the `.deb` from the [latest release](https://github.com/pablocpas/tiri/
 
 After installing, choose **Tiri** in your display manager, or run `tiri-session` from a TTY.
 
+## i3/sway profile
+
+The default config keeps tiri's regular focus ring visible. If you want a stricter i3/sway-style look and bindings, uncomment this line at the end of `~/.config/tiri/config.kdl`:
+
+```kdl
+include "profiles/i3.kdl"
+```
+
 ## Highlights
 
 - **i3/sway-like tiling** with a real container tree.
