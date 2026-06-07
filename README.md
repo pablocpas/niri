@@ -14,9 +14,9 @@
 </p>
 
 <p align="center">
-  <a href="https://pablocpas.github.io/tiri/Getting-Started.html">Getting Started</a>
+  <a href="https://github.com/pablocpas/tiri/blob/main/docs/wiki/Getting-Started.md">Getting Started</a>
   ·
-  <a href="https://pablocpas.github.io/tiri/Configuration:-Introduction.html">Configuration</a>
+  <a href="https://github.com/pablocpas/tiri/blob/main/docs/wiki/Configuration:-Introduction.md">Configuration</a>
   ·
   <a href="https://github.com/pablocpas/tiri/releases">Releases</a>
   ·
@@ -124,7 +124,7 @@ Current distribution paths:
 - Nix: flake package at `github:pablocpas/tiri`.
 - Debian/Ubuntu: `.deb` assets on GitHub Releases.
 
-Packagers should read [Packaging tiri](https://pablocpas.github.io/tiri/Packaging-tiri.html). Release tarballs include a matching vendored dependency archive for offline Rust builds.
+Packagers should read [Packaging tiri](https://github.com/pablocpas/tiri/blob/main/docs/wiki/Packaging-tiri.md). Release tarballs include a matching vendored dependency archive for offline Rust builds.
 
 ## Credits
 
@@ -139,7 +139,7 @@ Useful niri resources:
 
 Contributions are welcome, especially around i3/sway behavior parity, layout correctness, testing, documentation, packaging, and real-world bug reports.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Getting Started](https://pablocpas.github.io/tiri/Getting-Started.html) docs.
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Getting Started](https://github.com/pablocpas/tiri/blob/main/docs/wiki/Getting-Started.md) docs.
 
 ## License
 
