@@ -36,7 +36,7 @@ The easiest way to get tiri is to install one of the distribution packages (if a
 See the [Building](#building) section if you'd like to compile tiri yourself and the [Packaging tiri](./Packaging-tiri.md) page if you want to package it.
 
 After installing, start tiri from your display manager like GDM.
-Press <kbd>Super</kbd><kbd>T</kbd> to run a terminal ([Alacritty]) and <kbd>Super</kbd><kbd>D</kbd> to run an application launcher ([fuzzel]).
+Press <kbd>Super</kbd><kbd>Return</kbd> to run a terminal ([Alacritty]) and <kbd>Super</kbd><kbd>D</kbd> to run an application launcher ([fuzzel]).
 To exit tiri, press <kbd>Super</kbd><kbd>Shift</kbd><kbd>E</kbd>.
 
 If you're not using a display manager, you should run `tiri-session` (systemd/dinit) or `tiri --session` (others) from a TTY.
@@ -118,12 +118,12 @@ To run tiri in a VM, make sure to enable 3D acceleration.
 When running on a TTY, the Mod key is <kbd>Super</kbd>.
 When running in a window, the Mod key is <kbd>Alt</kbd>.
 
-The general system is: if a hotkey switches somewhere, then adding <kbd>Ctrl</kbd> will usually move the focused window or top-level tiling subtree there.
+The default config follows the i3/sway convention for the core tiling actions: add <kbd>Shift</kbd> to a directional focus bind to move the focused container or window in that direction.
 
 | Hotkey | Description |
 | ------ | ----------- |
 | <kbd>Mod</kbd><kbd>Shift</kbd><kbd>/</kbd> | Show a list of important hotkeys |
-| <kbd>Mod</kbd><kbd>T</kbd> | Spawn `alacritty` (terminal) |
+| <kbd>Mod</kbd><kbd>Return</kbd> | Spawn `alacritty` (terminal) |
 | <kbd>Mod</kbd><kbd>D</kbd> | Spawn `fuzzel` (application launcher) |
 | <kbd>Mod</kbd><kbd>O</kbd> | Toggle overview |
 | <kbd>Super</kbd><kbd>Alt</kbd><kbd>L</kbd> | Spawn `swaylock` (screen locker) |
@@ -139,12 +139,10 @@ The general system is: if a hotkey switches somewhere, then adding <kbd>Ctrl</kb
 | <kbd>Mod</kbd><kbd>Home</kbd> | Focus the first tiling subtree |
 | <kbd>Mod</kbd><kbd>End</kbd> | Focus the last tiling subtree |
 | **Moving windows** | |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>H</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>←</kbd> | Move the focused tiling subtree to the left |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>→</kbd> | Move the focused tiling subtree to the right |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>J</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>↓</kbd> | Move the focused window down |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>K</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>↑</kbd> | Move the focused window up |
-| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>H</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>←</kbd> | Swap the focused window left |
-| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>→</kbd> | Swap the focused window right |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>H</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>←</kbd> | Move the focused tiling subtree to the left |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>→</kbd> | Move the focused tiling subtree to the right |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>J</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>↓</kbd> | Move the focused window down |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>K</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>↑</kbd> | Move the focused window up |
 | **Monitors** | |
 | <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>↑</kbd><kbd>→</kbd> | Focus the monitor in that direction |
 | <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>H</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>↑</kbd><kbd>→</kbd> | Move the focused tiling subtree to the monitor in that direction |
@@ -154,7 +152,7 @@ The general system is: if a hotkey switches somewhere, then adding <kbd>Ctrl</kb
 | <kbd>Mod</kbd><kbd>1</kbd>–<kbd>9</kbd> | Focus workspace by index |
 | <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>U</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>PageDown</kbd> | Move the focused tiling subtree to the workspace below |
 | <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>I</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>PageUp</kbd> | Move the focused tiling subtree to the workspace above |
-| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>1</kbd>–<kbd>9</kbd> | Move the focused tiling subtree to workspace by index |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>1</kbd>–<kbd>9</kbd> | Move the focused tiling subtree to workspace by index |
 | <kbd>Mod</kbd><kbd>Shift</kbd><kbd>U</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>PageDown</kbd> | Move the focused workspace down |
 | <kbd>Mod</kbd><kbd>Shift</kbd><kbd>I</kbd> or <kbd>Mod</kbd><kbd>Shift</kbd><kbd>PageUp</kbd> | Move the focused workspace up |
 | **i3-style layout** | |
@@ -166,10 +164,13 @@ The general system is: if a hotkey switches somewhere, then adding <kbd>Ctrl</kb
 | <kbd>Mod</kbd><kbd>Space</kbd> | Switch focus between the floating and tiling layers |
 | <kbd>Mod</kbd><kbd>Shift</kbd><kbd>Space</kbd> | Toggle the focused window between floating and tiling |
 | **Sizing and fullscreen** | |
-| <kbd>Ctrl</kbd><kbd>→</kbd> | Grow width |
-| <kbd>Ctrl</kbd><kbd>←</kbd> | Shrink width |
-| <kbd>Ctrl</kbd><kbd>↓</kbd> | Grow height |
-| <kbd>Ctrl</kbd><kbd>↑</kbd> | Shrink height |
+| <kbd>Mod</kbd><kbd>R</kbd> | Cycle preset container width |
+| <kbd>Mod</kbd><kbd>Shift</kbd><kbd>R</kbd> | Cycle preset window height |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>R</kbd> | Reset window height |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>→</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>L</kbd> | Grow width |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>←</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>H</kbd> | Shrink width |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>↓</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>J</kbd> | Grow height |
+| <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>↑</kbd> or <kbd>Mod</kbd><kbd>Ctrl</kbd><kbd>K</kbd> | Shrink height |
 | <kbd>Mod</kbd><kbd>F</kbd> | Toggle full-screen on the focused window |
 | <kbd>Mod</kbd><kbd>M</kbd> | Toggle `maximize-column` compatibility behavior (fullscreen-style in current tiri) |
 | <kbd>Mod</kbd><kbd>Shift</kbd><kbd>M</kbd> | Toggle `maximize-window-to-edges` compatibility behavior (currently an alias of fullscreen) |

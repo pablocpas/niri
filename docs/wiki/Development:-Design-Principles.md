@@ -100,12 +100,12 @@ The default screenshot-path matches GNOME Shell.
 
 Default window rules are limited to fixing known severe issues (WezTerm) and doing something the absolute majority likely wants (make Firefox Picture-in-Picture player floating—it can't do that on its own currently, maybe the pip protocol will change that).
 
-The default binds largely come from PaperWM conventions and from other compositors.
+The default binds use i3/sway conventions for the core tiling workflow, with a few extra bindings inherited from niri-style workflows and other compositors.
 They assume QWERTY.
 The binds are ordered in a way to gradually introduce you to different bind configuration concepts.
 
-The general system is: if a hotkey switches somewhere, then adding <kbd>Ctrl</kbd> will move the focused window or column there.
-Adding <kbd>Shift</kbd> does an alternative action: for focus and movement it starts going across monitors, for resizes it starts acting on window height rather than width, etc.
+The default core tiling binds follow the i3/sway convention: directional focus uses <kbd>Mod</kbd> plus a direction, while directional movement adds <kbd>Shift</kbd>.
+Some extended default binds still use <kbd>Ctrl</kbd> for actions such as resizing or moving containers between workspaces.
 Workspace switching on <kbd>Mod</kbd><kbd>U</kbd>/<kbd>I</kbd> is one key up from <kbd>Mod</kbd><kbd>J</kbd>/<kbd>K</kbd> used for window switching.
 
 Since <kbd>Alt</kbd> is a modifier in nested tiri, binds with explicit <kbd>Alt</kbd> are mainly the ones only useful on the host, for example spawning a screen locker.

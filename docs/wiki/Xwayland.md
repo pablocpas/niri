@@ -52,7 +52,7 @@ This method involves invoking XWayland directly and running it as its own window
 Here's how you do it:
 
 1. Run `Xwayland` (just the binary on its own without flags).
-This will spawn a black window which you can resize and fullscreen (with Mod+Shift+F) for convenience.
+This will spawn a black window which you can resize and fullscreen (with Mod+F) for convenience.
 On older Xwayland versions the window will be screen-sized and non-resizable.
 1. Run some X11 window manager in there, e.g. `env DISPLAY=:0 i3`.
 This way you can manage X11 windows inside the Xwayland instance.

@@ -71,7 +71,7 @@ You can disable that for specific binds with `repeat=false`:
 
 ```kdl
 binds {
-    Mod+T repeat=false { spawn "alacritty"; }
+    Mod+Return repeat=false { spawn "alacritty"; }
 }
 ```
 
@@ -79,7 +79,7 @@ Binds can also have a cooldown, which will rate-limit the bind and prevent it fr
 
 ```kdl
 binds {
-    Mod+T cooldown-ms=500 { spawn "alacritty"; }
+    Mod+Return cooldown-ms=500 { spawn "alacritty"; }
 }
 ```
 
@@ -261,7 +261,7 @@ For example:
 ```kdl
 binds {
     // Run alacritty.
-    Mod+T { spawn "alacritty"; }
+    Mod+Return { spawn "alacritty"; }
 
     // Run `wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.1+`.
     XF86AudioRaiseVolume { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1+"; }
@@ -287,7 +287,7 @@ See [`spawn-sh`](#spawn-sh) below for an action that uses a shell.
 ```kdl
 binds {
     // Correct: every argument is in its own quotes.
-    Mod+T { spawn "alacritty" "-e" "/usr/bin/fish"; }
+    Mod+Return { spawn "alacritty" "-e" "/usr/bin/fish"; }
 
     // Wrong: will interpret the whole `alacritty -e /usr/bin/fish` string as the binary path.
     Mod+D { spawn "alacritty -e /usr/bin/fish"; }
@@ -303,7 +303,7 @@ If you need this, you can run the command through a shell manually.
 ```kdl
 binds {
     // Wrong: no shell expansion here. These strings will be passed literally to the program.
-    Mod+T { spawn "grim" "-o" "$MAIN_OUTPUT" "~/screenshot.png"; }
+    Mod+Return { spawn "grim" "-o" "$MAIN_OUTPUT" "~/screenshot.png"; }
 
     // Correct: run this through a shell manually so that it can expand the arguments.
     // Note that the entire command is passed as a SINGLE argument,
@@ -321,7 +321,7 @@ As a special case, tiri will expand `~` to the home directory *only* at the begi
 ```kdl
 binds {
     // This will work: one ~ at the very beginning.
-    Mod+T { spawn "~/scripts/do-something.sh"; }
+    Mod+Return { spawn "~/scripts/do-something.sh"; }
 }
 ```
 
@@ -340,7 +340,7 @@ binds {
     Mod+D { spawn-sh "alacritty -e /usr/bin/fish"; }
 
     // Works with spawn-sh: shell variable ($MAIN_OUTPUT), ~ expansion.
-    Mod+T { spawn-sh "grim -o $MAIN_OUTPUT ~/screenshot.png"; }
+    Mod+Return { spawn-sh "grim -o $MAIN_OUTPUT ~/screenshot.png"; }
 
     // Works with spawn-sh: process substitution.
     Mod+Q { spawn-sh "notify-send clipboard \"$(wl-paste)\""; }

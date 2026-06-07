@@ -201,7 +201,7 @@ include "laptop.kdl"
 ```kdl
 // binds.kdl
 binds {
-    Mod+T { spawn "alacritty"; }
+    Mod+Return { spawn "alacritty"; }
 }
 ```
 
@@ -210,8 +210,8 @@ binds {
 include "binds.kdl"
 
 binds {
-    // Overrides Mod+T from binds.kdl.
-    Mod+T { spawn "foot"; }
+    // Overrides Mod+Return from binds.kdl.
+    Mod+Return { spawn "foot"; }
 }
 ```
 

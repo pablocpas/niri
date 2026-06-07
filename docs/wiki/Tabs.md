@@ -7,31 +7,32 @@ All tabs in a tabbed container have the same window size, so this is useful to g
 
 This is one of the container layout modes in the i3-style tiling system, alongside SplitH, SplitV, and Stacked.
 
-![Terminal with a tab indicator on the left.](https://github.com/user-attachments/assets/0e94ac0d-796d-4f85-a264-c105ef41c13f)
-
-Use this bind to toggle a container between split and tabbed layout:
+Use this bind to set the focused container to tabbed layout:
 
 ```kdl
 binds {
-   Mod+W { toggle-column-tabbed-display; }
+   Mod+W { set-layout-tabbed; }
 }
 ```
 
-All other binds remain the same: switch tabs with `focus-window-down/up`, navigate with directional focus commands.
+Use `set-layout-stacked` for stacked layout and `toggle-split-layout` to switch split containers between horizontal and vertical:
+
+```kdl
+binds {
+   Mod+S { set-layout-stacked; }
+   Mod+E { toggle-split-layout; }
+}
+```
+
+All other binds remain the same: switch tabs with `focus-window-down/up`, navigate with directional focus commands, and use `focus-parent` when you want to operate on the container itself.
 
 Tabbed containers can go full-screen with multiple windows.
 
-### Tab indicator
+### Tab bar
 
-Tabbed containers show a tab indicator on the side.
-You can click on the indicator to switch tabs.
+Tabbed and stacked containers show a tab bar above their windows.
+You can click on the tab bar to switch tabs.
 
-See the [`tab-indicator` section in the layout section](./Configuration:-Layout.md#tab-indicator) to configure it.
+See the [`tab-bar` section in the layout page](./Configuration:-Layout.md#tab-bar) to configure it.
 
-By default, the indicator draws "outside" the container, so it can overlay other windows or go off-screen.
-The `place-within-column` flag puts the indicator "inside" the container, adjusting the window size to make space for it.
-This is especially useful for thicker tab indicators, or when you have very small gaps.
-
-| Default | `place-within-column` |
-| --- | --- |
-| ![A screenshot showing 4 windows, with the middle column being focused. The tab indicator overflows onto the left column](https://github.com/user-attachments/assets/c2f51f50-3d87-403a-8beb-cbbe5ec5c880) | ![A screenshot showing 4 windows, with the middle column being focused. The tab indicator is contained within its respective column](https://github.com/user-attachments/assets/f1797cd0-d518-4be6-95b4-3540523c4370) |
+The i3/sway profile also sets `show-in-split`, which renders a single-row title bar above split-layout tiles for a more traditional i3 look.
