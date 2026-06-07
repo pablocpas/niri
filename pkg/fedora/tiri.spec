@@ -1,6 +1,6 @@
 Name:           tiri
-Version:        0.1.0
-Release:        2%{?dist}
+Version:        0.1.1
+Release:        1%{?dist}
 Summary:        A tiling Wayland compositor
 
 License:        GPL-3.0-or-later
@@ -78,6 +78,9 @@ install -Dpm0644 resources/tiri-shutdown.target %{buildroot}%{_userunitdir}/tiri
 %{_userunitdir}/tiri-shutdown.target
 
 %changelog
+* Sun Jun 07 2026 Pablo Pascual <pablocpascual@gmail.com> - 0.1.1-1
+- Release 0.1.1
+
 * Tue May 19 2026 Pablo Pascual <pablocpascual@gmail.com> - 0.1.0-2
 - Use vendored cargo config for git dependencies in COPR builds
 

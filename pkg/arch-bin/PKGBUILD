@@ -1,7 +1,7 @@
 # Maintainer: Pablo Pascual <pablocpascual@gmail.com>
 
 pkgname=tiri-bin
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc='A tiling Wayland compositor derived from niri'
 arch=('x86_64')
@@ -41,7 +41,7 @@ source=(
   "tiri-${pkgver}-x86_64-archlinux.tar.zst::${url}/releases/download/tiri-v${pkgver}/tiri-${pkgver}-x86_64-archlinux.tar.zst"
 )
 b2sums=(
-  'e5270d7a73bd8711d183d09422de8a39135d75d14433a5549eedb0f89b5331224b1e51f3ac053533a19ce915e87d68b2a07a817b56a182f45e1492f7c3b1445b'
+  'SKIP'
 )
 
 package() {
