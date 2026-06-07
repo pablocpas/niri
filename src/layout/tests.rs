@@ -2827,6 +2827,47 @@ fn maximize_during_interactive_move_start_is_ignored() {
     assert!(move_.tile.window().pending_sizing_mode().is_normal());
 }
 
+#[test]
+fn interactive_move_of_maximized_window_normalizes_sizing_mode() {
+    let layout = check_ops([
+        Op::AddScaledOutput {
+            id: 5,
+            scale: 1.0,
+            layout_config: None,
+        },
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::MaximizeWindowToEdges { id: None },
+        Op::MoveWorkspaceToOutput(1),
+        Op::InteractiveMoveBegin {
+            window: 4,
+            output_idx: 1,
+            px: 0.0,
+            py: 0.0,
+        },
+        Op::FocusWorkspaceDown,
+        Op::FocusWorkspaceAutoBackAndForth(0),
+        Op::MoveWindowDownOrToWorkspaceDown,
+        Op::InteractiveMoveUpdate {
+            window: 4,
+            dx: 0.0,
+            dy: 3386.017133369442,
+            output_idx: 5,
+            px: 0.0,
+            py: 0.0,
+        },
+    ]);
+
+    let Some(InteractiveMoveState::Moving(move_)) = &layout.interactive_move else {
+        panic!("interactive move should still be active");
+    };
+
+    assert_eq!(move_.tile.window().id(), &4);
+    assert!(move_.tile.window().pending_sizing_mode().is_normal());
+}
+
 // empty_workspace_above_first = true
 
 #[test]

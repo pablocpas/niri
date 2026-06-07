@@ -651,11 +651,7 @@ impl ConfigPath {
 
             let i3_path = profiles_dir.join("i3.kdl");
             let i3 = include_bytes!("../../resources/profiles/i3.kdl");
-            match File::options()
-                .write(true)
-                .create_new(true)
-                .open(&i3_path)
-            {
+            match File::options().write(true).create_new(true).open(&i3_path) {
                 Ok(mut file) => file
                     .write_all(i3)
                     .into_diagnostic()

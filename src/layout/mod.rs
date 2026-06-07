@@ -5898,6 +5898,10 @@ impl<W: LayoutElement> Layout<W> {
                     .with_merged_layout(workspace_config.as_ref().map(|(_, c)| c))
                     .adjusted_for_scale(scale);
                 tile.update_config(view_size, scale, Rc::new(options));
+                if !tile.window().pending_sizing_mode().is_normal() {
+                    tile.pending_maximized = false;
+                    tile.request_tile_size(tile.tile_size(), !self.options.animations.off, None);
+                }
 
                 if !is_floating {
                     // Animate to semitransparent.
