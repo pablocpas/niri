@@ -20,6 +20,7 @@ You can find documentation for various sections of the config on these wiki page
 
 Tiri will load configuration from `$XDG_CONFIG_HOME/tiri/config.kdl` or `~/.config/tiri/config.kdl`, falling back to `/etc/tiri/config.kdl`.
 If both of these files are missing, tiri will create `$XDG_CONFIG_HOME/tiri/config.kdl` with the contents of [the default configuration file](https://github.com/pablocpas/tiri/blob/main/resources/default-config.kdl), which are embedded into the tiri binary at build time.
+It also creates `$XDG_CONFIG_HOME/tiri/profiles/i3.kdl`, an optional i3/sway-style profile that can be enabled by adding `include "profiles/i3.kdl"` at the end of the config.
 Please use the default configuration file as the starting point for your custom configuration.
 
 The configuration is live-reloaded.

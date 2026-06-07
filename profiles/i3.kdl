@@ -1,0 +1,179 @@
+// i3/sway-style profile for tiri.
+//
+// If installed system-wide, include this file at the end of config.kdl:
+//
+// include "/usr/share/tiri/profiles/i3.kdl"
+//
+// If it was created next to your config file, use:
+//
+// include "profiles/i3.kdl"
+//
+// This profile is intentionally self-contained: layout, CSD/border behavior,
+// titlebars, key bindings, resize mode, and hotkey overlay are all set here so
+// the include line is enough.
+//
+// Restart already-running applications after enabling prefer-no-csd if they keep
+// client-side titlebars or rounded corners.
+
+prefer-no-csd
+
+layout {
+    // i3/sway default: no gaps unless the user explicitly enables them.
+    gaps 0
+
+    // Make the first tiled window fill the workspace, matching i3/sway.
+    default-column-width { proportion 1.0; }
+
+    focus-ring {
+        off
+    }
+
+    border {
+        on
+        width 2
+
+        active-color "#4C7899"
+        focused-inactive-color "#333333"
+        inactive-color "#333333"
+        urgent-color "#900000"
+
+        active-indicator-color "#4C7899"
+        focused-inactive-indicator-color "#333333"
+        inactive-indicator-color "#333333"
+        urgent-indicator-color "#900000"
+    }
+
+    tab-bar {
+        // Sway/i3-like titlebars for split, stacked, and tabbed containers.
+        show-in-split true
+        height 0
+        // Matches the Sway/i3 titlebar padding convention.
+        padding-x 5
+        padding-y 4
+        separator-width 1
+        border-width 1
+        font "monospace 10"
+
+        active-bg "#285577"
+        inactive-bg "#222222"
+        urgent-bg "#900000"
+        active-fg "#ffffff"
+        inactive-fg "#888888"
+        urgent-fg "#ffffff"
+        separator-color "#000000"
+        active-border "#4C7899"
+        inactive-border "#333333"
+        urgent-border "#900000"
+    }
+
+    hide-edge-borders "none"
+    hide-edge-borders-smart false
+
+    struts {
+        left 0
+        right 0
+        top 0
+        bottom 0
+    }
+}
+
+window-rule {
+    draw-border-with-background false
+    geometry-corner-radius 0
+    clip-to-geometry false
+
+    border {
+        on
+    }
+}
+
+hotkey-overlay {
+    hide-not-bound
+}
+
+binds {
+    // i3/sway core binds.
+    Mod+Return hotkey-overlay-title="Open a Terminal: alacritty" { spawn "alacritty"; }
+    Mod+D hotkey-overlay-title="Run an Application: fuzzel" { spawn "fuzzel"; }
+    Mod+Shift+Q repeat=false { close-window; }
+
+    Mod+Left  { focus-column-left; }
+    Mod+Down  { focus-window-down; }
+    Mod+Up    { focus-window-up; }
+    Mod+Right { focus-column-right; }
+    Mod+H     { focus-column-left; }
+    Mod+J     { focus-window-down; }
+    Mod+K     { focus-window-up; }
+    Mod+L     { focus-column-right; }
+
+    Mod+Shift+Left  { move-container-left; }
+    Mod+Shift+Down  { move-window-down; }
+    Mod+Shift+Up    { move-window-up; }
+    Mod+Shift+Right { move-container-right; }
+    Mod+Shift+H     { move-container-left; }
+    Mod+Shift+J     { move-window-down; }
+    Mod+Shift+K     { move-window-up; }
+    Mod+Shift+L     { move-container-right; }
+
+    Mod+B { split-horizontal; }
+    Mod+V { split-vertical; }
+    Mod+S { set-layout-stacked; }
+    Mod+W { set-layout-tabbed; }
+    Mod+E { toggle-split-layout; }
+    Mod+A { focus-parent; }
+
+    Mod+F { fullscreen-window; }
+    Mod+Shift+Space { toggle-window-floating; }
+    Mod+Space { switch-focus-between-floating-and-tiling; }
+    Mod+R { mode "resize"; }
+
+    Mod+1 { focus-workspace 1; }
+    Mod+2 { focus-workspace 2; }
+    Mod+3 { focus-workspace 3; }
+    Mod+4 { focus-workspace 4; }
+    Mod+5 { focus-workspace 5; }
+    Mod+6 { focus-workspace 6; }
+    Mod+7 { focus-workspace 7; }
+    Mod+8 { focus-workspace 8; }
+    Mod+9 { focus-workspace 9; }
+
+    Mod+Shift+1 { move-container-to-workspace 1; }
+    Mod+Shift+2 { move-container-to-workspace 2; }
+    Mod+Shift+3 { move-container-to-workspace 3; }
+    Mod+Shift+4 { move-container-to-workspace 4; }
+    Mod+Shift+5 { move-container-to-workspace 5; }
+    Mod+Shift+6 { move-container-to-workspace 6; }
+    Mod+Shift+7 { move-container-to-workspace 7; }
+    Mod+Shift+8 { move-container-to-workspace 8; }
+    Mod+Shift+9 { move-container-to-workspace 9; }
+
+    Mod+Shift+Minus { move-window-to-scratchpad; }
+    Mod+Minus { scratchpad-show; }
+
+    Mod+Shift+C hotkey-overlay-title="Reload Config" { spawn "/usr/bin/tiri" "msg" "action" "load-config-file"; }
+    Mod+Shift+E { quit; }
+}
+
+mode "resize" {
+    Left  { resize-shrink-width; }
+    Down  { resize-grow-height; }
+    Up    { resize-shrink-height; }
+    Right { resize-grow-width; }
+    H     { resize-shrink-width; }
+    J     { resize-grow-height; }
+    K     { resize-shrink-height; }
+    L     { resize-grow-width; }
+
+    Shift+Left  { resize-grow-width; }
+    Shift+Down  { resize-shrink-height; }
+    Shift+Up    { resize-grow-height; }
+    Shift+Right { resize-shrink-width; }
+    Shift+H     { resize-grow-width; }
+    Shift+J     { resize-shrink-height; }
+    Shift+K     { resize-grow-height; }
+    Shift+L     { resize-shrink-width; }
+
+    Return { mode "default"; }
+    Escape { mode "default"; }
+    Mod+R  { mode "default"; }
+}

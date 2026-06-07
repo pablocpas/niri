@@ -21,6 +21,7 @@ To do that, put files into the correct directories according to this table.
 | `resources/tiri-session` | `/usr/bin/` |
 | `resources/tiri.desktop` | `/usr/share/wayland-sessions/` |
 | `resources/tiri-portals.conf` | `/usr/share/xdg-desktop-portal/` |
+| `resources/profiles/i3.kdl` | `/usr/share/tiri/profiles/` |
 | `resources/tiri.service` (systemd) | `/usr/lib/systemd/user/` |
 | `resources/tiri-shutdown.target` (systemd) | `/usr/lib/systemd/user/` |
 | `resources/dinit/tiri` (dinit) | `/usr/lib/dinit.d/user/` |

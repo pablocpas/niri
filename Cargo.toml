@@ -172,6 +172,7 @@ assets = [
     { source = "resources/tiri-session", dest = "/usr/bin/", mode = "755" },
     { source = "resources/tiri.desktop", dest = "/usr/share/wayland-sessions/", mode = "644" },
     { source = "resources/tiri-portals.conf", dest = "/usr/share/xdg-desktop-portal/", mode = "644" },
+    { source = "resources/profiles/i3.kdl", dest = "/usr/share/tiri/profiles/", mode = "644" },
     { source = "resources/tiri.service", dest = "/usr/lib/systemd/user/", mode = "644" },
     { source = "resources/tiri-shutdown.target", dest = "/usr/lib/systemd/user/", mode = "644" },
 ]
@@ -186,6 +187,7 @@ assets = [
     ["resources/tiri-session", "usr/bin/", "755"],
     ["resources/tiri.desktop", "/usr/share/wayland-sessions/", "644"],
     ["resources/tiri-portals.conf", "/usr/share/xdg-desktop-portal/", "644"],
+    ["resources/profiles/i3.kdl", "/usr/share/tiri/profiles/", "644"],
     ["resources/tiri.service", "/usr/lib/systemd/user/", "644"],
     ["resources/tiri-shutdown.target", "/usr/lib/systemd/user/", "644"],
 ]

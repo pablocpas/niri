@@ -176,6 +176,7 @@ jobs:
           install -Dpm0755 resources/tiri-session "$root/usr/bin/tiri-session"
           install -Dpm0644 resources/tiri.desktop "$root/usr/share/wayland-sessions/tiri.desktop"
           install -Dpm0644 resources/tiri-portals.conf "$root/usr/share/xdg-desktop-portal/tiri-portals.conf"
+          install -Dpm0644 resources/profiles/i3.kdl "$root/usr/share/tiri/profiles/i3.kdl"
           install -Dpm0644 resources/tiri.service "$root/usr/lib/systemd/user/tiri.service"
           install -Dpm0644 resources/tiri-shutdown.target "$root/usr/lib/systemd/user/tiri-shutdown.target"
           install -Dpm0644 LICENSE "$root/usr/share/licenses/tiri/LICENSE"

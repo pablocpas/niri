@@ -5,6 +5,7 @@ First, for creating a tiri package, see the [Packaging](./Packaging-tiri.md) pag
 
 Tiri will load configuration from `$XDG_CONFIG_HOME/tiri/config.kdl` or `~/.config/tiri/config.kdl`, falling back to `/etc/tiri/config.kdl`.
 If both of these files are missing, tiri will create `$XDG_CONFIG_HOME/tiri/config.kdl` with the contents of [the default configuration file](https://github.com/pablocpas/tiri/blob/main/resources/default-config.kdl), which are embedded into the tiri binary at build time.
+It will also create `$XDG_CONFIG_HOME/tiri/profiles/i3.kdl`, an optional i3/sway-style profile that users can enable with `include "profiles/i3.kdl"` at the end of their config.
 
 This means that you can customize your distribution defaults by creating `/etc/tiri/config.kdl`.
 When this file is present, tiri *will not* automatically create a config at `~/.config/tiri/`, so you'll need to direct your users how to do it themselves.

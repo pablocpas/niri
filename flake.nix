@@ -131,6 +131,7 @@
 
               install -Dm644 resources/tiri.desktop -t $out/share/wayland-sessions
               install -Dm644 resources/tiri-portals.conf -t $out/share/xdg-desktop-portal
+              install -Dm644 resources/profiles/i3.kdl -t $out/share/tiri/profiles
             ''
             + lib.optionalString withSystemd ''
               install -Dm755 resources/tiri-session $out/bin/tiri-session

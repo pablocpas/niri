@@ -62,6 +62,7 @@ install -Dpm0755 target/release/tiri %{buildroot}%{_bindir}/tiri
 install -Dpm0755 resources/tiri-session %{buildroot}%{_bindir}/tiri-session
 install -Dpm0644 resources/tiri.desktop %{buildroot}%{_datadir}/wayland-sessions/tiri.desktop
 install -Dpm0644 resources/tiri-portals.conf %{buildroot}%{_datadir}/xdg-desktop-portal/tiri-portals.conf
+install -Dpm0644 resources/profiles/i3.kdl %{buildroot}%{_datadir}/tiri/profiles/i3.kdl
 install -Dpm0644 resources/tiri.service %{buildroot}%{_userunitdir}/tiri.service
 install -Dpm0644 resources/tiri-shutdown.target %{buildroot}%{_userunitdir}/tiri-shutdown.target
 
@@ -72,6 +73,7 @@ install -Dpm0644 resources/tiri-shutdown.target %{buildroot}%{_userunitdir}/tiri
 %{_bindir}/tiri-session
 %{_datadir}/wayland-sessions/tiri.desktop
 %{_datadir}/xdg-desktop-portal/tiri-portals.conf
+%{_datadir}/tiri/profiles/i3.kdl
 %{_userunitdir}/tiri.service
 %{_userunitdir}/tiri-shutdown.target
 

@@ -641,12 +641,41 @@ impl ConfigPath {
             .into_diagnostic()
             .with_context(|| format!("error writing default config to {path:?}"))?;
 
+        if let Some(parent) = path.parent() {
+            let profiles_dir = parent.join("profiles");
+            fs::create_dir_all(&profiles_dir)
+                .into_diagnostic()
+                .with_context(|| {
+                    format!("error creating config profiles directory {profiles_dir:?}")
+                })?;
+
+            let i3_path = profiles_dir.join("i3.kdl");
+            let i3 = include_bytes!("../../resources/profiles/i3.kdl");
+            match File::options()
+                .write(true)
+                .create_new(true)
+                .open(&i3_path)
+            {
+                Ok(mut file) => file
+                    .write_all(i3)
+                    .into_diagnostic()
+                    .with_context(|| format!("error writing i3 config preset to {i3_path:?}"))?,
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(err) => {
+                    return Err(miette!(err)
+                        .context(format!("error opening i3 config preset at {i3_path:?}")));
+                }
+            }
+        }
+
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use insta::{assert_debug_snapshot, assert_snapshot};
     use pretty_assertions::assert_eq;
 
@@ -655,6 +684,33 @@ mod tests {
     #[test]
     fn can_create_default_config() {
         let _ = Config::load_default();
+    }
+
+    #[test]
+    fn load_or_create_writes_i3_preset_next_to_default_config() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "tiri-config-create-{unique}-{}",
+            std::process::id()
+        ));
+        let user_path = root.join("tiri/config.kdl");
+        let system_path = root.join("etc/tiri/config.kdl");
+
+        let path = ConfigPath::Regular {
+            user_path: user_path.clone(),
+            system_path,
+        };
+        let (created_at, config) = path.load_or_create();
+
+        assert_eq!(created_at, Some(user_path.as_path()));
+        config.config.unwrap();
+        assert!(user_path.exists());
+        assert!(user_path.with_file_name("profiles").join("i3.kdl").exists());
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
