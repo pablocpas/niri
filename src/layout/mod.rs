@@ -7271,18 +7271,23 @@ impl<W: LayoutElement> Layout<W> {
 
 impl Layout<crate::window::Mapped> {
     pub fn layout_tree(&self) -> LayoutTree {
-        let Some(workspace) = self.active_workspace() else {
+        let Some(monitor) = self.active_monitor_ref() else {
             return LayoutTree {
                 workspace_id: None,
                 workspace_name: None,
+                output: None,
                 root: None,
+                floating: Vec::new(),
             };
         };
+        let workspace = &monitor.workspaces[monitor.active_workspace_idx];
 
         LayoutTree {
             workspace_id: Some(workspace.id().get()),
             workspace_name: workspace.name().cloned(),
+            output: Some(monitor.output.name()),
             root: workspace.layout_tree(),
+            floating: workspace.floating_layout_tree_nodes(),
         }
     }
 }

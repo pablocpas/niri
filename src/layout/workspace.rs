@@ -3561,6 +3561,10 @@ impl Workspace<crate::window::Mapped> {
             self.tiling.layout_tree()
         }
     }
+
+    pub(crate) fn floating_layout_tree_nodes(&self) -> Vec<LayoutTreeNode> {
+        self.floating.layout_tree_nodes()
+    }
 }
 
 pub(super) fn compute_working_area(output: &Output) -> Rectangle<f64, Logical> {

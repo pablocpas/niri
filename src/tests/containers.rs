@@ -106,6 +106,63 @@ fn focused_node_path(node: &LayoutTreeNode) -> Option<Vec<usize>> {
     visit(node, &mut Vec::new())
 }
 
+fn first_leaf(node: &LayoutTreeNode) -> Option<&LayoutTreeNode> {
+    if node.window_id.is_some() {
+        return Some(node);
+    }
+
+    node.children.iter().find_map(first_leaf)
+}
+
+#[test]
+fn layout_tree_ipc_exposes_output_geometry_paths_and_percents() {
+    let (mut f, id) = set_up();
+    add_window(&mut f, id, (100, 100));
+    add_window(&mut f, id, (200, 200));
+
+    let tree = f.niri().layout.layout_tree();
+    assert!(tree.output.is_some());
+    assert!(tree.floating.is_empty());
+
+    let root = tree.root.expect("layout tree root should exist");
+    assert_eq!(root.path, Vec::<usize>::new());
+    assert!(root.rect.is_some());
+    assert_eq!(root.children.len(), 2);
+
+    for (idx, child) in root.children.iter().enumerate() {
+        assert_eq!(child.path, vec![idx]);
+        assert!(child.rect.is_some());
+        assert!(
+            child
+                .percent
+                .is_some_and(|percent| percent > 0.0 && percent <= 1.0),
+            "child should expose a sane parent percent: {child:?}",
+        );
+    }
+}
+
+#[test]
+fn layout_tree_ipc_exposes_floating_nodes() {
+    let (mut f, id) = set_up();
+    add_window(&mut f, id, (100, 100));
+
+    f.niri().layout.toggle_window_floating(None);
+    f.double_roundtrip(id);
+
+    let tree = f.niri().layout.layout_tree();
+    assert_eq!(tree.floating.len(), 1);
+
+    let floating_root = &tree.floating[0];
+    assert_eq!(floating_root.path, vec![0]);
+    assert!(floating_root.is_floating);
+    assert!(floating_root.rect.is_some());
+
+    let leaf = first_leaf(floating_root).expect("floating tree should contain a leaf");
+    assert!(leaf.is_floating);
+    assert!(leaf.window_id.is_some());
+    assert!(leaf.rect.is_some());
+}
+
 #[test]
 fn split_vertical_creates_nested_splitv_subtree() {
     let (mut f, id) = set_up();

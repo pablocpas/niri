@@ -580,11 +580,24 @@ fn print_layout_tree(tree: &LayoutTree) {
     } else {
         println!("workspace: none");
     }
+    if let Some(output) = &tree.output {
+        println!("output: {output}");
+    }
 
     if let Some(root) = &tree.root {
+        println!("tiling:");
         print_layout_tree_node(root, 0);
     } else {
-        println!("(empty)");
+        println!("tiling: (empty)");
+    }
+
+    if tree.floating.is_empty() {
+        println!("floating: (empty)");
+    } else {
+        println!("floating:");
+        for root in &tree.floating {
+            print_layout_tree_node(root, 0);
+        }
     }
 }
 
@@ -599,12 +612,53 @@ fn print_layout_tree_node(node: &tiri_ipc::LayoutTreeNode, depth: usize) {
             LayoutTreeLayout::Tabbed => "Tabbed",
             LayoutTreeLayout::Stacked => "Stacked",
         };
-        println!("{indent}{label}{focus_mark}");
+        let rect = node
+            .rect
+            .map(|rect| {
+                format!(
+                    " [{:.0},{:.0} {:.0}x{:.0}]",
+                    rect.x, rect.y, rect.width, rect.height
+                )
+            })
+            .unwrap_or_default();
+        let percent = node
+            .percent
+            .map(|percent| format!(" {:.1}%", percent * 100.0))
+            .unwrap_or_default();
+        let layer = if node.is_floating { " floating" } else { "" };
+        println!("{indent}{label}{focus_mark}{layer}{percent}{rect}");
         for child in &node.children {
             print_layout_tree_node(child, depth + 1);
         }
     } else if let Some(id) = node.window_id {
-        println!("{indent}Window {id}{focus_mark}");
+        let title = node
+            .title
+            .as_ref()
+            .map(|title| format!(" \"{title}\""))
+            .unwrap_or_default();
+        let rect = node
+            .rect
+            .map(|rect| {
+                format!(
+                    " [{:.0},{:.0} {:.0}x{:.0}]",
+                    rect.x, rect.y, rect.width, rect.height
+                )
+            })
+            .unwrap_or_default();
+        let percent = node
+            .percent
+            .map(|percent| format!(" {:.1}%", percent * 100.0))
+            .unwrap_or_default();
+        let layer = if node.is_floating { " floating" } else { "" };
+        let urgent = if node.is_urgent { " urgent" } else { "" };
+        let scratchpad = if node.is_scratchpad {
+            " scratchpad"
+        } else {
+            ""
+        };
+        println!(
+            "{indent}Window {id}{focus_mark}{layer}{urgent}{scratchpad}{percent}{rect}{title}"
+        );
     } else {
         println!("{indent}Window (unknown){focus_mark}");
     }

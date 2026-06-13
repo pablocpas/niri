@@ -9,7 +9,7 @@ use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::utils::{Logical, Physical, Point, Rectangle, Scale, Serial, Size};
 use tiri_config::utils::MergeWith as _;
 use tiri_config::{PresetSize, RelativeTo};
-use tiri_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
+use tiri_ipc::{ColumnDisplay, LayoutTreeNode, PositionChange, SizeChange, WindowLayout};
 
 use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
@@ -41,7 +41,7 @@ use crate::utils::{
     center_preferring_top_left_in_area, clamp_preferring_top_left_in_area,
     ensure_min_max_size_maybe_zero, to_physical_precise_round, ResizeEdge,
 };
-use crate::window::ResolvedWindowRules;
+use crate::window::{Mapped, ResolvedWindowRules};
 
 /// By how many logical pixels the directional move commands move floating windows.
 pub const DIRECTIONAL_MOVE_PX: f64 = 50.;
@@ -3322,6 +3322,30 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 "interactive resize window must be present in tiles"
             );
         }
+    }
+}
+
+impl FloatingSpace<Mapped> {
+    pub(crate) fn layout_tree_nodes(&self) -> Vec<LayoutTreeNode> {
+        self.containers
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, container)| {
+                let focused_key = if container.wrapper_selected {
+                    container.tree.root_node_key()
+                } else {
+                    container.tree.selected_node_key()
+                };
+                let mut path = vec![idx];
+                container.tree.layout_tree_with_context(
+                    focused_key,
+                    &mut path,
+                    1,
+                    container.data.logical_pos,
+                    true,
+                )
+            })
+            .collect()
     }
 }
 

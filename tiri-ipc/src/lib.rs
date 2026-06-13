@@ -187,8 +187,14 @@ pub struct LayoutTree {
     pub workspace_id: Option<u64>,
     /// Focused workspace name, if any.
     pub workspace_name: Option<String>,
+    /// Name of the output that contains the focused workspace, if any.
+    #[serde(default)]
+    pub output: Option<String>,
     /// Root of the tiling layout tree.
     pub root: Option<LayoutTreeNode>,
+    /// Floating container roots on the focused workspace, bottom-to-top.
+    #[serde(default)]
+    pub floating: Vec<LayoutTreeNode>,
 }
 
 /// Layout kind of a container node in the tiling tree.
@@ -209,14 +215,67 @@ pub enum LayoutTreeLayout {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
 pub struct LayoutTreeNode {
+    /// Path to this node within its tree.
+    ///
+    /// The root node has an empty path. Floating roots use their floating container index as the
+    /// first path component.
+    #[serde(default)]
+    pub path: Vec<usize>,
     /// Layout of a container node. `None` for leaf nodes.
     pub layout: Option<LayoutTreeLayout>,
     /// Window id for leaf nodes.
     pub window_id: Option<u64>,
+    /// Title for leaf nodes, if set.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Application ID for leaf nodes, if set.
+    #[serde(default)]
+    pub app_id: Option<String>,
+    /// Process ID for leaf nodes, if known.
+    #[serde(default)]
+    pub pid: Option<i32>,
     /// Whether this node is focused.
     pub focused: bool,
+    /// Whether this node is in the floating layer.
+    #[serde(default)]
+    pub is_floating: bool,
+    /// Whether this node or one of its descendants is visible.
+    #[serde(default)]
+    pub visible: bool,
+    /// Whether this node or one of its descendants requests attention.
+    #[serde(default)]
+    pub is_urgent: bool,
+    /// Whether this leaf window is sticky.
+    #[serde(default)]
+    pub is_sticky: bool,
+    /// Whether this leaf window is currently in the scratchpad.
+    #[serde(default)]
+    pub is_scratchpad: bool,
+    /// Marks attached to this leaf window.
+    #[serde(default)]
+    pub marks: Vec<String>,
+    /// Rectangle of this node in workspace-view logical coordinates.
+    #[serde(default)]
+    pub rect: Option<LayoutTreeRect>,
+    /// Fraction of the parent container occupied by this node, when known.
+    #[serde(default)]
+    pub percent: Option<f64>,
     /// Children nodes for container nodes.
     pub children: Vec<LayoutTreeNode>,
+}
+
+/// Rectangle in workspace-view logical coordinates.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct LayoutTreeRect {
+    /// X coordinate.
+    pub x: f64,
+    /// Y coordinate.
+    pub y: f64,
+    /// Width.
+    pub width: f64,
+    /// Height.
+    pub height: f64,
 }
 
 /// Color picked from the screen.
