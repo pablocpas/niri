@@ -30,9 +30,11 @@ use super::focus_ring::{
     render_container_selection, ContainerSelectionStyle, FocusRingEdges, FocusRingIndicatorEdge,
     FocusRingRenderElement,
 };
+use super::legacy_column::{Column, ColumnWidth};
 use super::monitor::{InsertPosition, SplitIndicator};
 use super::tile::{Tile, TileRenderElement};
 use super::tile::{TilePtrIter, TilePtrIterMut};
+use super::viewport::FixedViewport;
 use super::{
     ConfigureIntent, InteractiveResizeData, LayoutElement, Options, RemovedTile, ResizeHit,
 };
@@ -71,6 +73,9 @@ pub struct TilingSpace<W: LayoutElement> {
     view_size: Size<f64, Logical>,
     /// Working area (view_size minus gaps/bars)
     working_area: Rectangle<f64, Logical>,
+    /// Viewport behavior. Fixed for i3/sway tiling; kept as a component to isolate niri merge
+    /// points that still talk about viewport gestures.
+    viewport: FixedViewport,
     /// Display scale
     scale: f64,
     /// Animation clock
@@ -175,33 +180,11 @@ pub struct RootTilingSubtree<W: LayoutElement> {
     subtree: DetachedNode<W>,
 }
 
-/// Legacy wrapper preserving the old niri-inspired "column" vocabulary at public seams.
-#[derive(Debug)]
-pub struct Column<W: LayoutElement> {
-    subtree: RootTilingSubtree<W>,
-}
-
-/// Column width specification for tiling layout
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ColumnWidth {
-    Proportion(f64),
-    Fixed(i32),
-}
-
 /// Window height specification for tiling layout
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WindowHeight {
     Auto,
     Fixed(i32),
-}
-
-/// Direction for navigation and movement operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScrollDirection {
-    Left,
-    Right,
-    Up,
-    Down,
 }
 
 struct TileRenderPositions<'a, W: LayoutElement> {
@@ -840,6 +823,7 @@ impl<W: LayoutElement> TilingSpace<W> {
             workspace_prev_split_layout: None,
             view_size,
             working_area,
+            viewport: FixedViewport,
             scale,
             clock,
             interactive_resize: None,
@@ -2213,15 +2197,9 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
-    /// View offset (not used in i3-style layout, always 0).
-    #[cfg(test)]
-    pub(super) fn view_offset(&self) -> f64 {
-        0.0
-    }
-
     #[cfg(test)]
     pub fn view_pos(&self) -> f64 {
-        self.view_offset()
+        self.viewport.position()
     }
 
     #[cfg(test)]
@@ -3495,14 +3473,8 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
-    pub fn swap_window_in_direction(&mut self, direction: ScrollDirection) {
-        let result = match direction {
-            ScrollDirection::Left => self.tree.move_in_direction(Direction::Left),
-            ScrollDirection::Right => self.tree.move_in_direction(Direction::Right),
-            ScrollDirection::Up => self.tree.move_in_direction(Direction::Up),
-            ScrollDirection::Down => self.tree.move_in_direction(Direction::Down),
-        };
-        if result {
+    pub fn swap_window_in_direction(&mut self, direction: Direction) {
+        if self.tree.move_in_direction(direction) {
             self.tree.layout();
         }
     }
@@ -3640,8 +3612,8 @@ impl<W: LayoutElement> TilingSpace<W> {
                 .is_some_and(|tile| tile.window().is_pending_windowed_fullscreen())
     }
 
-    pub fn scroll_amount_to_activate(&self, _window: &W::Id) -> f64 {
-        0.0
+    pub fn activation_view_distance(&self, _window: &W::Id) -> f64 {
+        self.viewport.activation_distance()
     }
 
     pub fn popup_target_rect(&self, window: &W::Id) -> Option<Rectangle<f64, Logical>> {
@@ -3666,17 +3638,22 @@ impl<W: LayoutElement> TilingSpace<W> {
         None
     }
 
-    pub fn view_offset_gesture_begin(&mut self, _is_touchpad: bool) {}
-    pub fn view_offset_gesture_update(
-        &mut self,
-        _delta: f64,
-        _timestamp: Duration,
-        _is_touchpad: bool,
-    ) -> Option<bool> {
-        None
+    pub fn horizontal_view_gesture_begin(&mut self, is_touchpad: bool) {
+        self.viewport.begin_horizontal_gesture(is_touchpad);
     }
-    pub fn view_offset_gesture_end(&mut self, _cancelled: Option<bool>) -> bool {
-        false
+
+    pub fn horizontal_view_gesture_update(
+        &mut self,
+        delta: f64,
+        timestamp: Duration,
+        is_touchpad: bool,
+    ) -> Option<bool> {
+        self.viewport
+            .update_horizontal_gesture(delta, timestamp, is_touchpad)
+    }
+
+    pub fn horizontal_view_gesture_end(&mut self, cancelled: Option<bool>) -> bool {
+        self.viewport.end_horizontal_gesture(cancelled)
     }
 }
 
@@ -3818,54 +3795,6 @@ impl<W: LayoutElement> RootTilingSubtree<W> {
 
     pub fn into_tiles(self) -> Vec<Tile<W>> {
         self.subtree.into_tiles()
-    }
-}
-
-impl<W: LayoutElement> Column<W> {
-    pub fn new(tile: Tile<W>) -> Self {
-        RootTilingSubtree::new(tile).into()
-    }
-
-    pub fn from_tiles(tiles: Vec<Tile<W>>) -> Self {
-        RootTilingSubtree::from_tiles(tiles).into()
-    }
-
-    pub fn tiles(&self) -> Vec<&Tile<W>> {
-        self.subtree.tiles()
-    }
-
-    pub fn contains(&self, window: &W) -> bool {
-        self.subtree.contains(window)
-    }
-
-    pub fn from_subtree(subtree: DetachedNode<W>) -> Self {
-        RootTilingSubtree::from_subtree(subtree).into()
-    }
-
-    pub fn into_subtree(self) -> DetachedNode<W> {
-        self.subtree.into_subtree()
-    }
-
-    pub fn into_tiles(self) -> Vec<Tile<W>> {
-        self.subtree.into_tiles()
-    }
-}
-
-impl<W: LayoutElement> From<Column<W>> for RootTilingSubtree<W> {
-    fn from(value: Column<W>) -> Self {
-        value.subtree
-    }
-}
-
-impl<W: LayoutElement> From<RootTilingSubtree<W>> for Column<W> {
-    fn from(value: RootTilingSubtree<W>) -> Self {
-        Self { subtree: value }
-    }
-}
-
-impl Default for ColumnWidth {
-    fn default() -> Self {
-        Self::Proportion(1.0)
     }
 }
 

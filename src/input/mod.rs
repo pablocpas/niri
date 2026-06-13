@@ -47,8 +47,7 @@ use self::spatial_movement_grab::SpatialMovementGrab;
 use crate::cursor::CursorOverride;
 #[cfg(feature = "dbus")]
 use crate::dbus::freedesktop_a11y::KbMonBlock;
-use crate::layout::tiling::ScrollDirection;
-use crate::layout::{ActivateWindow, ContainerLayout, LayoutElement as _};
+use crate::layout::{ActivateWindow, ContainerLayout, Direction, LayoutElement as _};
 use crate::tiri::{CastTarget, PointerVisibility, State};
 use crate::ui::mru::{WindowMru, WindowMruUi};
 use crate::ui::screenshot_ui::ScreenshotUi;
@@ -1645,17 +1644,13 @@ impl State {
                 self.niri.queue_redraw_all();
             }
             Action::SwapWindowRight => {
-                self.niri
-                    .layout
-                    .swap_window_in_direction(ScrollDirection::Right);
+                self.niri.layout.swap_window_in_direction(Direction::Right);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
             Action::SwapWindowLeft => {
-                self.niri
-                    .layout
-                    .swap_window_in_direction(ScrollDirection::Left);
+                self.niri.layout.swap_window_in_direction(Direction::Left);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.niri.queue_redraw_all();
@@ -2679,13 +2674,13 @@ impl State {
         let spatial_grab = pointer.with_grab(|_, grab| {
             let grab = grab.as_any();
             if let Some(grab) = grab.downcast_ref::<SpatialMovementGrab>() {
-                if let Some(output) = grab.view_offset_output() {
+                if let Some(output) = grab.horizontal_view_output() {
                     return Some((output.clone(), true));
                 } else if let Some(output) = grab.workspace_switch_output() {
                     return Some((output.clone(), false));
                 }
             } else if let Some(grab) = grab.downcast_ref::<MoveGrab>() {
-                if let Some(output) = grab.view_offset_output() {
+                if let Some(output) = grab.horizontal_view_output() {
                     return Some((output.clone(), true));
                 }
             }
@@ -3671,7 +3666,7 @@ impl State {
                         redraw |= self
                             .niri
                             .layout
-                            .view_offset_gesture_end(Some(true))
+                            .horizontal_view_gesture_end(Some(true))
                             .is_some();
                     }
                 } else {
@@ -3700,7 +3695,7 @@ impl State {
                                 let ws_idx =
                                     self.niri.layout.find_workspace_by_id(ws_id).unwrap().0;
 
-                                self.niri.layout.view_offset_gesture_begin(
+                                self.niri.layout.horizontal_view_gesture_begin(
                                     &output,
                                     Some(ws_idx),
                                     true,
@@ -3712,7 +3707,7 @@ impl State {
                         let res = self
                             .niri
                             .layout
-                            .view_offset_gesture_update(horizontal, timestamp, true);
+                            .horizontal_view_gesture_update(horizontal, timestamp, true);
                         if let Some(Some(_)) = res {
                             redraw = true;
                         }
@@ -3737,7 +3732,7 @@ impl State {
                         redraw |= self
                             .niri
                             .layout
-                            .view_offset_gesture_end(Some(true))
+                            .horizontal_view_gesture_end(Some(true))
                             .is_some();
                     }
                 }
@@ -4236,9 +4231,11 @@ impl State {
 
                         if let Some((output, ws)) = output_ws {
                             let ws_idx = self.niri.layout.find_workspace_by_id(ws.id()).unwrap().0;
-                            self.niri
-                                .layout
-                                .view_offset_gesture_begin(&output, Some(ws_idx), true);
+                            self.niri.layout.horizontal_view_gesture_begin(
+                                &output,
+                                Some(ws_idx),
+                                true,
+                            );
                         }
                     } else {
                         self.niri
@@ -4266,7 +4263,7 @@ impl State {
         let res = self
             .niri
             .layout
-            .view_offset_gesture_update(delta_x, timestamp, true);
+            .horizontal_view_gesture_update(delta_x, timestamp, true);
         if let Some(output) = res {
             if let Some(output) = output {
                 self.niri.queue_redraw(&output);
@@ -4315,7 +4312,7 @@ impl State {
             handled = true;
         }
 
-        let res = self.niri.layout.view_offset_gesture_end(Some(true));
+        let res = self.niri.layout.horizontal_view_gesture_end(Some(true));
         if let Some(output) = res {
             self.niri.queue_redraw(&output);
             handled = true;

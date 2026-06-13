@@ -13,8 +13,9 @@ use tiri_config::{CornerRadius, LayoutPart};
 use super::container::Direction;
 use super::floating::{FloatingResizeResult, FloatingSpace};
 use super::insert_hint_element::{InsertHintElement, InsertHintRenderElement};
+use super::legacy_column::{Column, ColumnWidth};
 use super::tile::Tile;
-use super::tiling::{Column, ColumnWidth, RootTilingSubtree};
+use super::tiling::RootTilingSubtree;
 use super::workspace::{
     compute_working_area, OutputId, Workspace, WorkspaceAddWindowTarget, WorkspaceId,
     WorkspaceIdentity, WorkspaceLifetime, WorkspaceRenderElement,
@@ -2551,7 +2552,7 @@ impl<W: LayoutElement> Monitor<W> {
             ws.render_floating(ctx.r(), xray_pos, focus_ring, push!());
 
             // Render sticky windows in a fixed position for the active workspace only.
-            // This must be done AFTER floating but BEFORE scrolling to maintain proper z-order.
+            // This must be done after floating but before tiling to maintain proper z-order.
             if ws.id() == active_ws_id && !self.sticky_floating.is_empty() {
                 let view_rect = Rectangle::from_size(self.view_size);
                 let sticky_focus_ring = focus_ring && self.sticky_is_active;

@@ -22,11 +22,10 @@ use super::container::{
 use super::floating::{
     compute_toplevel_bounds, FloatingResizeResult, FloatingSpace, FloatingSpaceRenderElement,
 };
+use super::legacy_column::{Column, ColumnWidth};
 use super::shadow::Shadow;
 use super::tile::{Tile, TileRenderSnapshot};
-use super::tiling::{
-    Column, ColumnWidth, RootTilingSubtree, ScrollDirection, TilingSpace, TilingSpaceRenderElement,
-};
+use super::tiling::{RootTilingSubtree, TilingSpace, TilingSpaceRenderElement};
 use super::{
     ActivateWindow, HitType, InsertPosition, InteractiveResizeData, LayoutElement, Options,
     RemovedTile, ResizeHit, SizeFrac,
@@ -49,7 +48,7 @@ use crate::window::ResolvedWindowRules;
 
 #[derive(Debug)]
 pub struct Workspace<W: LayoutElement> {
-    /// The scrollable-tiling layout.
+    /// The i3/sway tiling layout.
     tiling: TilingSpace<W>,
 
     /// The floating layout.
@@ -1486,7 +1485,7 @@ impl<W: LayoutElement> Workspace<W> {
                 self.sync_tiling_focus_context_from_tiling();
             }
         } else {
-            // Scrolling should remain focused if both are empty.
+            // Tiling should remain focused if both are empty.
             if self.tiling.is_empty() && !self.floating.is_empty() {
                 self.floating_is_active = FloatingActive::Yes;
             }
@@ -1597,12 +1596,12 @@ impl<W: LayoutElement> Workspace<W> {
         // allowing the window freedom to pick its default size otherwise.
         let (min_size, max_size) = rules.apply_min_max_size(min_size, max_size);
         size.w = ensure_min_max_size_maybe_zero(size.w, min_size.w, max_size.w);
-        // For scrolling (where height is > 0) only ensure fixed height, since at runtime scrolling
-        // will only honor fixed height currently.
+        // For tiling (where height is > 0) only ensure fixed height, since runtime tiling will
+        // only honor fixed height currently.
         if min_size.h == max_size.h {
             size.h = ensure_min_max_size(size.h, min_size.h, max_size.h);
         } else if size.h > 0 {
-            // Also always honor min height, scrolling always does.
+            // Also always honor min height, tiling always does.
             size.h = max(size.h, min_size.h);
         }
 
@@ -2140,7 +2139,7 @@ impl<W: LayoutElement> Workspace<W> {
         self.expel_from_container();
     }
 
-    pub fn swap_window_in_direction(&mut self, direction: ScrollDirection) {
+    pub fn swap_window_in_direction(&mut self, direction: Direction) {
         match self.handler_context() {
             HandlerContext::Workspace => {}
             HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
@@ -2390,7 +2389,7 @@ impl<W: LayoutElement> Workspace<W> {
                 .unwrap();
 
             // When going from fullscreen to maximized, don't consider restore_to_floating yet.
-            // pending_sizing_mode() is asynchronous, so also check scrolling.is_fullscreen() to
+            // pending_sizing_mode() is asynchronous, so also check tiling.is_fullscreen() to
             // handle requests while the client is catching up.
             let is_fullscreen_now = self.tiling.is_fullscreen(tile.window())
                 || tile.window().pending_sizing_mode().is_fullscreen();
@@ -2418,7 +2417,7 @@ impl<W: LayoutElement> Workspace<W> {
             .tiles()
             .find(|tile| tile.window().id() == window)
             .unwrap();
-        // Use scrolling.is_fullscreen() as the source of truth instead of pending_sizing_mode()
+        // Use tiling.is_fullscreen() as the source of truth instead of pending_sizing_mode()
         // because pending_sizing_mode() updates asynchronously after animations complete.
         let current = self.tiling.is_fullscreen(tile.window());
         self.set_fullscreen(window, !current);
@@ -3207,12 +3206,12 @@ impl<W: LayoutElement> Workspace<W> {
             .refresh(is_active && self.floating_is_active.get(), is_focused);
     }
 
-    pub fn scroll_amount_to_activate(&self, window: &W::Id) -> f64 {
+    pub fn activation_view_distance(&self, window: &W::Id) -> f64 {
         if self.floating.has_window(window) {
             return 0.;
         }
 
-        self.tiling.scroll_amount_to_activate(window)
+        self.tiling.activation_view_distance(window)
     }
 
     pub fn is_urgent(&self) -> bool {
@@ -3266,22 +3265,22 @@ impl<W: LayoutElement> Workspace<W> {
         self.tiling.insert_hint_area(position)
     }
 
-    pub fn view_offset_gesture_begin(&mut self, is_touchpad: bool) {
-        self.tiling.view_offset_gesture_begin(is_touchpad);
+    pub fn horizontal_view_gesture_begin(&mut self, is_touchpad: bool) {
+        self.tiling.horizontal_view_gesture_begin(is_touchpad);
     }
 
-    pub fn view_offset_gesture_update(
+    pub fn horizontal_view_gesture_update(
         &mut self,
         delta_x: f64,
         timestamp: Duration,
         is_touchpad: bool,
     ) -> Option<bool> {
         self.tiling
-            .view_offset_gesture_update(delta_x, timestamp, is_touchpad)
+            .horizontal_view_gesture_update(delta_x, timestamp, is_touchpad)
     }
 
-    pub fn view_offset_gesture_end(&mut self, is_touchpad: Option<bool>) -> bool {
-        self.tiling.view_offset_gesture_end(is_touchpad)
+    pub fn horizontal_view_gesture_end(&mut self, is_touchpad: Option<bool>) -> bool {
+        self.tiling.horizontal_view_gesture_end(is_touchpad)
     }
 
     pub fn interactive_resize_begin(&mut self, window: W::Id, edges: ResizeEdge) -> bool {

@@ -36,6 +36,7 @@ use std::mem;
 use std::rc::Rc;
 use std::time::Duration;
 
+use legacy_column::{Column, ColumnWidth};
 use monitor::{InsertHint, InsertPosition, InsertWorkspace, MonitorAddWindowTarget};
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::utils::RescaleRenderElement;
@@ -45,7 +46,7 @@ use smithay::output::{self, Output};
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::utils::{Logical, Point, Rectangle, Scale, Serial, Size, Transform};
 use tile::{Tile, TileRenderElement};
-use tiling::{Column, ColumnWidth, RootTilingSubtree};
+use tiling::RootTilingSubtree;
 use tiri_config::utils::MergeWith as _;
 use tiri_config::{
     Config, CornerRadius, LayoutPart, PresetSize, Workspace as WorkspaceConfig, WorkspaceReference,
@@ -53,15 +54,14 @@ use tiri_config::{
 use tiri_ipc::{ColumnDisplay, LayoutTree, PositionChange, SizeChange, WindowLayout};
 use workspace::{WorkspaceAddWindowTarget, WorkspaceId, WorkspaceLifetime};
 
-pub use self::container::Layout as ContainerLayout;
-use self::container::{Direction, InsertParentInfo};
+use self::container::InsertParentInfo;
+pub use self::container::{Direction, Layout as ContainerLayout};
 pub use self::monitor::MonitorRenderElement;
 use self::monitor::{Monitor, WorkspaceSwitch};
 use self::seat_focus::{SeatFocusNode, SeatFocusStack};
 use self::workspace::{OutputId, Workspace};
 use crate::animation::{Animation, Clock};
 use crate::input::swipe_tracker::SwipeTracker;
-use crate::layout::tiling::ScrollDirection;
 use crate::niri_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
 use crate::render_helpers::offscreen::OffscreenData;
@@ -84,6 +84,7 @@ pub mod container;
 pub mod floating;
 pub mod focus_ring;
 pub mod insert_hint_element;
+pub mod legacy_column;
 pub mod monitor;
 pub mod opening_window;
 mod seat_focus;
@@ -92,6 +93,7 @@ pub mod tab_bar;
 pub mod tab_indicator;
 pub mod tile;
 pub mod tiling;
+mod viewport;
 pub mod workspace;
 
 #[cfg(test)]
@@ -1865,7 +1867,7 @@ impl<W: LayoutElement> Layout<W> {
         mon.update_output_size();
     }
 
-    pub fn scroll_amount_to_activate(&self, window: &W::Id) -> f64 {
+    pub fn activation_view_distance(&self, window: &W::Id) -> f64 {
         if self
             .interactive_move
             .as_ref()
@@ -1878,7 +1880,7 @@ impl<W: LayoutElement> Layout<W> {
         for mon in self.monitors() {
             for ws in &mon.workspaces {
                 if ws.has_window(window) {
-                    return ws.scroll_amount_to_activate(window);
+                    return ws.activation_view_distance(window);
                 }
             }
         }
@@ -3392,7 +3394,7 @@ impl<W: LayoutElement> Layout<W> {
         self.expel_from_container();
     }
 
-    pub fn swap_window_in_direction(&mut self, direction: ScrollDirection) {
+    pub fn swap_window_in_direction(&mut self, direction: Direction) {
         let Some(workspace) = self.active_workspace_mut() else {
             return;
         };
@@ -3752,7 +3754,7 @@ impl<W: LayoutElement> Layout<W> {
         assert!(primary_idx < monitors.len());
         assert!(active_monitor_idx < monitors.len());
 
-        let mut saw_view_offset_gesture = false;
+        let mut saw_horizontal_view_gesture = false;
 
         for (idx, monitor) in monitors.iter().enumerate() {
             assert_eq!(self.clock, monitor.clock);
@@ -3815,7 +3817,7 @@ impl<W: LayoutElement> Layout<W> {
 
                 workspace.verify_invariants(move_win_id.as_ref());
 
-                let has_view_offset_gesture = false;
+                let has_horizontal_view_gesture = false;
                 if self.dnd.is_some() || self.interactive_move.is_some() {
                     // We'd like to check that all workspaces have the gesture here, furthermore we
                     // want to check that they have the gesture only if the interactive move
@@ -3825,17 +3827,17 @@ impl<W: LayoutElement> Layout<W> {
                     // floating and tiling on fullscreen, etc.
                     //
                     // assert!(
-                    //     has_view_offset_gesture,
+                    //     has_horizontal_view_gesture,
                     //     "during an interactive move in the tiling layout, \
-                    //      all workspaces should be in a view offset gesture"
+                    //      all workspaces should be in a horizontal view gesture"
                     // );
-                } else if saw_view_offset_gesture {
+                } else if saw_horizontal_view_gesture {
                     assert!(
-                        !has_view_offset_gesture,
-                        "only one workspace can have an ongoing view offset gesture"
+                        !has_horizontal_view_gesture,
+                        "only one workspace can have an ongoing horizontal view gesture"
                     );
                 }
-                saw_view_offset_gesture = has_view_offset_gesture;
+                saw_horizontal_view_gesture = has_horizontal_view_gesture;
             }
         }
     }
@@ -5438,7 +5440,7 @@ impl<W: LayoutElement> Layout<W> {
         None
     }
 
-    pub fn view_offset_gesture_begin(
+    pub fn horizontal_view_gesture_begin(
         &mut self,
         output: &Output,
         workspace_idx: Option<usize>,
@@ -5455,16 +5457,16 @@ impl<W: LayoutElement> Layout<W> {
                 if &monitor.output != output
                     || idx != workspace_idx.unwrap_or(monitor.active_workspace_idx)
                 {
-                    ws.view_offset_gesture_end(None);
+                    ws.horizontal_view_gesture_end(None);
                     continue;
                 }
 
-                ws.view_offset_gesture_begin(is_touchpad);
+                ws.horizontal_view_gesture_begin(is_touchpad);
             }
         }
     }
 
-    pub fn view_offset_gesture_update(
+    pub fn horizontal_view_gesture_update(
         &mut self,
         delta_x: f64,
         timestamp: Duration,
@@ -5481,7 +5483,7 @@ impl<W: LayoutElement> Layout<W> {
         for monitor in monitors {
             for ws in &mut monitor.workspaces {
                 if let Some(refresh) =
-                    ws.view_offset_gesture_update(delta_x, timestamp, is_touchpad)
+                    ws.horizontal_view_gesture_update(delta_x, timestamp, is_touchpad)
                 {
                     if refresh {
                         return Some(Some(monitor.output.clone()));
@@ -5495,7 +5497,7 @@ impl<W: LayoutElement> Layout<W> {
         None
     }
 
-    pub fn view_offset_gesture_end(&mut self, is_touchpad: Option<bool>) -> Option<Output> {
+    pub fn horizontal_view_gesture_end(&mut self, is_touchpad: Option<bool>) -> Option<Output> {
         let monitors = match &mut self.monitor_set {
             MonitorSet::Normal { monitors, .. } => monitors,
             MonitorSet::NoOutputs { .. } => return None,
@@ -5503,7 +5505,7 @@ impl<W: LayoutElement> Layout<W> {
 
         for monitor in monitors {
             for ws in &mut monitor.workspaces {
-                if ws.view_offset_gesture_end(is_touchpad) {
+                if ws.horizontal_view_gesture_end(is_touchpad) {
                     return Some(monitor.output.clone());
                 }
             }
@@ -7069,9 +7071,9 @@ impl<W: LayoutElement> Layout<W> {
                         ws.refresh(is_active, is_focused);
 
                         if ongoing_scrolling_dnd.is_none() {
-                            // Cancel the view offset gesture after workspace switches, moves, etc.
+                            // Cancel the horizontal view gesture after workspace switches, moves, etc.
                             if !self.overview_open && ws_idx != mon.active_workspace_idx {
-                                ws.view_offset_gesture_end(None);
+                                ws.horizontal_view_gesture_end(None);
                             }
                         }
                     }
@@ -7083,7 +7085,7 @@ impl<W: LayoutElement> Layout<W> {
             MonitorSet::NoOutputs { workspaces, .. } => {
                 for ws in workspaces {
                     ws.refresh(false, false);
-                    ws.view_offset_gesture_end(None);
+                    ws.horizontal_view_gesture_end(None);
                 }
             }
         }

@@ -18,9 +18,9 @@ use super::container::{
 use super::focus_ring::{
     render_container_selection, ContainerSelectionStyle, FocusRingEdges, FocusRingRenderElement,
 };
+use super::legacy_column::ColumnWidth;
 use super::tile::{Tile, TileRenderElement, TileRenderSnapshot};
 use super::tile::{TilePtrIter, TilePtrIterMut, TileWithPosIterMut};
-use super::tiling::{ColumnWidth, ScrollDirection};
 use super::workspace::{InteractiveResize, ResolvedSize};
 use super::{
     resize_edges_for_point, ConfigureIntent, InteractiveResizeData, LayoutElement, Options,
@@ -2321,20 +2321,12 @@ impl<W: LayoutElement> FloatingSpace<W> {
         }
     }
 
-    pub fn swap_window_in_direction(&mut self, direction: ScrollDirection) {
+    pub fn swap_window_in_direction(&mut self, direction: Direction) {
         let Some(idx) = self.active_container_idx() else {
             return;
         };
 
-        let moved = match direction {
-            ScrollDirection::Left => self.containers[idx].tree.move_in_direction(Direction::Left),
-            ScrollDirection::Right => self.containers[idx]
-                .tree
-                .move_in_direction(Direction::Right),
-            ScrollDirection::Up => self.containers[idx].tree.move_in_direction(Direction::Up),
-            ScrollDirection::Down => self.containers[idx].tree.move_in_direction(Direction::Down),
-        };
-        if moved {
+        if self.containers[idx].tree.move_in_direction(direction) {
             self.containers[idx].wrapper_selected = false;
             self.containers[idx].tree.layout();
         }

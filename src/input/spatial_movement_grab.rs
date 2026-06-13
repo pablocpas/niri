@@ -31,7 +31,7 @@ pub struct SpatialMovementGrab {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GestureState {
     Recognizing,
-    ViewOffset,
+    HorizontalView,
     WorkspaceSwitch,
 }
 
@@ -40,11 +40,11 @@ impl SpatialMovementGrab {
         start_data: PointerGrabStartData<State>,
         output: Output,
         workspace_id: WorkspaceId,
-        is_view_offset: bool,
+        is_horizontal_view: bool,
     ) -> Self {
         let location = start_data.location;
-        let gesture = if is_view_offset {
-            GestureState::ViewOffset
+        let gesture = if is_horizontal_view {
+            GestureState::HorizontalView
         } else {
             GestureState::Recognizing
         };
@@ -62,8 +62,8 @@ impl SpatialMovementGrab {
         }
     }
 
-    pub fn view_offset_output(&self) -> Option<&Output> {
-        (self.gesture == GestureState::ViewOffset).then_some(&self.output)
+    pub fn horizontal_view_output(&self) -> Option<&Output> {
+        (self.gesture == GestureState::HorizontalView).then_some(&self.output)
     }
 
     pub fn workspace_switch_output(&self) -> Option<&Output> {
@@ -90,13 +90,17 @@ impl SpatialMovementGrab {
                 // Check if the gesture moved far enough to decide. Threshold copied from GTK 4.
                 if c.x * c.x + c.y * c.y >= 8. * 8. {
                     if c.x.abs() > c.y.abs() {
-                        self.gesture = GestureState::ViewOffset;
-                        let view_offset_res = if let Some((ws_idx, ws)) =
+                        self.gesture = GestureState::HorizontalView;
+                        let horizontal_view_res = if let Some((ws_idx, ws)) =
                             layout.find_workspace_by_id(self.workspace_id)
                         {
                             if ws.current_output() == Some(&self.output) {
-                                layout.view_offset_gesture_begin(&self.output, Some(ws_idx), false);
-                                layout.view_offset_gesture_update(-c.x, timestamp, false)
+                                layout.horizontal_view_gesture_begin(
+                                    &self.output,
+                                    Some(ws_idx),
+                                    false,
+                                );
+                                layout.horizontal_view_gesture_update(-c.x, timestamp, false)
                             } else {
                                 None
                             }
@@ -104,10 +108,10 @@ impl SpatialMovementGrab {
                             None
                         };
 
-                        // i3/sway-style tiling does not support view offset. If that path is
+                        // i3/sway-style tiling does not support horizontal view. If that path is
                         // unavailable, fall back to vertical workspace switching instead of
                         // immediately cancelling the grab.
-                        if let Some(res) = view_offset_res {
+                        if let Some(res) = horizontal_view_res {
                             Some(res)
                         } else {
                             self.gesture = GestureState::WorkspaceSwitch;
@@ -123,8 +127,8 @@ impl SpatialMovementGrab {
                     Some(None)
                 }
             }
-            GestureState::ViewOffset => {
-                layout.view_offset_gesture_update(-delta.x, timestamp, false)
+            GestureState::HorizontalView => {
+                layout.horizontal_view_gesture_update(-delta.x, timestamp, false)
             }
             GestureState::WorkspaceSwitch => {
                 layout.workspace_switch_gesture_update(-delta.y, timestamp, false)
@@ -145,7 +149,7 @@ impl SpatialMovementGrab {
         let layout = &mut state.niri.layout;
         let res = match self.gesture {
             GestureState::Recognizing => None,
-            GestureState::ViewOffset => layout.view_offset_gesture_end(Some(false)),
+            GestureState::HorizontalView => layout.horizontal_view_gesture_end(Some(false)),
             GestureState::WorkspaceSwitch => layout.workspace_switch_gesture_end(Some(false)),
         };
 

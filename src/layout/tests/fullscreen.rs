@@ -137,7 +137,7 @@ fn unfullscreen_window_in_column() {
 }
 
 #[test]
-fn unfullscreen_view_offset_not_reset_on_removal() {
+fn unfullscreen_horizontal_view_not_reset_on_removal() {
     let ops = [
         Op::AddOutput(1),
         Op::AddWindow {
@@ -154,7 +154,7 @@ fn unfullscreen_view_offset_not_reset_on_removal() {
 }
 
 #[test]
-fn unfullscreen_view_offset_not_reset_on_consume() {
+fn unfullscreen_horizontal_view_not_reset_on_consume() {
     let ops = [
         Op::AddOutput(1),
         Op::AddWindow {
@@ -171,7 +171,7 @@ fn unfullscreen_view_offset_not_reset_on_consume() {
 }
 
 #[test]
-fn unfullscreen_view_offset_not_reset_on_quick_double_toggle() {
+fn unfullscreen_horizontal_view_not_reset_on_quick_double_toggle() {
     let ops = [
         Op::AddOutput(1),
         Op::AddWindow {
@@ -185,7 +185,7 @@ fn unfullscreen_view_offset_not_reset_on_quick_double_toggle() {
 }
 
 #[test]
-fn unfullscreen_view_offset_set_on_fullscreening_inactive_tile_in_column() {
+fn unfullscreen_horizontal_view_set_on_fullscreening_inactive_tile_in_column() {
     let ops = [
         Op::AddOutput(1),
         Op::AddWindow {
@@ -202,7 +202,7 @@ fn unfullscreen_view_offset_set_on_fullscreening_inactive_tile_in_column() {
 }
 
 #[test]
-fn unfullscreen_view_offset_not_reset_on_gesture() {
+fn unfullscreen_horizontal_view_not_reset_on_gesture() {
     let ops = [
         Op::AddOutput(1),
         Op::AddWindow {
@@ -212,12 +212,12 @@ fn unfullscreen_view_offset_not_reset_on_gesture() {
             params: TestWindowParams::new(1),
         },
         Op::FullscreenWindow(1),
-        Op::ViewOffsetGestureBegin {
+        Op::HorizontalViewGestureBegin {
             output_idx: 1,
             workspace_idx: None,
             is_touchpad: true,
         },
-        Op::ViewOffsetGestureEnd {
+        Op::HorizontalViewGestureEnd {
             is_touchpad: Some(true),
         },
     ];
@@ -347,7 +347,7 @@ fn move_pending_unfullscreen_window_out_of_active_column() {
         },
         Op::ConsumeWindowIntoColumn,
         // Window 1 is now pending unfullscreen.
-        // Moving it out should reset view_offset_before_fullscreen.
+        // Moving it out should reset horizontal_view_before_fullscreen.
         Op::MoveWindowToWorkspaceDown(true),
     ];
 
@@ -368,7 +368,7 @@ fn move_unfocused_pending_unfullscreen_window_out_of_active_column() {
         },
         Op::ConsumeWindowIntoColumn,
         // Window 1 is now pending unfullscreen.
-        // Moving it out should reset view_offset_before_fullscreen.
+        // Moving it out should reset horizontal_view_before_fullscreen.
         Op::FocusWindowDown,
         Op::MoveWindowToWorkspace {
             window_id: Some(1),
@@ -440,7 +440,7 @@ fn interactive_move_unfullscreen_to_floating_stops_dnd_scroll() {
 }
 
 #[test]
-fn interactive_move_restore_to_floating_animates_view_offset() {
+fn interactive_move_restore_to_floating_animates_horizontal_view() {
     let ops = [
         Op::AddOutput(1),
         Op::AddWindow {
@@ -498,7 +498,7 @@ fn interactive_move_restore_to_floating_animates_view_offset() {
 }
 
 #[test]
-fn unfullscreen_view_offset_not_reset_during_dnd_gesture() {
+fn unfullscreen_horizontal_view_not_reset_during_dnd_gesture() {
     let ops = [
         Op::AddOutput(1),
         Op::AddWindow {
@@ -519,7 +519,7 @@ fn unfullscreen_view_offset_not_reset_during_dnd_gesture() {
 }
 
 #[test]
-fn unfullscreen_view_offset_not_reset_during_gesture() {
+fn unfullscreen_horizontal_view_not_reset_during_gesture() {
     let ops = [
         Op::AddOutput(1),
         Op::AddWindow {
@@ -527,7 +527,7 @@ fn unfullscreen_view_offset_not_reset_during_gesture() {
         },
         Op::FullscreenWindow(3),
         Op::Communicate(3),
-        Op::ViewOffsetGestureBegin {
+        Op::HorizontalViewGestureBegin {
             output_idx: 1,
             workspace_idx: None,
             is_touchpad: false,
@@ -540,13 +540,13 @@ fn unfullscreen_view_offset_not_reset_during_gesture() {
 }
 
 #[test]
-fn unfullscreen_view_offset_not_reset_during_ongoing_gesture() {
+fn unfullscreen_horizontal_view_not_reset_during_ongoing_gesture() {
     let ops = [
         Op::AddOutput(1),
         Op::AddWindow {
             params: TestWindowParams::new(3),
         },
-        Op::ViewOffsetGestureBegin {
+        Op::HorizontalViewGestureBegin {
             output_idx: 1,
             workspace_idx: None,
             is_touchpad: false,
@@ -705,7 +705,7 @@ fn unfullscreen_of_tabbed_via_change_to_normal_preserves_view_pos() {
 }
 
 #[test]
-fn removing_only_fullscreen_tile_updates_view_offset() {
+fn removing_only_fullscreen_tile_updates_horizontal_view() {
     let ops = [
         Op::AddOutput(1),
         Op::AddWindow {
@@ -754,7 +754,7 @@ fn removing_only_fullscreen_tile_updates_view_offset() {
     check_ops_on_layout(&mut layout, ops);
 
     // View pos should include gap now that the column is no longer fullscreen.
-    // FIXME: currently, removing a tile doesn't cause the view offset to update.
+    // FIXME: currently, removing a tile doesn't cause the horizontal view to update.
     assert_snapshot!(layout.active_workspace().unwrap().tiling().view_pos(), @"0");
 }
 
@@ -1531,7 +1531,7 @@ fn expel_pending_left_from_fullscreen_tabbed_column() {
         },
         Op::FullscreenWindow(1),
         Op::Communicate(1),
-        // 1 is now fullscreen, view_offset_to_restore is set.
+        // 1 is now fullscreen, horizontal_view_to_restore is set.
         Op::ToggleColumnTabbedDisplay,
         Op::AddWindow {
             params: TestWindowParams::new(2),

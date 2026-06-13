@@ -27,7 +27,7 @@ pub struct MoveGrab {
     last_location: Point<f64, Logical>,
     window: Window,
     gesture: GestureState,
-    enable_view_offset: bool,
+    enable_horizontal_view: bool,
     move_icon: CursorIcon,
 
     // Accumulated and applied in frame().
@@ -40,7 +40,7 @@ pub struct MoveGrab {
 enum GestureState {
     Recognizing,
     Move,
-    ViewOffset,
+    HorizontalView,
 }
 
 impl MoveGrab {
@@ -48,7 +48,7 @@ impl MoveGrab {
         state: &mut State,
         start_data: PointerOrTouchStartData<State>,
         window: Window,
-        enable_view_offset: bool,
+        enable_horizontal_view: bool,
         move_icon: Option<CursorIcon>,
     ) -> Option<Self> {
         let location = start_data.location();
@@ -61,7 +61,7 @@ impl MoveGrab {
             start_pos_within_output: pos_within_output,
             window,
             gesture: GestureState::Recognizing,
-            enable_view_offset,
+            enable_horizontal_view,
             // Moving windows by their titlebars uses the default cursor by default.
             move_icon: move_icon.unwrap_or(CursorIcon::Default),
             new_location: location,
@@ -74,8 +74,8 @@ impl MoveGrab {
         self.gesture == GestureState::Move
     }
 
-    pub fn view_offset_output(&self) -> Option<&Output> {
-        (self.gesture == GestureState::ViewOffset).then_some(&self.start_output)
+    pub fn horizontal_view_output(&self) -> Option<&Output> {
+        (self.gesture == GestureState::HorizontalView).then_some(&self.start_output)
     }
 
     fn on_ungrab(&mut self, data: &mut State) {
@@ -100,8 +100,8 @@ impl MoveGrab {
                 layout.activate_window(&self.window);
             }
             GestureState::Move => layout.interactive_move_end(&self.window),
-            GestureState::ViewOffset => {
-                layout.view_offset_gesture_end(Some(false));
+            GestureState::HorizontalView => {
+                layout.horizontal_view_gesture_end(Some(false));
             }
         }
 
@@ -137,7 +137,7 @@ impl MoveGrab {
         true
     }
 
-    fn begin_view_offset(&mut self, data: &mut State) -> bool {
+    fn begin_horizontal_view(&mut self, data: &mut State) -> bool {
         let layout = &mut data.niri.layout;
         let Some(ws_idx) = layout.workspaces().find_map(|(mon, ws_idx, ws)| {
             let ws_idx = ws
@@ -157,9 +157,9 @@ impl MoveGrab {
             return false;
         };
 
-        layout.view_offset_gesture_begin(&self.start_output, Some(ws_idx), false);
+        layout.horizontal_view_gesture_begin(&self.start_output, Some(ws_idx), false);
 
-        self.gesture = GestureState::ViewOffset;
+        self.gesture = GestureState::HorizontalView;
 
         if self.start_data.is_pointer() {
             data.niri.cursor_manager.set_override_cursor(
@@ -201,11 +201,11 @@ impl MoveGrab {
                     })
                     .unwrap_or(false);
 
-                let is_view_offset =
-                    self.enable_view_offset && !is_floating && c.x.abs() > c.y.abs();
+                let is_horizontal_view =
+                    self.enable_horizontal_view && !is_floating && c.x.abs() > c.y.abs();
 
-                let started = if is_view_offset {
-                    self.begin_view_offset(data)
+                let started = if is_horizontal_view {
+                    self.begin_horizontal_view(data)
                 } else {
                     self.begin_move(data)
                 };
@@ -242,8 +242,8 @@ impl MoveGrab {
                     return true;
                 }
             }
-            GestureState::ViewOffset => {
-                let res = data.niri.layout.view_offset_gesture_update(
+            GestureState::HorizontalView => {
+                let res = data.niri.layout.horizontal_view_gesture_update(
                     -relative_delta.x,
                     timestamp,
                     false,
@@ -261,7 +261,7 @@ impl MoveGrab {
     }
 
     fn on_toggle_floating(&mut self, data: &mut State) -> bool {
-        if self.gesture == GestureState::ViewOffset {
+        if self.gesture == GestureState::HorizontalView {
             return true;
         }
 

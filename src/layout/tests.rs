@@ -406,7 +406,7 @@ prop_compose! {
     }
 }
 
-fn arbitrary_view_offset_gesture_delta() -> impl Strategy<Value = f64> {
+fn arbitrary_horizontal_view_gesture_delta() -> impl Strategy<Value = f64> {
     prop_oneof![(-10f64..10f64), (-50000f64..50000f64),]
 }
 
@@ -445,8 +445,8 @@ fn arbitrary_parent_id() -> impl Strategy<Value = Option<usize>> {
     ]
 }
 
-fn arbitrary_scroll_direction() -> impl Strategy<Value = ScrollDirection> {
-    prop_oneof![Just(ScrollDirection::Left), Just(ScrollDirection::Right)]
+fn arbitrary_swap_direction() -> impl Strategy<Value = Direction> {
+    prop_oneof![Just(Direction::Left), Just(Direction::Right)]
 }
 
 fn arbitrary_column_display() -> impl Strategy<Value = ColumnDisplay> {
@@ -565,7 +565,7 @@ enum Op {
     },
     ConsumeWindowIntoColumn,
     ExpelWindowFromColumn,
-    SwapWindowInDirection(#[proptest(strategy = "arbitrary_scroll_direction()")] ScrollDirection),
+    SwapWindowInDirection(#[proptest(strategy = "arbitrary_swap_direction()")] Direction),
     ToggleColumnTabbedDisplay,
     SetColumnDisplay(#[proptest(strategy = "arbitrary_column_display()")] ColumnDisplay),
     CenterColumn,
@@ -713,20 +713,20 @@ enum Op {
     },
     CompleteAnimations,
     MoveWorkspaceToOutput(#[proptest(strategy = "1..=5usize")] usize),
-    ViewOffsetGestureBegin {
+    HorizontalViewGestureBegin {
         #[proptest(strategy = "1..=5usize")]
         output_idx: usize,
         #[proptest(strategy = "proptest::option::of(0..=4usize)")]
         workspace_idx: Option<usize>,
         is_touchpad: bool,
     },
-    ViewOffsetGestureUpdate {
-        #[proptest(strategy = "arbitrary_view_offset_gesture_delta()")]
+    HorizontalViewGestureUpdate {
+        #[proptest(strategy = "arbitrary_horizontal_view_gesture_delta()")]
         delta: f64,
         timestamp: Duration,
         is_touchpad: bool,
     },
-    ViewOffsetGestureEnd {
+    HorizontalViewGestureEnd {
         is_touchpad: Option<bool>,
     },
     WorkspaceSwitchGestureBegin {
@@ -1595,7 +1595,7 @@ impl Op {
 
                 layout.move_workspace_to_output(&output);
             }
-            Op::ViewOffsetGestureBegin {
+            Op::HorizontalViewGestureBegin {
                 output_idx: id,
                 workspace_idx,
                 is_touchpad: normalize,
@@ -1605,17 +1605,17 @@ impl Op {
                     return;
                 };
 
-                layout.view_offset_gesture_begin(&output, workspace_idx, normalize);
+                layout.horizontal_view_gesture_begin(&output, workspace_idx, normalize);
             }
-            Op::ViewOffsetGestureUpdate {
+            Op::HorizontalViewGestureUpdate {
                 delta,
                 timestamp,
                 is_touchpad,
             } => {
-                layout.view_offset_gesture_update(delta, timestamp, is_touchpad);
+                layout.horizontal_view_gesture_update(delta, timestamp, is_touchpad);
             }
-            Op::ViewOffsetGestureEnd { is_touchpad } => {
-                layout.view_offset_gesture_end(is_touchpad);
+            Op::HorizontalViewGestureEnd { is_touchpad } => {
+                layout.horizontal_view_gesture_end(is_touchpad);
             }
             Op::WorkspaceSwitchGestureBegin {
                 output_idx: id,

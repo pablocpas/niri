@@ -6500,7 +6500,7 @@ impl Niri {
                 }
 
                 if let Some(threshold) = ffm.max_scroll_amount {
-                    if self.layout.scroll_amount_to_activate(window) > threshold.0 {
+                    if self.layout.activation_view_distance(window) > threshold.0 {
                         return;
                     }
                 }
