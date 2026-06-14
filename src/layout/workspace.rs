@@ -1060,6 +1060,7 @@ impl<W: LayoutElement> Workspace<W> {
                             && !workspace_command_context)
                     {
                         self.floating_is_active = FloatingActive::No;
+                        self.floating_workspace_context = false;
                     }
                 }
             }
@@ -1074,6 +1075,7 @@ impl<W: LayoutElement> Workspace<W> {
 
                 if activate {
                     self.floating_is_active = FloatingActive::No;
+                    self.floating_workspace_context = false;
                 }
             }
             WorkspaceAddWindowTarget::NextTo(next_to) => {
@@ -1136,6 +1138,7 @@ impl<W: LayoutElement> Workspace<W> {
 
                     if activate {
                         self.floating_is_active = FloatingActive::No;
+                        self.floating_workspace_context = false;
                     }
                 } else {
                     if self
@@ -1158,6 +1161,7 @@ impl<W: LayoutElement> Workspace<W> {
 
                     if activate {
                         self.floating_is_active = FloatingActive::No;
+                        self.floating_workspace_context = false;
                         self.sync_tiling_focus_context_from_tiling();
                     }
                 }

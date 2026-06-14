@@ -43,6 +43,23 @@ fn opening_floating_window_clears_stale_tiling_workspace_context() {
 }
 
 #[test]
+fn opening_tiling_next_to_floating_clears_stale_floating_workspace_context() {
+    check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::ToggleWindowFloating { id: None },
+        Op::FocusParent,
+        Op::SwapWindowInDirection(Direction::Left),
+        Op::AddWindowNextTo {
+            params: TestWindowParams::new(1),
+            next_to_id: 2,
+        },
+    ]);
+}
+
+#[test]
 fn add_window_next_to_floating_does_not_inherit_floating() {
     let layout = check_ops([
         Op::AddOutput(1),
