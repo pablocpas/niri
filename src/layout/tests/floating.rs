@@ -21,6 +21,27 @@ fn auto_add_window_does_not_inherit_floating_from_focused_window() {
     assert!(!workspace.is_floating(&2));
     assert!(window_layout(&layout, 2).pos_in_tiling_layout.is_some());
 }
+
+#[test]
+fn opening_floating_window_clears_stale_tiling_workspace_context() {
+    check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::FocusParent,
+        Op::MoveWindowUpOrToWorkspaceUp,
+        Op::MoveWorkspaceDown,
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(2)
+            },
+        },
+        Op::AddOutput(1),
+    ]);
+}
+
 #[test]
 fn add_window_next_to_floating_does_not_inherit_floating() {
     let layout = check_ops([

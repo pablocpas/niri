@@ -1045,6 +1045,8 @@ impl<W: LayoutElement> Workspace<W> {
 
                     if activate || self.tiling.is_empty() {
                         self.floating_is_active = FloatingActive::Yes;
+                        self.tiling_workspace_context = false;
+                        self.floating_workspace_context = false;
                     }
                 } else {
                     let tiling_was_empty = self.tiling.is_empty();
@@ -1125,6 +1127,8 @@ impl<W: LayoutElement> Workspace<W> {
 
                     if activate || self.tiling.is_empty() {
                         self.floating_is_active = FloatingActive::Yes;
+                        self.tiling_workspace_context = false;
+                        self.floating_workspace_context = false;
                     }
                 } else if floating_has_window {
                     self.tiling
