@@ -1322,6 +1322,7 @@ impl<W: LayoutElement> Workspace<W> {
 
     fn sync_tiling_focus_context_from_tiling(&mut self) {
         self.tiling_workspace_context = false;
+        self.floating_workspace_context = false;
         self.remember_current_tiling_reference();
     }
 
@@ -1988,6 +1989,7 @@ impl<W: LayoutElement> Workspace<W> {
     pub(super) fn focus_workspace_node(&mut self) {
         self.tiling.clear_selection_context();
         self.floating.clear_selection_context();
+        self.tiling_workspace_context = false;
         if self.floating.is_empty() {
             self.floating_is_active = FloatingActive::No;
             self.floating_workspace_context = false;
@@ -2680,9 +2682,7 @@ impl<W: LayoutElement> Workspace<W> {
                         self.floating_is_active = FloatingActive::No;
                         self.tiling_workspace_context =
                             preserve_workspace_context_on_unfloat && !self.tiling.is_empty();
-                        if self.floating.is_empty() {
-                            self.floating_workspace_context = false;
-                        }
+                        self.floating_workspace_context = false;
                         if !self.tiling_workspace_context {
                             self.sync_tiling_focus_context_from_tiling();
                         }
@@ -2721,9 +2721,7 @@ impl<W: LayoutElement> Workspace<W> {
                 self.floating_is_active = FloatingActive::No;
                 self.tiling_workspace_context =
                     preserve_workspace_context_on_unfloat && !self.tiling.is_empty();
-                if self.floating.is_empty() {
-                    self.floating_workspace_context = false;
-                }
+                self.floating_workspace_context = false;
                 if !self.tiling_workspace_context {
                     self.sync_tiling_focus_context_from_tiling();
                 }
@@ -2831,6 +2829,8 @@ impl<W: LayoutElement> Workspace<W> {
 
         if activate || self.tiling.is_empty() {
             self.floating_is_active = FloatingActive::Yes;
+            self.tiling_workspace_context = false;
+            self.floating_workspace_context = false;
         }
     }
 

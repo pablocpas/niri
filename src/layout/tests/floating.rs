@@ -60,6 +60,61 @@ fn opening_tiling_next_to_floating_clears_stale_floating_workspace_context() {
 }
 
 #[test]
+fn focusing_output_from_floating_workspace_context_clears_tiling_workspace_context() {
+    check_ops([
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(2)
+            },
+        },
+        Op::AddWindow {
+            params: TestWindowParams {
+                is_floating: true,
+                ..TestWindowParams::new(1)
+            },
+        },
+        Op::AddScaledOutput {
+            id: 1,
+            scale: 1.,
+            layout_config: None,
+        },
+        Op::FocusWindowOrMonitorUp(1),
+        Op::MaximizeWindowToEdges { id: None },
+    ]);
+}
+
+#[test]
+fn toggling_workspace_root_to_floating_clears_empty_tiling_selection() {
+    check_ops([
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddOutput(1),
+        Op::FocusParent,
+        Op::SetLayoutTabbed,
+        Op::SplitHorizontal,
+        Op::ToggleWindowFloating { id: None },
+    ]);
+}
+
+#[test]
+fn scratchpad_show_clears_stale_tiling_workspace_context() {
+    check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(4),
+        },
+        Op::MoveWindowToScratchpad { id: None },
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::FocusParent,
+        Op::ScratchpadShow,
+    ]);
+}
+
+#[test]
 fn add_window_next_to_floating_does_not_inherit_floating() {
     let layout = check_ops([
         Op::AddOutput(1),

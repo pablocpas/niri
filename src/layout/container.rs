@@ -4120,6 +4120,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             Some(NodeData::Leaf(_)) => {
                 if idx == 0 {
                     self.focused_key = None;
+                    self.selected_key = None;
                     let subtree = self.extract_subtree(root_key);
                     self.root = None;
                     self.prune_leaf_layouts();
@@ -4167,6 +4168,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 }
 
                 let subtree = self.extract_subtree(child_key);
+                self.prune_selected_key();
                 Some(subtree)
             }
             None => None,
