@@ -1569,7 +1569,7 @@ fn kill_selected_floating_container_does_not_close_other_windows() {
     assert_eq!(workspace.tiling().tiles().count(), 1);
     assert_eq!(workspace.floating().tiles().count(), 3);
     assert!(
-        workspace.debug_handler_context() == "floating_container",
+        workspace.debug_command_target() == "floating_container",
         "precondition: expected floating container selection",
     );
 
@@ -1602,7 +1602,7 @@ fn focusing_floating_leaf_clears_container_selection_and_restores_leaf_navigatio
     {
         let workspace = layout.active_workspace().expect("active workspace");
         assert!(workspace.floating_is_active());
-        assert_eq!(workspace.debug_handler_context(), "floating_window");
+        assert_eq!(workspace.debug_command_target(), "floating_window");
         assert!(!workspace.debug_floating_workspace_context());
         assert!(!workspace.debug_active_floating_wrapper_selected());
         assert!(
@@ -1621,7 +1621,7 @@ fn focusing_floating_leaf_clears_container_selection_and_restores_leaf_navigatio
     layout.focus_parent();
     {
         let workspace = layout.active_workspace().expect("active workspace");
-        assert_eq!(workspace.debug_handler_context(), "floating_container");
+        assert_eq!(workspace.debug_command_target(), "floating_container");
     }
 
     layout.toggle_window_floating(None);

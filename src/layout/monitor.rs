@@ -1160,10 +1160,10 @@ impl<W: LayoutElement> Monitor<W> {
         true
     }
 
-    pub fn add_tile_to_column(
+    pub fn add_tile_to_root_container(
         &mut self,
         workspace_idx: usize,
-        column_idx: usize,
+        root_idx: usize,
         tile_idx: Option<usize>,
         tile: Tile<W>,
         activate: bool,
@@ -1172,7 +1172,7 @@ impl<W: LayoutElement> Monitor<W> {
     ) {
         let workspace = &mut self.workspaces[workspace_idx];
 
-        workspace.add_tile_to_column(column_idx, tile_idx, tile, activate);
+        workspace.add_tile_to_root_container(root_idx, tile_idx, tile, activate);
 
         // After adding a new window, workspace becomes this output's own.
         if !workspace.has_persistent_identity() {
@@ -1185,6 +1185,25 @@ impl<W: LayoutElement> Monitor<W> {
         if allow_to_activate_workspace && activate {
             self.activate_workspace(workspace_idx);
         }
+    }
+
+    pub fn add_tile_to_column(
+        &mut self,
+        workspace_idx: usize,
+        column_idx: usize,
+        tile_idx: Option<usize>,
+        tile: Tile<W>,
+        activate: bool,
+        allow_to_activate_workspace: bool,
+    ) {
+        self.add_tile_to_root_container(
+            workspace_idx,
+            column_idx,
+            tile_idx,
+            tile,
+            activate,
+            allow_to_activate_workspace,
+        );
     }
 
     pub fn clean_up_workspaces(&mut self) {

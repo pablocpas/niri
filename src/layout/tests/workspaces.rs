@@ -294,7 +294,7 @@ fn tiling_workspace_context_keeps_root_selection_and_focus_child_returns_to_it()
 
     for _ in 0..4 {
         let workspace = layout.active_workspace().expect("active workspace");
-        if workspace.debug_handler_context() == "workspace" {
+        if workspace.debug_command_target() == "workspace" {
             break;
         }
         check_ops_on_layout(&mut layout, [Op::FocusParent]);
@@ -302,7 +302,7 @@ fn tiling_workspace_context_keeps_root_selection_and_focus_child_returns_to_it()
 
     {
         let workspace = layout.active_workspace().expect("active workspace");
-        assert_eq!(workspace.debug_handler_context(), "workspace");
+        assert_eq!(workspace.debug_command_target(), "workspace");
         assert!(workspace.is_tiling_workspace_context_active());
         assert!(
             workspace.tiling().selected_is_container(),
@@ -314,7 +314,7 @@ fn tiling_workspace_context_keeps_root_selection_and_focus_child_returns_to_it()
     check_ops_on_layout(&mut layout, [Op::FocusChild]);
 
     let workspace = layout.active_workspace().expect("active workspace");
-    assert_eq!(workspace.debug_handler_context(), "tiling_container");
+    assert_eq!(workspace.debug_command_target(), "tiling_container");
     assert!(
         workspace.tiling().selected_is_container(),
         "focus_child from workspace context should return to the remembered root child container",
@@ -1882,7 +1882,7 @@ fn killing_workspace_selection_does_not_leave_new_windows_stuck_in_workspace_con
     {
         let workspace = layout.active_workspace().expect("active workspace");
         assert_eq!(workspace.windows().count(), 0);
-        assert_eq!(workspace.debug_handler_context(), "workspace");
+        assert_eq!(workspace.debug_command_target(), "workspace");
         assert!(!workspace.is_tiling_workspace_context_active());
         assert!(!workspace.tiling().selected_is_container());
     }
@@ -1904,7 +1904,7 @@ fn killing_workspace_selection_does_not_leave_new_windows_stuck_in_workspace_con
 
     {
         let workspace = layout.active_workspace().expect("active workspace");
-        assert_eq!(workspace.debug_handler_context(), "tiling_window");
+        assert_eq!(workspace.debug_command_target(), "tiling_window");
         assert!(!workspace.is_tiling_workspace_context_active());
         assert_eq!(layout.focus().map(|win| *win.id()), Some(6));
     }

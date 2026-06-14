@@ -24,7 +24,7 @@ use tiri_ipc::{ColumnDisplay, LayoutTreeNode, SizeChange};
 use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
     ContainerTree, DetachedContainer, DetachedNode, Direction, InsertParentInfo, Layout,
-    LeafLayoutInfo,
+    LeafLayoutInfo, RootPolicy,
 };
 use super::focus_ring::{
     render_container_selection, ContainerSelectionStyle, FocusRingEdges, FocusRingIndicatorEdge,
@@ -358,7 +358,7 @@ impl<W: LayoutElement> TilingSpace<W> {
                 self.tree.set_root_container_layout(layout)
             }
             WorkspaceLayoutTargetKind::SelectedRootContainer => {
-                self.tree.set_selected_container_layout_like_sway(layout)
+                self.tree.set_layout_for_selected_container(layout)
             }
             WorkspaceLayoutTargetKind::SelectedContainer
             | WorkspaceLayoutTargetKind::FocusedContainer => false,
@@ -879,10 +879,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn verify_invariants(&self) {
-        debug_assert!(
-            self.tree.leaf_layouts().len() <= self.tree.window_count(),
-            "cached leaf layouts exceed window count"
-        );
+        self.tree.verify_invariants();
     }
 
     #[cfg(test)]
@@ -1624,7 +1621,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         direction: Direction,
         allow_wrap: bool,
     ) -> bool {
-        // Match sway: with active fullscreen in tiling, directional focus can move inside the
+        // Model rule: with active fullscreen in tiling, directional focus can move inside the
         // fullscreen subtree, but must not escape to another root sibling.
         let fullscreen_scope = self.fullscreen_window.as_ref().map(|id| {
             let root_idx = self
@@ -1853,15 +1850,19 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     fn split_for_active_selection(&mut self, layout: Layout) -> bool {
-        self.tree.split_selected_or_focused_like_sway(layout)
+        let target = self.tree.command_target(RootPolicy::ImplicitWorkspace);
+        self.tree
+            .split_target(layout, target, RootPolicy::ImplicitWorkspace)
     }
 
     fn set_layout_for_active_selection(&mut self, layout: Layout) -> bool {
         match self.workspace_layout_target_kind() {
-            WorkspaceLayoutTargetKind::SelectedContainer => {
-                self.tree.set_selected_container_layout_like_sway(layout)
+            WorkspaceLayoutTargetKind::SelectedContainer
+            | WorkspaceLayoutTargetKind::FocusedContainer => {
+                let target = self.tree.command_target(RootPolicy::ImplicitWorkspace);
+                self.tree
+                    .set_layout_for_target(layout, target, RootPolicy::ImplicitWorkspace)
             }
-            WorkspaceLayoutTargetKind::FocusedContainer => self.tree.set_focused_layout(layout),
             WorkspaceLayoutTargetKind::RootLeaf
             | WorkspaceLayoutTargetKind::SyntheticRootContainer
             | WorkspaceLayoutTargetKind::SelectedRootContainer => {
@@ -1895,11 +1896,18 @@ impl<W: LayoutElement> TilingSpace<W> {
                     Layout::SplitV => Layout::SplitH,
                     Layout::Tabbed | Layout::Stacked => Layout::SplitH,
                 };
-                return self.tree.set_selected_container_layout_like_sway(next);
+                let target = self.tree.command_target(RootPolicy::ImplicitWorkspace);
+                return self.tree.set_layout_for_target(
+                    next,
+                    target,
+                    RootPolicy::ImplicitWorkspace,
+                );
             }
         }
 
-        self.tree.toggle_split_layout()
+        let target = self.tree.command_target(RootPolicy::ImplicitWorkspace);
+        self.tree
+            .toggle_split_for_target(target, RootPolicy::ImplicitWorkspace)
     }
 
     fn toggle_layout_all_for_active_selection(&mut self) -> bool {
@@ -1917,44 +1925,44 @@ impl<W: LayoutElement> TilingSpace<W> {
             let path = self.tree.selected_path();
             if let Some((current, _, _)) = self.tree.container_info(&path) {
                 let next = Self::next_layout_all(current);
-                return self.tree.set_selected_container_layout_like_sway(next);
+                let target = self.tree.command_target(RootPolicy::ImplicitWorkspace);
+                return self.tree.set_layout_for_target(
+                    next,
+                    target,
+                    RootPolicy::ImplicitWorkspace,
+                );
             }
         }
 
-        self.tree.toggle_layout_all()
+        let target = self.tree.command_target(RootPolicy::ImplicitWorkspace);
+        self.tree
+            .toggle_layout_all_for_target(target, RootPolicy::ImplicitWorkspace)
+    }
+
+    fn move_command_target(&mut self, direction: Direction) -> bool {
+        let target = self.tree.command_target(RootPolicy::ImplicitWorkspace);
+        let result = self.tree.move_target_in_direction(direction, target);
+        if result {
+            self.tree.layout();
+        }
+        result
     }
 
     // Move operations using ContainerTree
     pub fn move_left(&mut self) -> bool {
-        let result = self.tree.move_in_direction(Direction::Left);
-        if result {
-            self.tree.layout();
-        }
-        result
+        self.move_command_target(Direction::Left)
     }
 
     pub fn move_right(&mut self) -> bool {
-        let result = self.tree.move_in_direction(Direction::Right);
-        if result {
-            self.tree.layout();
-        }
-        result
+        self.move_command_target(Direction::Right)
     }
 
     pub fn move_down(&mut self) -> bool {
-        let result = self.tree.move_in_direction(Direction::Down);
-        if result {
-            self.tree.layout();
-        }
-        result
+        self.move_command_target(Direction::Down)
     }
 
     pub fn move_up(&mut self) -> bool {
-        let result = self.tree.move_in_direction(Direction::Up);
-        if result {
-            self.tree.layout();
-        }
-        result
+        self.move_command_target(Direction::Up)
     }
 
     // Container operations (replacing column operations)
@@ -1986,12 +1994,12 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
-    /// Split workspace root like sway `workspace_split()`.
+    /// Split workspace root like workspace root split.
     pub fn split_workspace_horizontal(&mut self) {
         self.split_workspace(Layout::SplitH);
     }
 
-    /// Split workspace root like sway `workspace_split()`.
+    /// Split workspace root like workspace root split.
     pub fn split_workspace_vertical(&mut self) {
         self.split_workspace(Layout::SplitV);
     }
@@ -2829,6 +2837,22 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.layout();
     }
 
+    pub fn add_tile_to_root_container(
+        &mut self,
+        root_idx: usize,
+        tile_idx: Option<usize>,
+        tile: Tile<W>,
+        activate: bool,
+    ) {
+        if self
+            .tree
+            .insert_leaf_in_root_container(root_idx, tile_idx, tile, activate)
+        {
+            self.sync_fullscreen_window();
+            self.tree.layout();
+        }
+    }
+
     pub fn add_tile_to_column(
         &mut self,
         col_idx: usize,
@@ -2836,13 +2860,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         tile: Tile<W>,
         activate: bool,
     ) {
-        if self
-            .tree
-            .insert_leaf_in_column(col_idx, tile_idx, tile, activate)
-        {
-            self.sync_fullscreen_window();
-            self.tree.layout();
-        }
+        self.add_tile_to_root_container(col_idx, tile_idx, tile, activate);
     }
 
     pub(super) fn insert_subtree_with_parent_info(
@@ -3086,7 +3104,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         Size::from((800, 600))
     }
 
-    pub fn focus_column_first(&mut self) {
+    pub fn focus_root_container_first(&mut self) {
         self.tree.focus_root_child(0);
         self.tree.layout();
     }
@@ -3099,7 +3117,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
-    pub fn focus_column_last(&mut self) {
+    pub fn focus_root_container_last(&mut self) {
         let len = self.tree.root_children_len();
         if len > 0 {
             self.tree.focus_root_child(len - 1);
@@ -3107,8 +3125,8 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
-    /// Columns are 1-based to match user-facing commands.
-    pub fn focus_column(&mut self, idx: usize) {
+    /// Root containers are 1-based to match user-facing commands.
+    pub fn focus_root_container(&mut self, idx: usize) {
         if idx == 0 {
             return;
         }
@@ -3116,18 +3134,33 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.tree.layout();
     }
 
-    /// Windows inside the current column are 1-based.
-    pub fn focus_window_in_column(&mut self, index: u8) {
+    /// Leaves inside the current root container are 1-based.
+    pub fn focus_leaf_in_root_container(&mut self, index: u8) {
         if index == 0 {
             return;
         }
-        let column_idx = match self.tree.focused_root_index() {
+        let root_idx = match self.tree.focused_root_index() {
             Some(idx) => idx,
             None => return,
         };
-        self.tree
-            .focus_leaf_in_root_child(column_idx, index as usize);
+        self.tree.focus_leaf_in_root_child(root_idx, index as usize);
         self.tree.layout();
+    }
+
+    pub fn focus_column_first(&mut self) {
+        self.focus_root_container_first();
+    }
+
+    pub fn focus_column_last(&mut self) {
+        self.focus_root_container_last();
+    }
+
+    pub fn focus_column(&mut self, idx: usize) {
+        self.focus_root_container(idx);
+    }
+
+    pub fn focus_window_in_column(&mut self, index: u8) {
+        self.focus_leaf_in_root_container(index);
     }
 
     pub fn focus_down_or_left(&mut self) {
@@ -3184,13 +3217,13 @@ impl<W: LayoutElement> TilingSpace<W> {
         moved
     }
 
-    pub fn move_column_to_first(&mut self) {
+    pub fn move_root_container_to_first(&mut self) {
         if let Some(idx) = self.tree.focused_root_index() {
             self.move_root_child_with_layout(idx, 0);
         }
     }
 
-    pub fn move_column_to_last(&mut self) {
+    pub fn move_root_container_to_last(&mut self) {
         let len = self.tree.root_children_len();
         if len == 0 {
             return;
@@ -3200,7 +3233,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
-    pub fn move_column_left(&mut self) -> bool {
+    pub fn move_root_container_left(&mut self) -> bool {
         let Some(idx) = self.tree.focused_root_index() else {
             return false;
         };
@@ -3211,7 +3244,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.move_root_child_with_layout(idx, idx - 1)
     }
 
-    pub fn move_column_right(&mut self) -> bool {
+    pub fn move_root_container_right(&mut self) -> bool {
         let Some(idx) = self.tree.focused_root_index() else {
             return false;
         };
@@ -3223,7 +3256,7 @@ impl<W: LayoutElement> TilingSpace<W> {
         self.move_root_child_with_layout(idx, idx + 1)
     }
 
-    pub fn move_column_to_index(&mut self, idx: usize) {
+    pub fn move_root_container_to_index(&mut self, idx: usize) {
         if idx == 0 {
             return;
         }
@@ -3236,14 +3269,32 @@ impl<W: LayoutElement> TilingSpace<W> {
         }
     }
 
+    pub fn move_column_to_first(&mut self) {
+        self.move_root_container_to_first();
+    }
+
+    pub fn move_column_to_last(&mut self) {
+        self.move_root_container_to_last();
+    }
+
+    pub fn move_column_left(&mut self) -> bool {
+        self.move_root_container_left()
+    }
+
+    pub fn move_column_right(&mut self) -> bool {
+        self.move_root_container_right()
+    }
+
+    pub fn move_column_to_index(&mut self, idx: usize) {
+        self.move_root_container_to_index(idx);
+    }
+
     fn consume_or_expel_window(&mut self, window: Option<&W::Id>, direction: Direction) {
         if let Some(id) = window {
             self.tree.focus_window_by_id(id);
         }
 
-        if self.tree.move_in_direction(direction) {
-            self.tree.layout();
-        } else {
+        if !self.move_command_target(direction) {
             self.tree.split_focused(Layout::SplitV);
             self.tree.layout();
         }
@@ -3474,9 +3525,7 @@ impl<W: LayoutElement> TilingSpace<W> {
     }
 
     pub fn swap_window_in_direction(&mut self, direction: Direction) {
-        if self.tree.move_in_direction(direction) {
-            self.tree.layout();
-        }
+        self.move_command_target(direction);
     }
 
     pub fn start_open_animation(&mut self, _id: &W::Id) -> bool {

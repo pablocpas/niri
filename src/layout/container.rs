@@ -9,21 +9,25 @@
 //! Uses slotmap for efficient memory management and O(1) access to nodes.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use slotmap::{new_key_type, SecondaryMap, SlotMap};
 use smithay::utils::{Logical, Point, Rectangle, Size};
-use smithay::wayland::compositor::{Blocker, BlockerState};
 
-use super::tab_bar::tab_bar_row_height;
 use super::tile::Tile;
 use super::{LayoutElement, Options};
-use crate::utils::transaction::{Transaction, TransactionBlocker};
-use crate::utils::with_toplevel_role;
-use crate::window::Mapped;
+use crate::utils::transaction::Transaction;
 use tiri_config::BlockOutFrom;
-use tiri_ipc::{LayoutTreeLayout, LayoutTreeNode, LayoutTreeRect};
+
+mod command;
+mod geometry;
+mod invariants;
+mod ipc_projection;
+
+pub(super) use command::RootPolicy;
+use command::TreeCommandTarget;
+use geometry::PendingLayout;
 
 // ============================================================================
 // SlotMap Key Types
@@ -116,7 +120,7 @@ pub struct ContainerData {
     focus_stack: Vec<NodeKey>,
     /// Preserve container even if it has a single child (explicit split).
     preserve_on_single: bool,
-    /// Previous split layout for sway/i3-style `layout toggle split`.
+    /// Previous split layout for i3-style `layout toggle split`.
     prev_split_layout: Option<Layout>,
     /// Relative sizes of children (sum normalized to 1.0 for split layouts)
     child_percents: Vec<f64>,
@@ -161,41 +165,6 @@ enum ResolvedInactiveTilingReference {
     Container { key: NodeKey, path: Vec<usize> },
 }
 
-#[derive(Debug)]
-struct LayoutData {
-    leaf_layouts: Vec<LeafLayoutInfo>,
-    container_geometries: HashMap<NodeKey, Rectangle<f64, Logical>>,
-    tab_bar_offsets: HashMap<NodeKey, f64>,
-    titlebar_flags: HashMap<NodeKey, bool>,
-    tabbed_context_flags: HashMap<NodeKey, bool>,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct LeafLayoutContext {
-    tab_bar_offset: f64,
-    draw_titlebar: bool,
-    in_tabbed_context: bool,
-}
-
-#[derive(Debug)]
-struct PendingLayout {
-    data: LayoutData,
-    blocker: TransactionBlocker,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum LayoutRequestMode {
-    Normal,
-    Maximized,
-    Fullscreen,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct LayoutRequest {
-    mode: LayoutRequestMode,
-    size: Size<i32, Logical>,
-}
-
 /// Root container tree for a workspace
 #[derive(Debug)]
 pub struct ContainerTree<W: LayoutElement> {
@@ -208,7 +177,7 @@ pub struct ContainerTree<W: LayoutElement> {
     /// Layout to apply when the tree is empty (i3 workspace_layout equivalent).
     pending_layout: Option<Layout>,
     /// Whether pending_layout should be consumed by the next split on a root leaf.
-    /// This is used for sway/i3 semantics after `layout split*` on a single tiled leaf.
+    /// This is used for i3/sway semantics after `layout split*` on a single tiled leaf.
     pending_layout_wrap_on_split: bool,
     /// Focused leaf node key (source of truth for focus).
     focused_key: Option<NodeKey>,
@@ -616,7 +585,7 @@ impl<W: LayoutElement> DetachedNode<W> {
     ///
     /// Floating containers are internally represented as root split containers even for
     /// a single window. When moving such a subtree back to tiling we must not materialize
-    /// that implicit wrapper, otherwise tiling gains an extra one-child split unlike sway/i3.
+    /// that implicit wrapper, otherwise tiling gains an extra one-child split unlike i3/sway.
     pub fn collapse_implicit_single_child_split_root(self) -> Self {
         match self {
             DetachedNode::Container(mut container)
@@ -633,7 +602,7 @@ impl<W: LayoutElement> DetachedNode<W> {
     /// Collapse a root chain of single-child containers.
     ///
     /// This is used when restoring a single floating window back into an empty tiling tree:
-    /// sway/i3 treat any one-child wrapper stack as non-material and restore just the leaf.
+    /// i3/sway treat any one-child wrapper stack as non-material and restore just the leaf.
     pub fn collapse_single_child_root_chain(self) -> Self {
         let mut current = self;
         loop {
@@ -679,7 +648,7 @@ impl<W: LayoutElement> DetachedNode<W> {
 
     /// Whether the root single-child container chain contains tabbed/stacked nodes.
     ///
-    /// This is used to identify floating wrapper stacks that sway/i3 do not materialize when
+    /// This is used to identify floating wrapper stacks that i3/sway do not materialize when
     /// restoring a single window back into an empty tiling tree.
     pub fn single_child_root_chain_has_non_split_layout(&self) -> bool {
         let mut current = self;
@@ -720,7 +689,7 @@ impl<W: LayoutElement> DetachedNode<W> {
 
     /// Normalize root-level focus history for floating->tiling subtree restores.
     ///
-    /// In sway/i3, mixed roots (container + leaf siblings) prefer descending into container
+    /// In i3/sway, mixed roots (container + leaf siblings) prefer descending into container
     /// branches instead of keeping focus on a leaf sibling when reattached.
     pub fn normalize_root_focus_for_tiling_restore(mut self) -> Self {
         if let DetachedNode::Container(container) = &mut self {
@@ -852,9 +821,8 @@ impl<W: LayoutElement> DetachedContainer<W> {
 // ============================================================================
 
 impl<W: LayoutElement> ContainerTree<W> {
-    /// Sway has no synthetic workspace-root container node in the tiling tree.
-    /// In tiri this node is an implementation detail and should be ignored in
-    /// inactive-tiling reference resolution.
+    /// The implicit workspace-root container is an implementation detail and
+    /// should be ignored in inactive-tiling reference resolution.
     fn is_synthetic_root_container_key(&self, key: NodeKey) -> bool {
         if self.root != Some(key) {
             return false;
@@ -864,10 +832,9 @@ impl<W: LayoutElement> ContainerTree<W> {
             return false;
         };
 
-        // Explicit root wrappers created to match sway root-level container
-        // semantics (for example after layout on a top-level leaf) are real
-        // restore/focus targets. Only the implicit workspace backing root
-        // should be treated as synthetic.
+        // Explicit root wrappers created by root-level layout commands are real
+        // restore/focus targets. Only the implicit workspace backing root should
+        // be treated as synthetic.
         !container.preserve_on_single()
     }
 
@@ -1286,7 +1253,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 self.set_parent(container_key, None);
                 self.root = Some(container_key);
             } else {
-                // Match sway/i3: layout commands issued on an empty workspace apply when a
+                // Match i3/sway: layout commands issued on an empty workspace apply when a
                 // second window arrives (root-leaf conversion), not to the first opened window.
                 self.set_parent(tile_key, None);
                 self.root = Some(tile_key);
@@ -1326,7 +1293,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         let selected_target =
             self.selected_key
                 .and_then(|selected_key| match self.get_node(selected_key) {
-                    // Match sway/i3 semantics for focused containers:
+                    // Match i3/sway semantics for focused containers:
                     // insert new windows as siblings of the selected container.
                     Some(NodeData::Container(_container)) => {
                         if let Some(parent_key) = self.parent_of(selected_key) {
@@ -1719,13 +1686,32 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     fn prune_leaf_layouts(&mut self) {
-        self.leaf_layouts
-            .retain(|info| self.nodes.contains_key(info.key));
+        if self
+            .focused_key
+            .is_some_and(|key| !matches!(self.get_node(key), Some(NodeData::Leaf(_))))
+        {
+            self.focused_key = self.first_leaf_key();
+        }
+
+        if self
+            .selected_key
+            .is_some_and(|key| !self.nodes.contains_key(key))
+        {
+            self.selected_key = None;
+        }
+
+        let mut current_paths = HashMap::new();
+        for key in self.nodes.keys() {
+            if matches!(self.get_node(key), Some(NodeData::Leaf(_))) {
+                if let Some(path) = self.find_node_path(key) {
+                    current_paths.insert(key, path);
+                }
+            }
+        }
+
+        reconcile_leaf_layouts(&mut self.leaf_layouts, &current_paths);
         if let Some(pending) = &mut self.pending_layouts {
-            pending
-                .data
-                .leaf_layouts
-                .retain(|info| self.nodes.contains_key(info.key));
+            reconcile_leaf_layouts(&mut pending.data.leaf_layouts, &current_paths);
         }
     }
 
@@ -1856,6 +1842,10 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.focused_key.or_else(|| self.first_leaf_key())
     }
 
+    pub(super) fn focused_node_key(&self) -> Option<NodeKey> {
+        self.focused_key
+    }
+
     pub(super) fn root_node_key(&self) -> Option<NodeKey> {
         self.root
     }
@@ -1907,25 +1897,39 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
     }
 
-    /// Apply a layout command using sway-like command context semantics for
-    /// a selected container (`focus parent`):
-    /// - selected top-level container (synthetic root) resolves to workspace context;
-    /// - otherwise apply layout to the selected container parent.
-    pub fn set_selected_container_layout_like_sway(&mut self, layout: Layout) -> bool {
+    /// Apply a layout command to the selected container command target.
+    ///
+    /// A selected top-level tiling container resolves through the implicit
+    /// workspace parent, so the root is wrapped and the previous selection is
+    /// preserved as command context.
+    pub fn set_layout_for_selected_container(&mut self, layout: Layout) -> bool {
         let Some(selected_key) = self.selected_container_key() else {
             return false;
         };
+        self.set_layout_for_container_target(selected_key, layout, RootPolicy::ImplicitWorkspace)
+    }
 
-        if Some(selected_key) == self.root {
-            // Match sway cmd_layout() with a top-level container in handler_context:
-            // after taking container->parent (NULL), command falls back to workspace path
-            // and wraps workspace children before applying the new layout.
+    fn set_layout_for_container_target(
+        &mut self,
+        container_key: NodeKey,
+        layout: Layout,
+        root_policy: RootPolicy,
+    ) -> bool {
+        if !matches!(self.get_node(container_key), Some(NodeData::Container(_))) {
+            return false;
+        }
+
+        if Some(container_key) == self.root {
+            if root_policy == RootPolicy::MaterialContainer {
+                return false;
+            }
+
             let focus_key = self.focused_key.or_else(|| self.first_leaf_key());
 
             let mut outer = ContainerData::new(layout);
-            outer.add_child(selected_key);
+            outer.add_child(container_key);
             let outer_key = self.insert_node(NodeData::Container(outer));
-            self.set_parent(selected_key, Some(outer_key));
+            self.set_parent(container_key, Some(outer_key));
             self.set_parent(outer_key, None);
             self.root = Some(outer_key);
 
@@ -1933,11 +1937,11 @@ impl<W: LayoutElement> ContainerTree<W> {
                 self.focus_node_key(focus_key);
             }
             // Preserve command context on the originally selected top-level container.
-            self.selected_key = Some(selected_key);
+            self.selected_key = Some(container_key);
             return true;
         }
 
-        let Some(parent_key) = self.parent_of(selected_key) else {
+        let Some(parent_key) = self.parent_of(container_key) else {
             return false;
         };
         let Some(parent) = self.get_container_mut(parent_key) else {
@@ -1956,6 +1960,61 @@ impl<W: LayoutElement> ContainerTree<W> {
         };
         root.set_layout_explicit(layout);
         true
+    }
+
+    pub(in crate::layout) fn set_layout_for_target(
+        &mut self,
+        layout: Layout,
+        target: TreeCommandTarget,
+        root_policy: RootPolicy,
+    ) -> bool {
+        match target {
+            TreeCommandTarget::Workspace => false,
+            TreeCommandTarget::Container(key) => {
+                self.set_layout_for_container_target(key, layout, root_policy)
+            }
+            TreeCommandTarget::Leaf(key) => {
+                if !matches!(self.get_node(key), Some(NodeData::Leaf(_))) {
+                    return false;
+                }
+                self.focus_node_key(key);
+                self.set_focused_layout(layout)
+            }
+        }
+    }
+
+    fn layout_container_key_for_target(
+        &self,
+        target: TreeCommandTarget,
+        root_policy: RootPolicy,
+    ) -> Option<NodeKey> {
+        match target {
+            TreeCommandTarget::Workspace => None,
+            TreeCommandTarget::Container(key) => {
+                if !matches!(self.get_node(key), Some(NodeData::Container(_))) {
+                    return None;
+                }
+                if Some(key) == self.root && root_policy == RootPolicy::MaterialContainer {
+                    return None;
+                }
+                if Some(key) == self.root {
+                    Some(key)
+                } else {
+                    self.parent_of(key)
+                }
+            }
+            TreeCommandTarget::Leaf(key) => {
+                if !matches!(self.get_node(key), Some(NodeData::Leaf(_))) {
+                    return None;
+                }
+                let path = self.find_node_path(key)?;
+                if path.is_empty() {
+                    self.root
+                } else {
+                    self.node_key_for_path_or_root(&path[..path.len() - 1])
+                }
+            }
+        }
     }
 
     pub fn select_parent(&mut self) -> bool {
@@ -1999,41 +2058,6 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.get_tile_mut(key)
     }
 
-    /// Calculate and apply layout to the tree
-    pub fn layout(&mut self) {
-        self.layout_with_resize_animation(true);
-    }
-
-    /// Calculate and apply layout to the tree, with control over resize animation.
-    pub fn layout_with_resize_animation(&mut self, animate_resize: bool) {
-        let animate = !self.options.animations.off;
-        self.layout_with_animations(animate, animate_resize);
-    }
-
-    /// Calculate and apply layout to the tree with explicit animation flags.
-    pub fn layout_with_animation_flags(&mut self, animate: bool, animate_resize: bool) {
-        self.layout_with_animations(animate, animate_resize);
-    }
-
-    fn layout_with_animations(&mut self, animate: bool, animate_resize: bool) {
-        // Increment generation for focus path caching.
-        self.generation = self.generation.wrapping_add(1);
-        let _ = animate;
-        self.layout_atomic(animate_resize);
-    }
-
-    pub fn layout_area(&self) -> Rectangle<f64, Logical> {
-        let mut area = self.working_area;
-        let gap = self.options.layout.gaps;
-        if gap > 0.0 {
-            area.loc.x += gap;
-            area.loc.y += gap;
-            area.size.w = (area.size.w - gap * 2.0).max(0.0);
-            area.size.h = (area.size.h - gap * 2.0).max(0.0);
-        }
-        area
-    }
-
     pub(super) fn parent_layout_for_path(&self, path: &[usize]) -> Option<Layout> {
         if path.is_empty() {
             return None;
@@ -2071,67 +2095,6 @@ impl<W: LayoutElement> ContainerTree<W> {
         }
     }
 
-    fn layout_atomic(&mut self, animate_resize: bool) {
-        if self.pending_layouts.is_some() && !self.apply_pending_layouts_if_ready() {
-            self.pending_relayout = true;
-            self.debug_layout_state("layout_atomic_pending");
-            return;
-        }
-        self.pending_relayout = false;
-
-        let Some(root_key) = self.root else {
-            self.leaf_layouts.clear();
-            self.pending_layouts = None;
-            self.pending_transaction = None;
-            self.pending_relayout = false;
-            self.debug_layout_state("layout_atomic_empty");
-            return;
-        };
-
-        let data = self.collect_layout_data(root_key);
-        let changed = self.changed_layout_keys(&data);
-        if changed.is_empty() {
-            self.pending_layouts = None;
-            self.pending_transaction = None;
-            self.apply_layout_data(data);
-            self.debug_layout_state("layout_atomic_apply");
-            return;
-        }
-
-        let transaction = self
-            .pending_transaction
-            .take()
-            .unwrap_or_else(Transaction::new);
-        self.request_sizes_for_layout(&data, &changed, &transaction, animate_resize);
-        let should_apply_now = transaction.is_last();
-        self.pending_layouts = Some(PendingLayout {
-            data,
-            blocker: transaction.blocker(),
-        });
-        drop(transaction);
-        if should_apply_now && self.apply_pending_layouts_if_ready() {
-            return;
-        }
-        self.debug_layout_state("layout_atomic_requested");
-    }
-
-    pub fn apply_pending_layouts_if_ready(&mut self) -> bool {
-        let Some(pending) = &self.pending_layouts else {
-            return false;
-        };
-        if pending.blocker.state() != BlockerState::Released {
-            return false;
-        }
-        let pending = self.pending_layouts.take().unwrap();
-        self.apply_layout_data(pending.data);
-        self.debug_layout_state("layout_atomic_apply_pending");
-        true
-    }
-
-    pub fn has_pending_layouts(&self) -> bool {
-        self.pending_layouts.is_some()
-    }
-
     pub fn set_pending_layout(&mut self, layout: Layout) {
         self.pending_layout = Some(layout);
         // External layout hints (workspace parity plumbing) should be consumable by
@@ -2151,494 +2114,6 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     pub fn take_pending_relayout(&mut self) -> bool {
         std::mem::take(&mut self.pending_relayout)
-    }
-
-    fn layout_request_for(
-        &self,
-        tile: &Tile<W>,
-        tile_size: Size<f64, Logical>,
-        tab_offset: f64,
-    ) -> LayoutRequest {
-        if tile.window().pending_sizing_mode().is_fullscreen() {
-            LayoutRequest {
-                mode: LayoutRequestMode::Fullscreen,
-                size: self.view_size.to_i32_round(),
-            }
-        } else if tile.pending_maximized {
-            LayoutRequest {
-                mode: LayoutRequestMode::Maximized,
-                size: tile_size.to_i32_round(),
-            }
-        } else {
-            LayoutRequest {
-                mode: LayoutRequestMode::Normal,
-                size: tile.requested_window_size_for_tile(tile_size, tab_offset),
-            }
-        }
-    }
-
-    fn collect_layout_data(&self, root_key: NodeKey) -> LayoutData {
-        let mut data = LayoutData {
-            leaf_layouts: Vec::new(),
-            container_geometries: HashMap::new(),
-            tab_bar_offsets: HashMap::new(),
-            titlebar_flags: HashMap::new(),
-            tabbed_context_flags: HashMap::new(),
-        };
-
-        let mut path = Vec::new();
-        let area = self.layout_area();
-        self.collect_layout_node(
-            root_key,
-            area,
-            &mut path,
-            true,
-            LeafLayoutContext::default(),
-            &mut data,
-        );
-        data
-    }
-
-    fn collect_layout_node(
-        &self,
-        node_key: NodeKey,
-        rect: Rectangle<f64, Logical>,
-        path: &mut Vec<usize>,
-        visible: bool,
-        ctx: LeafLayoutContext,
-        data: &mut LayoutData,
-    ) {
-        let (layout, child_count, focused_idx, child_percents_sum) = match self.get_node(node_key) {
-            Some(NodeData::Leaf(tile)) => {
-                let (offset, show_titlebar) = if tile.window().pending_sizing_mode().is_fullscreen()
-                {
-                    (0.0, false)
-                } else {
-                    (ctx.tab_bar_offset, ctx.draw_titlebar)
-                };
-                data.tab_bar_offsets.insert(node_key, offset);
-                data.titlebar_flags.insert(node_key, show_titlebar);
-                data.tabbed_context_flags
-                    .insert(node_key, ctx.in_tabbed_context);
-                data.leaf_layouts.push(LeafLayoutInfo {
-                    key: node_key,
-                    path: path.clone(),
-                    rect,
-                    visible,
-                });
-                return;
-            }
-            Some(NodeData::Container(container)) => {
-                data.container_geometries.insert(node_key, rect);
-                let percents = container.child_percents_slice();
-                let sum: f64 = percents.iter().copied().sum();
-                (
-                    container.layout(),
-                    container.child_count(),
-                    container.focused_child_index(),
-                    sum,
-                )
-            }
-            None => return,
-        };
-
-        if child_count == 0 {
-            return;
-        }
-
-        let gap = self.options.layout.gaps;
-
-        match layout {
-            Layout::SplitH => {
-                let split_bar_height = self.split_title_bar_height();
-                let total_gap = if child_count > 1 {
-                    gap * (child_count as f64 - 1.0)
-                } else {
-                    0.0
-                };
-                let available_width = (rect.size.w - total_gap).max(0.0);
-
-                // Pre-compute normalized percentages
-                let percents: Vec<f64> =
-                    self.get_normalized_child_percents(node_key, child_count, child_percents_sum);
-                let widths = self.distribute_split_lengths(available_width, child_count, &percents);
-
-                let mut cursor_x = rect.loc.x;
-
-                for idx in 0..child_count {
-                    let Some(child_key) = self.get_container_child_at(node_key, idx) else {
-                        continue;
-                    };
-                    let width = *widths.get(idx).unwrap_or(&0.0);
-
-                    let child_rect = Rectangle::new(
-                        Point::from((cursor_x, rect.loc.y)),
-                        Size::from((width, rect.size.h)),
-                    );
-
-                    path.push(idx);
-                    let (child_offset, child_titlebar) =
-                        self.split_child_titlebar(child_key, split_bar_height);
-                    let child_ctx = LeafLayoutContext {
-                        tab_bar_offset: child_offset,
-                        draw_titlebar: child_titlebar,
-                        in_tabbed_context: ctx.in_tabbed_context,
-                    };
-                    self.collect_layout_node(child_key, child_rect, path, visible, child_ctx, data);
-                    path.pop();
-
-                    if idx + 1 < child_count {
-                        cursor_x += width + gap;
-                    }
-                }
-            }
-            Layout::SplitV => {
-                let split_bar_height = self.split_title_bar_height();
-                let total_gap = if child_count > 1 {
-                    gap * (child_count as f64 - 1.0)
-                } else {
-                    0.0
-                };
-                let available_height = (rect.size.h - total_gap).max(0.0);
-
-                // Pre-compute normalized percentages
-                let percents: Vec<f64> =
-                    self.get_normalized_child_percents(node_key, child_count, child_percents_sum);
-                let heights =
-                    self.distribute_split_lengths(available_height, child_count, &percents);
-
-                let mut cursor_y = rect.loc.y;
-
-                for idx in 0..child_count {
-                    let Some(child_key) = self.get_container_child_at(node_key, idx) else {
-                        continue;
-                    };
-                    let height = *heights.get(idx).unwrap_or(&0.0);
-
-                    let child_rect = Rectangle::new(
-                        Point::from((rect.loc.x, cursor_y)),
-                        Size::from((rect.size.w, height)),
-                    );
-
-                    path.push(idx);
-                    let (child_offset, child_titlebar) =
-                        self.split_child_titlebar(child_key, split_bar_height);
-                    let child_ctx = LeafLayoutContext {
-                        tab_bar_offset: child_offset,
-                        draw_titlebar: child_titlebar,
-                        in_tabbed_context: ctx.in_tabbed_context,
-                    };
-                    self.collect_layout_node(child_key, child_rect, path, visible, child_ctx, data);
-                    path.pop();
-
-                    if idx + 1 < child_count {
-                        cursor_y += height + gap;
-                    }
-                }
-            }
-            Layout::Tabbed | Layout::Stacked => {
-                // No gap padding for tabbed/stacked: children overlap,
-                // and outer gaps are already provided by the parent layout.
-                let inner_rect = rect;
-
-                let bar_row_height = self.tab_bar_row_height();
-                let mut tab_offset = 0.0;
-                if bar_row_height > 0.0 && child_count > 0 {
-                    let bar_height = match layout {
-                        Layout::Tabbed => bar_row_height,
-                        Layout::Stacked => bar_row_height * child_count as f64,
-                        _ => 0.0,
-                    };
-                    let total_bar_height = (bar_height + self.tab_bar_spacing())
-                        .min(inner_rect.size.h)
-                        .max(0.0);
-                    tab_offset = total_bar_height;
-                }
-
-                let focused_idx = focused_idx.unwrap_or(0).min(child_count.saturating_sub(1));
-
-                for idx in 0..child_count {
-                    let Some(child_key) = self.get_container_child_at(node_key, idx) else {
-                        continue;
-                    };
-                    path.push(idx);
-                    let child_visible = visible && idx == focused_idx;
-                    let mut content_rect = inner_rect;
-                    if tab_offset > 0.0 {
-                        content_rect.loc.y += tab_offset;
-                        content_rect.size.h = (content_rect.size.h - tab_offset).max(0.0);
-                    }
-                    let child_ctx = LeafLayoutContext {
-                        tab_bar_offset: 0.0,
-                        draw_titlebar: false,
-                        in_tabbed_context: true,
-                    };
-                    self.collect_layout_node(
-                        child_key,
-                        content_rect,
-                        path,
-                        child_visible,
-                        child_ctx,
-                        data,
-                    );
-                    path.pop();
-                }
-            }
-        }
-    }
-
-    fn changed_layout_keys(&self, data: &LayoutData) -> HashSet<NodeKey> {
-        let mut current = HashMap::new();
-        for info in &self.leaf_layouts {
-            let Some(tile) = self.get_tile(info.key) else {
-                continue;
-            };
-            let request = self.layout_request_for(tile, info.rect.size, tile.tab_bar_offset());
-            current.insert(info.key, request);
-        }
-
-        let mut changed = HashSet::new();
-        for info in &data.leaf_layouts {
-            let offset = data.tab_bar_offsets.get(&info.key).copied().unwrap_or(0.0);
-            let Some(tile) = self.get_tile(info.key) else {
-                changed.insert(info.key);
-                continue;
-            };
-            let request = self.layout_request_for(tile, info.rect.size, offset);
-            if current.get(&info.key).map_or(true, |old| *old != request) {
-                changed.insert(info.key);
-            }
-        }
-
-        changed
-    }
-
-    fn request_sizes_for_layout(
-        &mut self,
-        data: &LayoutData,
-        changed: &HashSet<NodeKey>,
-        transaction: &Transaction,
-        animate_resize: bool,
-    ) {
-        for info in &data.leaf_layouts {
-            let Some(tile) = self.get_tile_mut(info.key) else {
-                continue;
-            };
-            let offset = data.tab_bar_offsets.get(&info.key).copied().unwrap_or(0.0);
-            let show_titlebar = data.titlebar_flags.get(&info.key).copied().unwrap_or(false);
-            let in_tabbed_context = data
-                .tabbed_context_flags
-                .get(&info.key)
-                .copied()
-                .unwrap_or(false);
-            let old_offset = tile.tab_bar_offset();
-            let old_titlebar = tile.draw_titlebar();
-            let old_tabbed_context = tile.in_tabbed_context();
-            tile.set_tab_bar_offset(offset);
-            tile.set_draw_titlebar(show_titlebar);
-            tile.set_in_tabbed_context(in_tabbed_context);
-
-            let tx = changed.contains(&info.key).then(|| transaction.clone());
-            let size = Size::from((info.rect.size.w, info.rect.size.h));
-            if tile.window().pending_sizing_mode().is_fullscreen() {
-                tile.request_fullscreen(animate_resize, tx);
-            } else if tile.pending_maximized {
-                tile.request_maximized(size, animate_resize, tx);
-            } else {
-                tile.request_tile_size(size, animate_resize, tx);
-            }
-
-            tile.set_tab_bar_offset(old_offset);
-            tile.set_draw_titlebar(old_titlebar);
-            tile.set_in_tabbed_context(old_tabbed_context);
-        }
-    }
-
-    fn apply_layout_data(&mut self, data: LayoutData) {
-        for (key, rect) in data.container_geometries {
-            if let Some(NodeData::Container(container)) = self.get_node_mut(key) {
-                container.set_geometry(rect);
-            }
-        }
-        for (key, offset) in data.tab_bar_offsets {
-            if let Some(tile) = self.get_tile_mut(key) {
-                tile.set_tab_bar_offset(offset);
-            }
-        }
-        for (key, show_titlebar) in data.titlebar_flags {
-            if let Some(tile) = self.get_tile_mut(key) {
-                tile.set_draw_titlebar(show_titlebar);
-            }
-        }
-        for (key, in_tabbed_context) in data.tabbed_context_flags {
-            if let Some(tile) = self.get_tile_mut(key) {
-                tile.set_in_tabbed_context(in_tabbed_context);
-            }
-        }
-        self.leaf_layouts = data.leaf_layouts;
-    }
-
-    fn tab_bar_row_height(&self) -> f64 {
-        if self.options.layout.tab_bar.off {
-            return 0.0;
-        }
-        tab_bar_row_height(&self.options.layout.tab_bar, self.scale)
-    }
-
-    fn split_title_bar_height(&self) -> f64 {
-        if !self.options.layout.tab_bar.show_in_split {
-            return 0.0;
-        }
-        self.tab_bar_row_height()
-    }
-
-    /// Get a child key at a specific index from a container node (avoids cloning children vec)
-    fn get_container_child_at(&self, container_key: NodeKey, idx: usize) -> Option<NodeKey> {
-        match self.get_node(container_key) {
-            Some(NodeData::Container(container)) => container.child_key(idx),
-            _ => None,
-        }
-    }
-
-    /// Get normalized child percentages from a container (avoids cloning by computing inline)
-    fn get_normalized_child_percents(
-        &self,
-        container_key: NodeKey,
-        child_count: usize,
-        percents_sum: f64,
-    ) -> Vec<f64> {
-        let Some(NodeData::Container(container)) = self.get_node(container_key) else {
-            return vec![1.0 / child_count.max(1) as f64; child_count];
-        };
-
-        let percents = container.child_percents_slice();
-        if percents_sum > f64::EPSILON {
-            percents.iter().map(|p| p / percents_sum).collect()
-        } else {
-            vec![1.0 / child_count.max(1) as f64; child_count]
-        }
-    }
-
-    /// Distributes split lengths on a physical-pixel grid to avoid tiny transparent seams
-    /// between adjacent children when requested client sizes get floored to integers.
-    fn distribute_split_lengths(
-        &self,
-        available: f64,
-        child_count: usize,
-        percents: &[f64],
-    ) -> Vec<f64> {
-        if child_count == 0 {
-            return Vec::new();
-        }
-
-        let available = available.max(0.0);
-        let available_phys = (available * self.scale).round().max(0.0) as i32;
-
-        let default = 1.0 / child_count as f64;
-        let mut weights: Vec<f64> = (0..child_count)
-            .map(|idx| percents.get(idx).copied().unwrap_or(default).max(0.0))
-            .collect();
-        let sum: f64 = weights.iter().sum();
-        if sum > f64::EPSILON {
-            for w in &mut weights {
-                *w /= sum;
-            }
-        } else {
-            weights.fill(default);
-        }
-
-        let mut lengths_int = vec![0i32; child_count];
-        let mut fractions = Vec::with_capacity(child_count);
-        let mut used = 0i32;
-        for (idx, weight) in weights.iter().copied().enumerate() {
-            let raw = available_phys as f64 * weight;
-            let base = raw.floor() as i32;
-            lengths_int[idx] = base;
-            used += base;
-            fractions.push((idx, raw - base as f64));
-        }
-
-        let mut remainder = (available_phys - used).max(0);
-        fractions.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-        let mut i = 0usize;
-        while remainder > 0 && !fractions.is_empty() {
-            let idx = fractions[i % fractions.len()].0;
-            lengths_int[idx] += 1;
-            remainder -= 1;
-            i += 1;
-        }
-
-        lengths_int
-            .into_iter()
-            .map(|v| v as f64 / self.scale)
-            .collect()
-    }
-
-    fn split_child_titlebar(&self, child_key: NodeKey, split_bar_height: f64) -> (f64, bool) {
-        if split_bar_height <= 0.0 {
-            return (0.0, false);
-        }
-
-        let is_leaf = matches!(self.get_node(child_key), Some(NodeData::Leaf(_)));
-        if is_leaf {
-            (split_bar_height, true)
-        } else {
-            (0.0, false)
-        }
-    }
-
-    fn tab_bar_spacing(&self) -> f64 {
-        0.0
-    }
-
-    fn tab_bar_rect(
-        &self,
-        layout: Layout,
-        rect: Rectangle<f64, Logical>,
-        tab_count: usize,
-    ) -> Option<(Rectangle<f64, Logical>, f64)> {
-        if tab_count == 0 {
-            return None;
-        }
-
-        let row_height = self.tab_bar_row_height();
-        if row_height <= 0.0 {
-            return None;
-        }
-
-        // No gap padding: tabbed/stacked containers don't apply internal gap,
-        // outer gaps are handled by the parent layout.
-
-        // Extend the tab bar to align with the focus ring edges.
-        let ring_ext = if !self.options.layout.focus_ring.off {
-            self.options.layout.focus_ring.width
-        } else {
-            0.0
-        };
-        let mut bar_rect = rect;
-        if ring_ext > 0.0 {
-            bar_rect.loc.x -= ring_ext;
-            bar_rect.loc.y -= ring_ext;
-            bar_rect.size.w += ring_ext * 2.0;
-            bar_rect.size.h += ring_ext; // only top extension for height
-        }
-
-        let spacing = self.tab_bar_spacing();
-        let base_height = match layout {
-            Layout::Tabbed => row_height,
-            Layout::Stacked => row_height * tab_count as f64,
-            _ => 0.0,
-        };
-        let bar_height = (base_height + ring_ext + spacing)
-            .min(bar_rect.size.h)
-            .max(0.0);
-        if bar_height <= 0.0 {
-            return None;
-        }
-
-        let bar_rect = Rectangle::new(bar_rect.loc, Size::from((bar_rect.size.w, bar_height)));
-
-        Some((bar_rect, row_height))
     }
 
     /// Get all windows in the tree (depth-first traversal)
@@ -3167,31 +2642,49 @@ impl<W: LayoutElement> ContainerTree<W> {
         Some((subtree, insert_info))
     }
 
-    /// Move window in a direction (swaps with sibling)
+    /// Move the current command target in a direction.
     pub fn move_in_direction(&mut self, direction: Direction) -> bool {
+        self.move_target_in_direction(
+            direction,
+            self.command_target(RootPolicy::MaterialContainer),
+        )
+    }
+
+    /// Move an explicit command target in a direction.
+    pub(in crate::layout) fn move_target_in_direction(
+        &mut self,
+        direction: Direction,
+        target: TreeCommandTarget,
+    ) -> bool {
         self.clear_focus_history();
         if self.root.is_none() {
             return false;
         }
 
-        // Match sway command context: when focus-parent selected a container,
-        // move commands operate on that selected container.
-        let selected_move = self
-            .selected_container_key()
-            .and_then(|key| self.find_node_path(key).map(|path| (key, path)));
-        let preserve_selected_container = selected_move.is_some();
+        let (sync_key, mut move_path, preserve_selected_container) = match target {
+            TreeCommandTarget::Workspace => return false,
+            TreeCommandTarget::Container(key) => {
+                if !matches!(self.get_node(key), Some(NodeData::Container(_))) {
+                    return false;
+                }
+                let Some(path) = self.find_node_path(key) else {
+                    return false;
+                };
+                (key, path, true)
+            }
+            TreeCommandTarget::Leaf(key) => {
+                if !matches!(self.get_node(key), Some(NodeData::Leaf(_))) {
+                    return false;
+                }
+                let Some(path) = self.find_node_path(key) else {
+                    return false;
+                };
+                (key, path, false)
+            }
+        };
 
-        if let Some(key) = selected_move
-            .as_ref()
-            .map(|(key, _)| *key)
-            .or(self.focused_key)
-        {
-            self.sync_container_focus_from_key(key);
-        }
+        self.sync_container_focus_from_key(sync_key);
 
-        let mut move_path = selected_move
-            .map(|(_, path)| path)
-            .unwrap_or_else(|| self.focus_path());
         if move_path.is_empty() {
             return false;
         }
@@ -3461,7 +2954,7 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     /// If selection points to the root container, wrap it into a SplitH parent so inserts
-    /// happen as siblings of that container (matching sway/i3 `focus parent` semantics).
+    /// happen as siblings of that container after `focus parent`.
     fn ensure_selected_root_has_parent_for_sibling_insert(&mut self) -> bool {
         let Some(selected_key) = self.selected_key else {
             return false;
@@ -3506,10 +2999,9 @@ impl<W: LayoutElement> ContainerTree<W> {
         self.ensure_selected_root_has_parent_for_sibling_insert()
     }
 
-    /// Match sway workspace_wrap_children() when the visible root is the
-    /// synthetic workspace container: keep that root as the workspace node,
-    /// but move its current children under an explicit wrapper with the old
-    /// layout while the root adopts the new workspace layout.
+    /// Apply a workspace-level layout change by keeping the synthetic root as
+    /// the workspace node and moving its current children under an explicit
+    /// wrapper with the old layout.
     pub fn wrap_synthetic_root_children_for_workspace_layout(&mut self, layout: Layout) -> bool {
         let Some(root_key) = self.root else {
             return false;
@@ -3609,18 +3101,20 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 
     fn layouts_squashable(parent: Layout, child: Layout) -> bool {
-        // i3/sway-like squash: only collapse truly redundant split levels.
-        // Tabbed/stacked containers must keep their own node to preserve semantics.
+        // Only collapse truly redundant split levels. Tabbed/stacked containers
+        // must keep their own node to preserve semantics.
         matches!(
             (parent, child),
             (Layout::SplitH, Layout::SplitH) | (Layout::SplitV, Layout::SplitV)
         )
     }
 
-    /// Match sway cmd_layout() "flatten once" behavior:
-    /// when operating on a container with one child whose parent also has one
-    /// child, remove the middle container and operate on its parent.
-    fn flatten_layout_target_once_like_sway(&mut self, container_key: NodeKey) -> Option<NodeKey> {
+    /// Collapse a one-child command target whose parent is also a one-child
+    /// container, then return the parent that now owns the promoted child.
+    fn collapse_single_child_command_target_once(
+        &mut self,
+        container_key: NodeKey,
+    ) -> Option<NodeKey> {
         let child_key = self.get_container(container_key).and_then(|container| {
             (container.child_count() == 1)
                 .then(|| container.children().first().copied())
@@ -3664,23 +3158,25 @@ impl<W: LayoutElement> ContainerTree<W> {
         Some(parent_key)
     }
 
-    fn split_selected_container_like_sway(
+    fn split_selected_container(
         &mut self,
         selected_key: NodeKey,
         layout: Layout,
+        root_policy: RootPolicy,
     ) -> bool {
         if !matches!(self.get_node(selected_key), Some(NodeData::Container(_))) {
             return false;
         }
 
-        // The selected root container has an implicit workspace parent in sway.
-        // Match sway cmd_split() with selected root container in tiling context:
-        // command resolves through the implicit workspace parent and should not
-        // introduce a visible extra wrapper in the tiling tree model.
         if Some(selected_key) == self.root {
-            self.pending_layout = Some(layout);
-            self.pending_layout_wrap_on_split = false;
-            return true;
+            return match root_policy {
+                RootPolicy::ImplicitWorkspace => {
+                    self.pending_layout = Some(layout);
+                    self.pending_layout_wrap_on_split = false;
+                    true
+                }
+                RootPolicy::MaterialContainer => self.split_root_container(layout),
+            };
         }
 
         let Some(parent_key) = self.parent_of(selected_key) else {
@@ -3694,7 +3190,6 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         if parent_child_count == 1 && matches!(parent_layout, Layout::SplitH | Layout::SplitV) {
             if let Some(container) = self.get_container_mut(parent_key) {
-                // Match sway container_split(): singleton split parents only change orientation.
                 container.set_layout(layout);
             }
             return true;
@@ -3765,77 +3260,59 @@ impl<W: LayoutElement> ContainerTree<W> {
         true
     }
 
-    fn split_selected_container_like_sway_floating(
+    /// Split an explicit command target.
+    pub(in crate::layout) fn split_target(
         &mut self,
-        selected_key: NodeKey,
         layout: Layout,
+        target: TreeCommandTarget,
+        root_policy: RootPolicy,
     ) -> bool {
-        if !matches!(self.get_node(selected_key), Some(NodeData::Container(_))) {
-            return false;
-        }
-
-        if Some(selected_key) == self.root {
-            // Floating roots are first-class containers. Match sway by mutating
-            // the selected root container itself instead of recording workspace
-            // intent or wrapping it in an extra parent.
-            return self.split_root_like_sway_floating(layout);
-        }
-
-        self.split_selected_container_like_sway(selected_key, layout)
-    }
-
-    /// Split command target with sway semantics:
-    /// selected container (focus-parent) first, otherwise focused leaf.
-    pub fn split_selected_or_focused_like_sway(&mut self, layout: Layout) -> bool {
         self.clear_focus_history();
 
-        if let Some(selected_key) = self.selected_key {
-            if matches!(self.get_node(selected_key), Some(NodeData::Container(_))) {
-                return self.split_selected_container_like_sway(selected_key, layout);
+        match target {
+            TreeCommandTarget::Workspace => match root_policy {
+                RootPolicy::ImplicitWorkspace => {
+                    self.pending_layout = Some(layout);
+                    self.pending_layout_wrap_on_split = true;
+                    true
+                }
+                RootPolicy::MaterialContainer => false,
+            },
+            TreeCommandTarget::Container(key) => {
+                self.split_selected_container(key, layout, root_policy)
+            }
+            TreeCommandTarget::Leaf(key) => {
+                debug_assert!(matches!(self.get_node(key), Some(NodeData::Leaf(_))));
+                self.split_focused_with_policy(layout, root_policy)
             }
         }
-
-        self.split_focused(layout)
     }
 
-    /// Split command target with sway semantics for floating trees:
-    /// selected container (focus-parent) first, otherwise focused leaf.
-    ///
-    /// The key difference from tiling is root treatment: floating roots are
-    /// first-class containers, not implicit workspace context.
-    pub fn split_selected_or_focused_like_sway_floating(&mut self, layout: Layout) -> bool {
-        self.clear_focus_history();
-
-        if let Some(selected_key) = self.selected_key {
-            if matches!(self.get_node(selected_key), Some(NodeData::Container(_))) {
-                return self.split_selected_container_like_sway_floating(selected_key, layout);
-            }
-        }
-
-        self.split_focused_like_sway_floating(layout)
-    }
-
-    /// Split focused node with sway floating semantics.
-    ///
-    /// Unlike tiling workspaces, splitting a single floating root leaf must
-    /// materialize a wrapper container immediately.
-    pub fn split_focused_like_sway_floating(&mut self, layout: Layout) -> bool {
+    /// Split the focused node using the root behavior of the owning space.
+    fn split_focused_with_policy(&mut self, layout: Layout, root_policy: RootPolicy) -> bool {
         self.clear_focus_history();
 
         if self.root.is_none() {
-            return false;
+            return match root_policy {
+                RootPolicy::ImplicitWorkspace => {
+                    self.pending_layout = Some(layout);
+                    self.pending_layout_wrap_on_split = true;
+                    true
+                }
+                RootPolicy::MaterialContainer => false,
+            };
         }
 
-        if self.focus_path().is_empty() {
+        if root_policy == RootPolicy::MaterialContainer && self.focus_path().is_empty() {
             return self.wrap_root_node_with_layout(layout, false);
         }
 
         self.split_focused(layout)
     }
 
-    /// Split the root container in a floating tree, preserving selected command
-    /// context on the original root node.
-    pub fn split_root_like_sway_floating(&mut self, layout: Layout) -> bool {
+    /// Split a material root container, preserving selected command context on
+    /// the original root node.
+    pub fn split_root_container(&mut self, layout: Layout) -> bool {
         self.clear_focus_history();
         let Some(root_key) = self.root else {
             return false;
@@ -3864,8 +3341,7 @@ impl<W: LayoutElement> ContainerTree<W> {
 
         let focus_path = self.focus_path();
 
-        // Special case: if root is a leaf, wrap it in a container.
-        // Sway's container_split() always materializes the wrapper immediately.
+        // Special case: if root is a leaf, wrap it in a container immediately.
         if focus_path.is_empty() {
             return self.ensure_root_container_with_layout(layout);
         }
@@ -3923,9 +3399,9 @@ impl<W: LayoutElement> ContainerTree<W> {
 
             if parent_child_count == 1 && matches!(parent_layout, Layout::SplitH | Layout::SplitV) {
                 if let Some(container) = self.get_container_mut(parent_key) {
-                    // Match sway/i3: explicit split command on a single-child split container
-                    // keeps that container around for future sibling inserts, even if the
-                    // requested split orientation matches the current one.
+                    // Explicit split command on a single-child split container
+                    // keeps that container around for future sibling inserts,
+                    // even if the requested split orientation matches the current one.
                     container.set_layout_explicit(layout);
                 }
                 return true;
@@ -3968,8 +3444,7 @@ impl<W: LayoutElement> ContainerTree<W> {
         let focus_path = self.focus_path();
 
         if focus_path.is_empty() {
-            // Root is a leaf — always wrap immediately with the requested layout.
-            // Sway's cmd_layout always materializes the container.
+            // Root is a leaf: always wrap immediately with the requested layout.
             let root_is_leaf = self
                 .root
                 .is_some_and(|root_key| matches!(self.get_node(root_key), Some(NodeData::Leaf(_))));
@@ -3992,7 +3467,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                 };
 
                 let target_key = if matches!(layout, Layout::Tabbed | Layout::Stacked) {
-                    self.flatten_layout_target_once_like_sway(parent_key)
+                    self.collapse_single_child_command_target_once(parent_key)
                         .unwrap_or(parent_key)
                 } else {
                     parent_key
@@ -4042,7 +3517,7 @@ impl<W: LayoutElement> ContainerTree<W> {
                     }
 
                     if let Some(container) = self.get_container_mut(target_key) {
-                        // Match sway parity path around seed1 step 283: layout_splith on this
+                        // Regression path: layout_splith on this
                         // explicit single-child root keeps the shape flat (no extra nesting).
                         container.set_layout_explicit(layout);
                     }
@@ -4067,7 +3542,19 @@ impl<W: LayoutElement> ContainerTree<W> {
 
     /// Toggle between horizontal and vertical split for the focused container.
     pub fn toggle_split_layout(&mut self) -> bool {
+        let target = self.command_target(RootPolicy::MaterialContainer);
+        self.toggle_split_for_target(target, RootPolicy::MaterialContainer)
+    }
+
+    pub(in crate::layout) fn toggle_split_for_target(
+        &mut self,
+        target: TreeCommandTarget,
+        root_policy: RootPolicy,
+    ) -> bool {
         if self.root.is_none() {
+            if target != TreeCommandTarget::Workspace {
+                return false;
+            }
             let next = match self.pending_layout.unwrap_or(Layout::SplitH) {
                 Layout::SplitH => Layout::SplitV,
                 _ => Layout::SplitH,
@@ -4077,13 +3564,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             return true;
         }
 
-        let focus_path = self.focus_path();
-        let target_key = if focus_path.is_empty() {
-            self.node_key_for_path_or_root(&[])
-        } else {
-            self.node_key_for_path_or_root(&focus_path[..focus_path.len() - 1])
-        };
-        let Some(target_key) = target_key else {
+        let Some(target_key) = self.layout_container_key_for_target(target, root_policy) else {
             return false;
         };
 
@@ -4109,13 +3590,25 @@ impl<W: LayoutElement> ContainerTree<W> {
             return false;
         }
 
-        self.set_focused_layout(next)
+        self.set_layout_for_target(next, target, root_policy)
     }
 
     /// Cycle focused container layout in sway-style order:
     /// SplitH -> SplitV -> Stacked -> Tabbed -> SplitH.
     pub fn toggle_layout_all(&mut self) -> bool {
+        let target = self.command_target(RootPolicy::MaterialContainer);
+        self.toggle_layout_all_for_target(target, RootPolicy::MaterialContainer)
+    }
+
+    pub(in crate::layout) fn toggle_layout_all_for_target(
+        &mut self,
+        target: TreeCommandTarget,
+        root_policy: RootPolicy,
+    ) -> bool {
         if self.root.is_none() {
+            if target != TreeCommandTarget::Workspace {
+                return false;
+            }
             let next = match self.pending_layout.unwrap_or(Layout::SplitH) {
                 Layout::SplitH => Layout::SplitV,
                 Layout::SplitV => Layout::Stacked,
@@ -4127,13 +3620,7 @@ impl<W: LayoutElement> ContainerTree<W> {
             return true;
         }
 
-        let focus_path = self.focus_path();
-        let target_key = if focus_path.is_empty() {
-            self.node_key_for_path_or_root(&[])
-        } else {
-            self.node_key_for_path_or_root(&focus_path[..focus_path.len() - 1])
-        };
-        let Some(target_key) = target_key else {
+        let Some(target_key) = self.layout_container_key_for_target(target, root_policy) else {
             return false;
         };
 
@@ -4898,9 +4385,9 @@ impl<W: LayoutElement> ContainerTree<W> {
         false
     }
 
-    pub fn insert_leaf_in_column(
+    pub fn insert_leaf_in_root_container(
         &mut self,
-        column_idx: usize,
+        root_idx: usize,
         tile_idx: Option<usize>,
         tile: Tile<W>,
         focus: bool,
@@ -4912,19 +4399,20 @@ impl<W: LayoutElement> ContainerTree<W> {
             None => return false,
         };
 
-        if column_idx >= root_container.children.len() {
+        if root_idx >= root_container.children.len() {
             return false;
         }
 
-        let column_key = root_container.child_key(column_idx).unwrap();
+        let Some(root_child_key) = root_container.child_key(root_idx) else {
+            return false;
+        };
 
-        // Check if column is a leaf, if so convert to container
-        if matches!(self.get_node(column_key), Some(NodeData::Leaf(_))) {
+        if matches!(self.get_node(root_child_key), Some(NodeData::Leaf(_))) {
             // Get the existing data first
             let (existing_key, existing_percent, focus_pos) =
                 if let Some(container) = self.get_container_mut(root_key) {
-                    let existing_key = container.children.remove(column_idx);
-                    let existing_percent = container.child_percents.remove(column_idx);
+                    let existing_key = container.children.remove(root_idx);
+                    let existing_percent = container.child_percents.remove(root_idx);
                     let focus_pos = container
                         .focus_stack
                         .iter()
@@ -4935,49 +4423,49 @@ impl<W: LayoutElement> ContainerTree<W> {
                     return false;
                 };
 
-            // Create new column container
-            let mut column_container = ContainerData::new(Layout::SplitV);
-            column_container.add_child(existing_key);
-            let column_container_key = self.insert_node(NodeData::Container(column_container));
-            self.set_parent(existing_key, Some(column_container_key));
+            let mut root_child_container = ContainerData::new(Layout::SplitV);
+            root_child_container.add_child(existing_key);
+            let root_child_container_key =
+                self.insert_node(NodeData::Container(root_child_container));
+            self.set_parent(existing_key, Some(root_child_container_key));
 
             // Insert back
             if let Some(container) = self.get_container_mut(root_key) {
-                container.children.insert(column_idx, column_container_key);
                 container
-                    .child_percents
-                    .insert(column_idx, existing_percent);
+                    .children
+                    .insert(root_idx, root_child_container_key);
+                container.child_percents.insert(root_idx, existing_percent);
                 if let Some(pos) = focus_pos {
-                    container.focus_stack.insert(pos, column_container_key);
-                } else if !container.focus_stack.contains(&column_container_key) {
-                    container.focus_stack.push(column_container_key);
+                    container.focus_stack.insert(pos, root_child_container_key);
+                } else if !container.focus_stack.contains(&root_child_container_key) {
+                    container.focus_stack.push(root_child_container_key);
                 }
                 container.ensure_focus_stack();
                 container.normalize_child_percents();
             }
-            self.set_parent(column_container_key, Some(root_key));
+            self.set_parent(root_child_container_key, Some(root_key));
         }
 
         // Now insert the new tile
-        let column_key = match self.get_container(root_key) {
-            Some(c) => match c.child_key(column_idx) {
+        let root_child_key = match self.get_container(root_key) {
+            Some(c) => match c.child_key(root_idx) {
                 Some(key) => key,
                 None => return false,
             },
             None => return false,
         };
-        let column_container = match self.get_container(column_key) {
+        let root_child_container = match self.get_container(root_child_key) {
             Some(c) => c,
             None => return false,
         };
 
-        let insert_at = tile_idx.unwrap_or(column_container.children.len());
-        let insert_at = insert_at.min(column_container.children.len());
+        let insert_at = tile_idx.unwrap_or(root_child_container.children.len());
+        let insert_at = insert_at.min(root_child_container.children.len());
 
         let tile_key = self.insert_node(NodeData::Leaf(tile));
 
-        if let Some(column_container) = self.get_container_mut(column_key) {
-            column_container.insert_child(insert_at, tile_key);
+        if let Some(root_child_container) = self.get_container_mut(root_child_key) {
+            root_child_container.insert_child(insert_at, tile_key);
 
             if focus {
                 self.focus_node_key(tile_key);
@@ -4987,9 +4475,19 @@ impl<W: LayoutElement> ContainerTree<W> {
                 self.focus_first_leaf();
             }
         }
-        self.set_parent(tile_key, Some(column_key));
+        self.set_parent(tile_key, Some(root_child_key));
 
         true
+    }
+
+    pub fn insert_leaf_in_column(
+        &mut self,
+        column_idx: usize,
+        tile_idx: Option<usize>,
+        tile: Tile<W>,
+        focus: bool,
+    ) -> bool {
+        self.insert_leaf_in_root_container(column_idx, tile_idx, tile, focus)
     }
 
     pub(super) fn insert_parent_info_for_window(
@@ -5090,8 +4588,8 @@ impl<W: LayoutElement> ContainerTree<W> {
         &self,
     ) -> Vec<InactiveTilingReference> {
         let mut chain = Vec::new();
-        // Match sway command-context semantics: when a container is selected
-        // (focus-parent), that selected node is the active reference source.
+        // When a container is selected by focus-parent, that selected node is
+        // the active reference source.
         let Some(mut key) = self
             .selected_node_key()
             .or(self.focused_key)
@@ -6324,200 +5822,17 @@ impl<W: LayoutElement> ContainerTree<W> {
     }
 }
 
-impl ContainerTree<Mapped> {
-    pub fn layout_tree(&self) -> Option<LayoutTreeNode> {
-        let root_key = self.root?;
-        // Expose focus-parent container selection through the observable layout tree while
-        // keeping actual seat/Wayland focus on the focused leaf elsewhere.
-        let focused_key = self.selected_node_key().or_else(|| self.first_leaf_key());
-        Some(self.build_layout_tree_node(
-            root_key,
-            focused_key,
-            &mut Vec::new(),
-            0,
-            None,
-            Point::default(),
-            false,
-        ))
-    }
-
-    pub fn layout_tree_unfocused(&self) -> Option<LayoutTreeNode> {
-        let root_key = self.root?;
-        Some(self.build_layout_tree_node(
-            root_key,
-            None,
-            &mut Vec::new(),
-            0,
-            None,
-            Point::default(),
-            false,
-        ))
-    }
-
-    pub(super) fn layout_tree_with_context(
-        &self,
-        focused_key: Option<NodeKey>,
-        path: &mut Vec<usize>,
-        path_prefix_len: usize,
-        offset: Point<f64, Logical>,
-        is_floating: bool,
-    ) -> Option<LayoutTreeNode> {
-        let root_key = self.root?;
-        Some(self.build_layout_tree_node(
-            root_key,
-            focused_key,
-            path,
-            path_prefix_len,
-            None,
-            offset,
-            is_floating,
-        ))
-    }
-
-    fn build_layout_tree_node(
-        &self,
-        node_key: NodeKey,
-        focused_key: Option<NodeKey>,
-        path: &mut Vec<usize>,
-        path_prefix_len: usize,
-        percent: Option<f64>,
-        offset: Point<f64, Logical>,
-        is_floating: bool,
-    ) -> LayoutTreeNode {
-        match self.get_node(node_key) {
-            Some(NodeData::Leaf(tile)) => {
-                let window = tile.window();
-                let (title, app_id) = with_toplevel_role(window.toplevel(), |role| {
-                    (role.title.clone(), role.app_id.clone())
-                });
-
-                LayoutTreeNode {
-                    path: path.clone(),
-                    layout: None,
-                    window_id: Some(window.id().get()),
-                    title,
-                    app_id,
-                    pid: window.credentials().map(|credentials| credentials.pid),
-                    focused: focused_key == Some(node_key),
-                    is_floating,
-                    visible: self
-                        .leaf_layouts
-                        .iter()
-                        .find(|info| info.key == node_key)
-                        .is_none_or(|info| info.visible),
-                    is_urgent: window.is_urgent(),
-                    is_sticky: tile.is_sticky(),
-                    is_scratchpad: tile.is_scratchpad(),
-                    marks: tile.marks().to_vec(),
-                    rect: self.node_rect(node_key, &path[path_prefix_len..], offset),
-                    percent,
-                    children: Vec::new(),
-                }
-            }
-            Some(NodeData::Container(container)) => {
-                let child_count = container.child_count();
-                let percents_sum: f64 = container.child_percents_slice().iter().copied().sum();
-                let percents =
-                    self.get_normalized_child_percents(node_key, child_count, percents_sum);
-                let mut children = Vec::with_capacity(child_count);
-
-                for (idx, child_key) in container.children.iter().enumerate() {
-                    path.push(idx);
-                    children.push(self.build_layout_tree_node(
-                        *child_key,
-                        focused_key,
-                        path,
-                        path_prefix_len,
-                        percents.get(idx).copied(),
-                        offset,
-                        is_floating,
-                    ));
-                    path.pop();
-                }
-
-                LayoutTreeNode {
-                    path: path.clone(),
-                    layout: Some(layout_to_ipc(container.layout())),
-                    window_id: None,
-                    title: None,
-                    app_id: None,
-                    pid: None,
-                    focused: focused_key == Some(node_key),
-                    is_floating,
-                    visible: children.iter().any(|child| child.visible),
-                    is_urgent: children.iter().any(|child| child.is_urgent),
-                    is_sticky: children.iter().any(|child| child.is_sticky),
-                    is_scratchpad: children.iter().any(|child| child.is_scratchpad),
-                    marks: Vec::new(),
-                    rect: self.node_rect(node_key, &path[path_prefix_len..], offset),
-                    percent,
-                    children,
-                }
-            }
-            None => LayoutTreeNode {
-                path: path.clone(),
-                layout: None,
-                window_id: None,
-                title: None,
-                app_id: None,
-                pid: None,
-                focused: false,
-                is_floating,
-                visible: false,
-                is_urgent: false,
-                is_sticky: false,
-                is_scratchpad: false,
-                marks: Vec::new(),
-                rect: None,
-                percent,
-                children: Vec::new(),
-            },
-        }
-    }
-
-    fn node_rect(
-        &self,
-        node_key: NodeKey,
-        path: &[usize],
-        offset: Point<f64, Logical>,
-    ) -> Option<LayoutTreeRect> {
-        let rect = match self.get_node(node_key)? {
-            NodeData::Leaf(_) => self
-                .leaf_layouts
-                .iter()
-                .find(|info| info.key == node_key)
-                .map(|info| info.rect)
-                .or_else(|| {
-                    if path.is_empty() {
-                        return Some(self.layout_area());
-                    }
-                    let (&child_idx, parent_path) = path.split_last()?;
-                    self.child_rect_at(parent_path, child_idx)
-                })?,
-            NodeData::Container(container) => container.geometry(),
+fn reconcile_leaf_layouts(
+    layouts: &mut Vec<LeafLayoutInfo>,
+    current_paths: &HashMap<NodeKey, Vec<usize>>,
+) {
+    layouts.retain_mut(|info| {
+        let Some(path) = current_paths.get(&info.key) else {
+            return false;
         };
-
-        Some(rect_to_ipc(rect, offset))
-    }
-}
-
-fn layout_to_ipc(layout: Layout) -> LayoutTreeLayout {
-    match layout {
-        Layout::SplitH => LayoutTreeLayout::SplitH,
-        Layout::SplitV => LayoutTreeLayout::SplitV,
-        Layout::Tabbed => LayoutTreeLayout::Tabbed,
-        Layout::Stacked => LayoutTreeLayout::Stacked,
-    }
-}
-
-fn rect_to_ipc(rect: Rectangle<f64, Logical>, offset: Point<f64, Logical>) -> LayoutTreeRect {
-    let loc = rect.loc + offset;
-    LayoutTreeRect {
-        x: loc.x,
-        y: loc.y,
-        width: rect.size.w,
-        height: rect.size.h,
-    }
+        info.path.clone_from(path);
+        true
+    });
 }
 
 // ============================================================================

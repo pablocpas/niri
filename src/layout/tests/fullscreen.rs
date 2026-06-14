@@ -821,7 +821,7 @@ fn fullscreen_focus_parent_is_noop_like_sway() {
 
     let workspace = layout.active_workspace().expect("active workspace");
     assert_eq!(layout.focus().map(|win| *win.id()), Some(3));
-    assert_eq!(workspace.debug_handler_context(), "tiling_window");
+    assert_eq!(workspace.debug_command_target(), "tiling_window");
     assert!(
         !workspace.is_tiling_workspace_context_active(),
         "focus_parent should not enter workspace context while fullscreen is active"

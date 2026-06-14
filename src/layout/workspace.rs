@@ -57,10 +57,10 @@ pub struct Workspace<W: LayoutElement> {
     /// Whether the floating layout is active instead of the tiling layout.
     floating_is_active: FloatingActive,
 
-    /// Match sway command-context where focus can be on workspace while the seat is
+    /// Command context can represent focus can be on workspace while the seat is
     /// still on floating mode (no active floating container target).
     floating_workspace_context: bool,
-    /// Match sway command-context where focus can be on workspace while tiling remains active.
+    /// Command context can represent focus can be on workspace while tiling remains active.
     tiling_workspace_context: bool,
 
     /// seat->focus_stack equivalent for tiling restore targets (MRU at index 0).
@@ -220,7 +220,7 @@ enum CommandContext {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum HandlerContext {
+enum CommandTarget {
     TilingWindow,
     TilingContainer,
     FloatingWindow,
@@ -246,9 +246,10 @@ enum RouteDomain {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ResolvedCommandRoute {
-    handler_context: HandlerContext,
+    command_target: CommandTarget,
     command_context: CommandContext,
-    domain: RouteDomain,
+    default_domain: RouteDomain,
+    floating_workspace_container_selected: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,51 +283,68 @@ impl FloatingActive {
     }
 }
 
-impl HandlerContext {
+impl CommandTarget {
     fn command_context(self) -> CommandContext {
         match self {
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
-                CommandContext::Tiling
-            }
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => CommandContext::Tiling,
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 CommandContext::Floating
             }
-            HandlerContext::Workspace => CommandContext::Workspace,
+            CommandTarget::Workspace => CommandContext::Workspace,
         }
     }
 
     fn targets_container(self) -> bool {
         matches!(
             self,
-            HandlerContext::TilingContainer | HandlerContext::FloatingContainer
+            CommandTarget::TilingContainer | CommandTarget::FloatingContainer
         )
     }
 
     fn has_window_target(self) -> bool {
         matches!(
             self,
-            HandlerContext::TilingWindow | HandlerContext::FloatingWindow
+            CommandTarget::TilingWindow | CommandTarget::FloatingWindow
         )
     }
 }
 
 impl ResolvedCommandRoute {
-    fn new(handler_context: HandlerContext) -> Self {
-        let command_context = handler_context.command_context();
-        let domain = match command_context {
+    fn new(command_target: CommandTarget, floating_workspace_container_selected: bool) -> Self {
+        let command_context = command_target.command_context();
+        let default_domain = match command_context {
             CommandContext::Tiling => RouteDomain::Tiling,
             CommandContext::Floating => RouteDomain::Floating,
             CommandContext::Workspace => RouteDomain::Workspace,
         };
         Self {
-            handler_context,
+            command_target,
             command_context,
-            domain,
+            default_domain,
+            floating_workspace_container_selected: matches!(
+                command_target,
+                CommandTarget::Workspace
+            ) && floating_workspace_container_selected,
         }
     }
 
-    fn domain_for_family(self, _family: CommandFamily) -> RouteDomain {
-        self.domain
+    fn domain_for_family(self, family: CommandFamily) -> RouteDomain {
+        if self.floating_workspace_container_selected {
+            return match family {
+                CommandFamily::Focus => RouteDomain::Workspace,
+                CommandFamily::Split | CommandFamily::Layout => RouteDomain::Floating,
+                CommandFamily::MoveDirectional | CommandFamily::MoveContainer => {
+                    self.default_domain
+                }
+            };
+        }
+
+        self.default_domain
+    }
+
+    fn preserves_floating_workspace_context_for_family(self, family: CommandFamily) -> bool {
+        self.floating_workspace_container_selected
+            && matches!(family, CommandFamily::Split | CommandFamily::Layout)
     }
 }
 
@@ -541,7 +559,7 @@ impl<W: LayoutElement> Workspace<W> {
             return None;
         }
 
-        // Match sway-style default: 50% width x 75% height of the working area.
+        // Floating default: 50% width x 75% height of the working area.
         let working_size = self.floating.working_area().size;
         let mut size = Size::from((working_size.w * 0.5, working_size.h * 0.75)).to_i32_floor();
 
@@ -740,67 +758,52 @@ impl<W: LayoutElement> Workspace<W> {
         })
     }
 
-    fn handler_context(&self) -> HandlerContext {
-        // Match sway semantics: no floating command context exists when there are
+    fn command_target(&self) -> CommandTarget {
+        // Command routing: no floating command context exists when there are
         // no floating containers in the workspace.
         if self.floating.is_empty() || !self.floating_is_active.get() {
             if self.tiling.is_empty() || self.tiling_workspace_context {
-                return HandlerContext::Workspace;
+                return CommandTarget::Workspace;
             }
             return if self.tiling.selected_is_container() {
-                HandlerContext::TilingContainer
+                CommandTarget::TilingContainer
             } else {
-                HandlerContext::TilingWindow
+                CommandTarget::TilingWindow
             };
         }
 
         if self.floating_workspace_context {
-            return HandlerContext::Workspace;
+            return CommandTarget::Workspace;
         }
 
         if self.floating.active_wrapper_selected() || self.floating.selected_is_container(None) {
-            HandlerContext::FloatingContainer
+            CommandTarget::FloatingContainer
         } else {
-            HandlerContext::FloatingWindow
+            CommandTarget::FloatingWindow
         }
     }
 
     fn resolved_command_route(&self) -> ResolvedCommandRoute {
-        ResolvedCommandRoute::new(self.handler_context())
+        ResolvedCommandRoute::new(
+            self.command_target(),
+            self.floating.active_command_container_selected(),
+        )
     }
 
     fn route_domain_for_family(&self, family: CommandFamily) -> RouteDomain {
-        let resolved = self.resolved_command_route();
-        if matches!(resolved.handler_context, HandlerContext::Workspace)
-            && self.floating.active_command_container_path().is_some()
-        {
-            return match family {
-                CommandFamily::Focus => RouteDomain::Workspace,
-                CommandFamily::Split | CommandFamily::Layout => RouteDomain::Floating,
-                CommandFamily::MoveDirectional | CommandFamily::MoveContainer => {
-                    resolved.domain_for_family(family)
-                }
-            };
-        }
-
-        resolved.domain_for_family(family)
+        self.resolved_command_route().domain_for_family(family)
     }
 
     fn preserves_floating_workspace_context_for_family(&self, family: CommandFamily) -> bool {
-        matches!(self.handler_context(), HandlerContext::Workspace)
-            && self.floating.active_command_container_path().is_some()
-            && matches!(family, CommandFamily::Split | CommandFamily::Layout)
+        self.resolved_command_route()
+            .preserves_floating_workspace_context_for_family(family)
     }
 
-    pub fn focus_mode_toggle_target_is_floating_like_sway(&self) -> bool {
-        match self.resolved_command_route().handler_context {
-            // sway `focus mode_toggle` toggles to floating when there is no
-            // container in handler context (workspace level).
-            HandlerContext::Workspace => true,
-            // Floating container/window context toggles toward tiling.
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => false,
-            // Tiling container/window context toggles toward floating.
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => true,
+    pub fn focus_mode_toggle_targets_floating(&self) -> bool {
+        match self.resolved_command_route().command_target {
+            CommandTarget::Workspace => true,
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => false,
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => true,
         }
     }
 
@@ -826,28 +829,28 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn active_selection_is_container(&self) -> bool {
         self.resolved_command_route()
-            .handler_context
+            .command_target
             .targets_container()
     }
 
     pub fn active_command_has_window_target(&self) -> bool {
         self.resolved_command_route()
-            .handler_context
+            .command_target
             .has_window_target()
     }
 
     pub fn close_window_ids_for_active_selection(&self) -> Vec<W::Id> {
-        match self.resolved_command_route().handler_context {
-            HandlerContext::Workspace => {
+        match self.resolved_command_route().command_target {
+            CommandTarget::Workspace => {
                 return self.windows().map(|window| window.id().clone()).collect();
             }
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 let ids = self.floating.close_window_ids_for_active_selection();
                 if !ids.is_empty() {
                     return ids;
                 }
             }
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
                 let ids = self.tiling.close_window_ids_for_active_selection();
                 if !ids.is_empty() {
                     return ids;
@@ -985,19 +988,19 @@ impl<W: LayoutElement> Workspace<W> {
     ) {
         self.enter_output_for_window(tile.window());
         let floating_active = self.floating_is_active.get();
-        let handler_context = self.handler_context();
-        let workspace_command_context = matches!(handler_context, HandlerContext::Workspace);
+        let command_target = self.command_target();
+        let workspace_command_context = matches!(command_target, CommandTarget::Workspace);
 
         match target {
             WorkspaceAddWindowTarget::Auto => {
-                // Match sway: only a focused floating window inside an explicitly
+                // Model rule: only a focused floating window inside an explicitly
                 // split/grouped floating container auto-groups the next normal
                 // window into floating. Floating container/workspace contexts do not.
                 let grouped_floating = !is_floating
                     && floating_active
                     && !self.floating.active_container_is_workspace_floated()
                     && self.floating.active_container_allows_splits()
-                    && (matches!(handler_context, HandlerContext::FloatingWindow)
+                    && (matches!(command_target, CommandTarget::FloatingWindow)
                         || self.floating.active_wrapper_selected());
                 let wants_floating = is_floating || grouped_floating;
                 let has_tiling_fullscreen = self.tiling.has_fullscreen_window();
@@ -1009,8 +1012,8 @@ impl<W: LayoutElement> Workspace<W> {
                 let keep_floating_focus = floating_active
                     && !wants_floating
                     && (workspace_command_context
-                        || matches!(handler_context, HandlerContext::FloatingContainer));
-                // Match sway: when a floating container is selected (focus-parent context),
+                        || matches!(command_target, CommandTarget::FloatingContainer));
+                // Model rule: when a floating container is selected (focus-parent context),
                 // opening a new floating window inserts into that container without stealing
                 // selection/focus from the container command target.
                 let keep_floating_container_selection =
@@ -1020,7 +1023,7 @@ impl<W: LayoutElement> Workspace<W> {
                 } else if keep_floating_container_selection {
                     false
                 } else if !wants_floating && has_tiling_fullscreen {
-                    // Match sway: while a tiling window is fullscreen, newly opened tiling windows
+                    // Model rule: while a tiling window is fullscreen, newly opened tiling windows
                     // should not steal focus.
                     false
                 } else {
@@ -1158,9 +1161,9 @@ impl<W: LayoutElement> Workspace<W> {
         }
     }
 
-    pub fn add_tile_to_column(
+    pub fn add_tile_to_root_container(
         &mut self,
-        col_idx: usize,
+        root_idx: usize,
         tile_idx: Option<usize>,
         mut tile: Tile<W>,
         activate: bool,
@@ -1168,12 +1171,22 @@ impl<W: LayoutElement> Workspace<W> {
         tile.set_scratchpad(false);
         self.enter_output_for_window(tile.window());
         self.tiling
-            .add_tile_to_column(col_idx, tile_idx, tile, activate);
+            .add_tile_to_root_container(root_idx, tile_idx, tile, activate);
 
         if activate {
             self.floating_is_active = FloatingActive::No;
             self.sync_tiling_focus_context_from_tiling();
         }
+    }
+
+    pub fn add_tile_to_column(
+        &mut self,
+        col_idx: usize,
+        tile_idx: Option<usize>,
+        tile: Tile<W>,
+        activate: bool,
+    ) {
+        self.add_tile_to_root_container(col_idx, tile_idx, tile, activate);
     }
 
     pub(super) fn tiling_insert_parent_info(&self, window: &W::Id) -> Option<InsertParentInfo> {
@@ -1195,8 +1208,7 @@ impl<W: LayoutElement> Workspace<W> {
     ) -> Option<(InsertParentInfo, InactiveTilingRestoreSource)> {
         let debug_restore = std::env::var_os("TIRI_PARITY_DEBUG_RESTORE").is_some();
 
-        // Match sway seat_get_focus_inactive_tiling():
-        // if workspace has no tiling nodes, there is no inactive tiling target.
+        // If the workspace has no tiling nodes, there is no inactive tiling target.
         if self.tiling.windows().next().is_none() {
             if debug_restore {
                 eprintln!("restore_target: no tiling windows");
@@ -1211,7 +1223,7 @@ impl<W: LayoutElement> Workspace<W> {
             );
         }
 
-        // Match sway: restore target for floating->tiling comes from the seat
+        // Model rule: restore target for floating->tiling comes from the seat
         // inactive focus stack first (seat_get_focus_inactive_tiling()).
         let idx = 0;
         while idx < self.inactive_tiling_focus_stack.len() {
@@ -1277,8 +1289,8 @@ impl<W: LayoutElement> Workspace<W> {
 
     fn remember_current_tiling_reference(&mut self) {
         if matches!(
-            self.resolved_command_route().handler_context,
-            HandlerContext::Workspace
+            self.resolved_command_route().command_target,
+            CommandTarget::Workspace
         ) {
             return;
         }
@@ -1334,29 +1346,27 @@ impl<W: LayoutElement> Workspace<W> {
         focused
     }
 
-    fn window_is_fullscreen_like_sway(&self, window: &W) -> bool {
+    fn window_has_fullscreen_focus_scope(&self, window: &W) -> bool {
         self.tiling.is_fullscreen(window)
             || window.pending_sizing_mode().is_fullscreen()
             || window.is_pending_windowed_fullscreen()
     }
 
-    pub(super) fn tiling_reference_focusable_like_sway(
+    pub(super) fn tiling_reference_focusable(
         &self,
         reference: &super::container::InactiveTilingReference,
         strict: bool,
     ) -> bool {
-        // Match sway seat_set_focus() fullscreen constraints:
-        // if any fullscreen container obscures the target, focus change is denied.
         let any_fullscreen = self
             .windows()
-            .any(|window| self.window_is_fullscreen_like_sway(window));
+            .any(|window| self.window_has_fullscreen_focus_scope(window));
         if !any_fullscreen {
             return true;
         }
 
         self.tiling
             .window_for_inactive_tiling_reference(reference, strict)
-            .is_some_and(|window| self.window_is_fullscreen_like_sway(window))
+            .is_some_and(|window| self.window_has_fullscreen_focus_scope(window))
     }
 
     pub(super) fn focus_floating_window(&mut self, id: &W::Id, raise: bool) -> bool {
@@ -1716,27 +1726,27 @@ impl<W: LayoutElement> Workspace<W> {
         }
     }
 
-    pub fn focus_column_first(&mut self) {
-        match self.handler_context() {
-            HandlerContext::Workspace => {}
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+    pub fn focus_root_container_first(&mut self) {
+        match self.command_target() {
+            CommandTarget::Workspace => {}
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 self.floating.focus_leftmost();
             }
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
-                self.tiling.focus_column_first();
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
+                self.tiling.focus_root_container_first();
                 self.sync_tiling_focus_context_from_tiling();
             }
         }
     }
 
-    pub fn focus_column_last(&mut self) {
-        match self.handler_context() {
-            HandlerContext::Workspace => {}
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+    pub fn focus_root_container_last(&mut self) {
+        match self.command_target() {
+            CommandTarget::Workspace => {}
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 self.floating.focus_rightmost();
             }
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
-                self.tiling.focus_column_last();
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
+                self.tiling.focus_root_container_last();
                 self.sync_tiling_focus_context_from_tiling();
             }
         }
@@ -1744,30 +1754,46 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn focus_column_right_or_first(&mut self) {
         if !self.focus_right() {
-            self.focus_column_first();
+            self.focus_root_container_first();
         }
     }
 
     pub fn focus_column_left_or_last(&mut self) {
         if !self.focus_left() {
-            self.focus_column_last();
+            self.focus_root_container_last();
         }
     }
 
-    pub fn focus_column(&mut self, index: usize) {
+    pub fn focus_column_first(&mut self) {
+        self.focus_root_container_first();
+    }
+
+    pub fn focus_column_last(&mut self) {
+        self.focus_root_container_last();
+    }
+
+    pub fn focus_root_container(&mut self, index: usize) {
         if self.floating_is_active.get() {
             self.focus_tiling();
         }
-        self.tiling.focus_column(index);
+        self.tiling.focus_root_container(index);
         self.sync_tiling_focus_context_from_tiling();
     }
 
-    pub fn focus_window_in_column(&mut self, index: u8) {
+    pub fn focus_leaf_in_root_container(&mut self, index: u8) {
         if self.floating_is_active.get() {
             return;
         }
-        self.tiling.focus_window_in_column(index);
+        self.tiling.focus_leaf_in_root_container(index);
         self.sync_tiling_focus_context_from_tiling();
+    }
+
+    pub fn focus_column(&mut self, index: usize) {
+        self.focus_root_container(index);
+    }
+
+    pub fn focus_window_in_column(&mut self, index: u8) {
+        self.focus_leaf_in_root_container(index);
     }
 
     pub fn focus_down(&mut self) -> bool {
@@ -1795,12 +1821,12 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn focus_down_or_left(&mut self) {
-        match self.handler_context() {
-            HandlerContext::Workspace => {}
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+        match self.command_target() {
+            CommandTarget::Workspace => {}
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 self.floating.focus_down();
             }
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
                 self.tiling.focus_down_or_left();
                 self.sync_tiling_focus_context_from_tiling();
             }
@@ -1808,12 +1834,12 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn focus_down_or_right(&mut self) {
-        match self.handler_context() {
-            HandlerContext::Workspace => {}
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+        match self.command_target() {
+            CommandTarget::Workspace => {}
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 self.floating.focus_down();
             }
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
                 self.tiling.focus_down_or_right();
                 self.sync_tiling_focus_context_from_tiling();
             }
@@ -1821,12 +1847,12 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn focus_up_or_left(&mut self) {
-        match self.handler_context() {
-            HandlerContext::Workspace => {}
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+        match self.command_target() {
+            CommandTarget::Workspace => {}
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 self.floating.focus_up();
             }
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
                 self.tiling.focus_up_or_left();
                 self.sync_tiling_focus_context_from_tiling();
             }
@@ -1834,12 +1860,12 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn focus_up_or_right(&mut self) {
-        match self.handler_context() {
-            HandlerContext::Workspace => {}
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+        match self.command_target() {
+            CommandTarget::Workspace => {}
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 self.floating.focus_up();
             }
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
                 self.tiling.focus_up_or_right();
                 self.sync_tiling_focus_context_from_tiling();
             }
@@ -1847,12 +1873,12 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn focus_window_top(&mut self) {
-        match self.handler_context() {
-            HandlerContext::Workspace => {}
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+        match self.command_target() {
+            CommandTarget::Workspace => {}
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 self.floating.focus_topmost();
             }
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
                 self.tiling.focus_top();
                 self.sync_tiling_focus_context_from_tiling();
             }
@@ -1860,12 +1886,12 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn focus_window_bottom(&mut self) {
-        match self.handler_context() {
-            HandlerContext::Workspace => {}
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+        match self.command_target() {
+            CommandTarget::Workspace => {}
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 self.floating.focus_bottommost();
             }
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
                 self.tiling.focus_bottom();
                 self.sync_tiling_focus_context_from_tiling();
             }
@@ -1910,8 +1936,8 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub(super) fn focus_entry_from_output_direction(&mut self, direction: Direction) -> bool {
         if self.tiling.has_fullscreen_window() {
-            // Match sway get_node_in_output_direction(): fullscreen workspace target resolves to
-            // the inactive focus under the fullscreen subtree. Keep tiling active as-is.
+            // Fullscreen workspace targets resolve to the inactive focus under
+            // the fullscreen subtree. Keep tiling active as-is.
             self.floating_is_active = FloatingActive::No;
             self.sync_tiling_focus_context_from_tiling();
             return true;
@@ -1933,14 +1959,14 @@ impl<W: LayoutElement> Workspace<W> {
             }
         };
         if !use_edge {
-            // Match sway get_node_in_output_direction():
-            // for non-parallel workspace layout, caller should use seat-level inactive tiling.
+            // For non-parallel workspace layout, caller should use seat-level
+            // inactive tiling.
             return false;
         }
 
         match direction {
-            Direction::Left | Direction::Up => self.tiling.focus_column_last(),
-            Direction::Right | Direction::Down => self.tiling.focus_column_first(),
+            Direction::Left | Direction::Up => self.tiling.focus_root_container_last(),
+            Direction::Right | Direction::Down => self.tiling.focus_root_container_first(),
         }
         self.floating_is_active = FloatingActive::No;
         self.sync_tiling_focus_context_from_tiling();
@@ -1951,7 +1977,7 @@ impl<W: LayoutElement> Workspace<W> {
         !self.tiling.is_empty()
     }
 
-    pub(super) fn focus_workspace_node_like_sway(&mut self) {
+    pub(super) fn focus_workspace_node(&mut self) {
         self.tiling.clear_selection_context();
         self.floating.clear_selection_context();
         if self.floating.is_empty() {
@@ -1960,8 +1986,7 @@ impl<W: LayoutElement> Workspace<W> {
             return;
         }
 
-        // Match sway return &ws->node in get_node_in_output_direction():
-        // workspace becomes command context while floating mode stays active.
+        // The workspace becomes command context while floating mode stays active.
         self.floating_is_active = FloatingActive::Yes;
         self.floating_workspace_context = true;
     }
@@ -2018,7 +2043,7 @@ impl<W: LayoutElement> Workspace<W> {
     pub fn move_container_left(&mut self) -> bool {
         match self.route_domain_for_family(CommandFamily::MoveContainer) {
             RouteDomain::Workspace => false,
-            RouteDomain::Tiling => self.tiling.move_column_left(),
+            RouteDomain::Tiling => self.tiling.move_left(),
             RouteDomain::Floating => false,
         }
     }
@@ -2030,7 +2055,7 @@ impl<W: LayoutElement> Workspace<W> {
     pub fn move_container_right(&mut self) -> bool {
         match self.route_domain_for_family(CommandFamily::MoveContainer) {
             RouteDomain::Workspace => false,
-            RouteDomain::Tiling => self.tiling.move_column_right(),
+            RouteDomain::Tiling => self.tiling.move_right(),
             RouteDomain::Floating => false,
         }
     }
@@ -2042,7 +2067,7 @@ impl<W: LayoutElement> Workspace<W> {
     pub fn move_container_to_first(&mut self) {
         match self.route_domain_for_family(CommandFamily::MoveContainer) {
             RouteDomain::Workspace => {}
-            RouteDomain::Tiling => self.tiling.move_column_to_first(),
+            RouteDomain::Tiling => self.tiling.move_root_container_to_first(),
             RouteDomain::Floating => {}
         }
     }
@@ -2054,7 +2079,7 @@ impl<W: LayoutElement> Workspace<W> {
     pub fn move_container_to_last(&mut self) {
         match self.route_domain_for_family(CommandFamily::MoveContainer) {
             RouteDomain::Workspace => {}
-            RouteDomain::Tiling => self.tiling.move_column_to_last(),
+            RouteDomain::Tiling => self.tiling.move_root_container_to_last(),
             RouteDomain::Floating => {}
         }
     }
@@ -2067,7 +2092,7 @@ impl<W: LayoutElement> Workspace<W> {
         match self.route_domain_for_family(CommandFamily::MoveContainer) {
             RouteDomain::Workspace => {}
             RouteDomain::Tiling => {
-                self.tiling.move_column_to_index(index);
+                self.tiling.move_root_container_to_index(index);
             }
             RouteDomain::Floating => {}
         }
@@ -2140,12 +2165,12 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn swap_window_in_direction(&mut self, direction: Direction) {
-        match self.handler_context() {
-            HandlerContext::Workspace => {}
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+        match self.command_target() {
+            CommandTarget::Workspace => {}
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 self.floating.swap_window_in_direction(direction);
             }
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
                 self.tiling.swap_window_in_direction(direction);
             }
         }
@@ -2262,13 +2287,13 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn focus_parent(&mut self) {
-        match self.handler_context() {
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
-                // Match sway: when floating focus reaches above the floating container,
+        match self.command_target() {
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
+                // Model rule: when floating focus reaches above the floating container,
                 // command context moves to workspace while floating mode remains active.
                 self.floating_workspace_context = !self.floating.focus_parent();
             }
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
                 if self.tiling.focus_parent_targets_workspace() {
                     let _ = self.tiling.select_root_container();
                     self.tiling_workspace_context = true;
@@ -2277,20 +2302,20 @@ impl<W: LayoutElement> Workspace<W> {
                     self.sync_tiling_focus_context_from_tiling();
                 }
             }
-            HandlerContext::Workspace => {}
+            CommandTarget::Workspace => {}
         }
     }
 
     pub fn focus_child(&mut self) {
-        match self.handler_context() {
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+        match self.command_target() {
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 self.floating.focus_child();
             }
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
                 self.tiling.focus_child();
                 self.sync_tiling_focus_context_from_tiling();
             }
-            HandlerContext::Workspace => {
+            CommandTarget::Workspace => {
                 if self.floating_is_active.get() {
                     if self.floating_workspace_context && self.floating.focus_child() {
                         self.floating_workspace_context = false;
@@ -2307,7 +2332,7 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn split_horizontal(&mut self) {
         match self.route_domain_for_family(CommandFamily::Split) {
-            // Sway: cmd_split works in both floating and tiling.
+            // Model rule: cmd_split works in both floating and tiling.
             RouteDomain::Workspace => self.tiling.split_workspace_horizontal(),
             RouteDomain::Tiling => self.tiling.split_horizontal(),
             RouteDomain::Floating => {
@@ -2321,7 +2346,7 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn split_vertical(&mut self) {
         match self.route_domain_for_family(CommandFamily::Split) {
-            // Sway: cmd_split works in both floating and tiling.
+            // Model rule: cmd_split works in both floating and tiling.
             RouteDomain::Workspace => self.tiling.split_workspace_vertical(),
             RouteDomain::Tiling => self.tiling.split_vertical(),
             RouteDomain::Floating => {
@@ -2360,12 +2385,12 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     pub fn toggle_layout_all(&mut self) {
-        match self.handler_context() {
-            HandlerContext::Workspace => self.tiling.toggle_workspace_layout_all(),
-            HandlerContext::TilingWindow | HandlerContext::TilingContainer => {
+        match self.command_target() {
+            CommandTarget::Workspace => self.tiling.toggle_workspace_layout_all(),
+            CommandTarget::TilingWindow | CommandTarget::TilingContainer => {
                 self.tiling.toggle_layout_all()
             }
-            HandlerContext::FloatingWindow | HandlerContext::FloatingContainer => {
+            CommandTarget::FloatingWindow | CommandTarget::FloatingContainer => {
                 self.floating_workspace_context = false;
                 self.floating.toggle_layout_all();
             }
@@ -2494,11 +2519,11 @@ impl<W: LayoutElement> Workspace<W> {
         let preserve_workspace_context_on_unfloat = command_context == CommandContext::Workspace;
 
         if id.is_none() && command_context == CommandContext::Workspace {
-            // Match sway cmd_floating() routing:
+            // Floating command routing:
             // - if a floating container is still selected at command level, target it;
             // - otherwise workspace context with tiling children targets workspace tiling;
             // - workspace context with empty tiling is a no-op.
-            if self.floating.active_command_container_path().is_some() {
+            if self.floating.active_command_container_selected() {
                 command_context = CommandContext::Floating;
             } else if self.tiling.is_empty() {
                 return;
@@ -2514,7 +2539,7 @@ impl<W: LayoutElement> Workspace<W> {
         {
             self.floating
                 .active_command_container_path()
-                // Match sway: unfloating from a floating wrapper/root focus
+                // Model rule: unfloating from a floating wrapper/root focus
                 // must not restore a workspace-level container selection.
                 .filter(|path| !path.is_empty())
         } else {
@@ -2537,7 +2562,7 @@ impl<W: LayoutElement> Workspace<W> {
         if !explicit_window
             && target_is_active
             && command_context == CommandContext::Workspace
-            && self.floating.active_command_container_path().is_none()
+            && !self.floating.active_command_container_selected()
             && !self.tiling.is_empty()
         {
             if let Some((subtree, rect)) = self.tiling.take_workspace_subtree_for_floating() {
@@ -2558,7 +2583,7 @@ impl<W: LayoutElement> Workspace<W> {
             return;
         }
 
-        // Match sway: if a tiling container is selected (focus-parent semantics),
+        // Model rule: if a tiling container is selected (focus-parent semantics),
         // floating toggle targets that selected container even if floating focus mode
         // is currently active.
         if !explicit_window
@@ -2605,17 +2630,16 @@ impl<W: LayoutElement> Workspace<W> {
         }
 
         if self.floating.has_window(&id) {
-            // Floating → Tiling: sway's container_set_floating(false) inserts directly
-            // using the inactive tiling reference. No tree collapse/normalization.
+            // Floating -> Tiling inserts directly using the inactive tiling
+            // reference. No tree collapse/normalization.
             if !explicit_window {
                 if let Some((subtree, origin, _rect)) = self.floating.take_container_subtree(&id) {
-                    // Match sway floating->tiling restore: internal implicit single-child
-                    // split wrappers from floating must not materialize in tiling.
+                    // Internal implicit single-child split wrappers from
+                    // floating must not materialize in tiling.
                     let subtree = subtree.collapse_implicit_single_child_split_root();
                     let tiling_was_empty = self.tiling.is_empty();
-                    // Match sway container_set_floating(false): when tiling is empty, do not
-                    // restore against inactive references/origin; insert directly as workspace
-                    // tiling root.
+                    // When tiling is empty, do not restore against inactive
+                    // references/origin; insert directly as workspace tiling root.
                     let restore_info = if tiling_was_empty {
                         None
                     } else {
@@ -3407,13 +3431,13 @@ impl<W: LayoutElement> Workspace<W> {
     }
 
     #[cfg(test)]
-    pub fn debug_handler_context(&self) -> &'static str {
-        match self.resolved_command_route().handler_context {
-            HandlerContext::Workspace => "workspace",
-            HandlerContext::TilingWindow => "tiling_window",
-            HandlerContext::TilingContainer => "tiling_container",
-            HandlerContext::FloatingWindow => "floating_window",
-            HandlerContext::FloatingContainer => "floating_container",
+    pub fn debug_command_target(&self) -> &'static str {
+        match self.resolved_command_route().command_target {
+            CommandTarget::Workspace => "workspace",
+            CommandTarget::TilingWindow => "tiling_window",
+            CommandTarget::TilingContainer => "tiling_container",
+            CommandTarget::FloatingWindow => "floating_window",
+            CommandTarget::FloatingContainer => "floating_container",
         }
     }
 
@@ -3501,6 +3525,19 @@ impl<W: LayoutElement> Workspace<W> {
         assert_eq!(
             self.background_buffer.color().components(),
             options.layout.background_color.to_array_unpremul(),
+        );
+
+        assert!(
+            !(self.floating_workspace_context && self.tiling_workspace_context),
+            "workspace command context cannot be both floating and tiling"
+        );
+        assert!(
+            !self.floating_workspace_context || self.floating_is_active.get(),
+            "floating workspace command context requires floating focus mode"
+        );
+        assert!(
+            !self.tiling_workspace_context || !self.floating_is_active.get(),
+            "tiling workspace command context requires tiling focus mode"
         );
 
         assert_eq!(self.view_size, self.tiling.view_size());

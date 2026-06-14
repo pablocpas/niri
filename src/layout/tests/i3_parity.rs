@@ -1536,6 +1536,41 @@ fn i3_124_move_window_out_of_split_on_layout_mismatch() {
     "
     );
 }
+
+#[test]
+fn i3_124_move_container_right_moves_focused_leaf_out_of_nested_split() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(2),
+        },
+        Op::FocusWindow(1),
+        Op::SplitVertical,
+        Op::AddWindow {
+            params: TestWindowParams::new(3),
+        },
+    ]);
+
+    layout.move_container_right();
+    layout.verify_invariants();
+
+    let workspace = layout.active_workspace().expect("active workspace");
+    let tree = workspace.tiling().debug_tree();
+    assert_snapshot!(
+        tree.as_str(),
+        @"
+    SplitH
+      SplitV
+        Window 1
+      Window 3 *
+      Window 2
+    "
+    );
+}
+
 #[test]
 fn i3_145_move_up_then_right_flattens_back_to_root_siblings() {
     let mut harness = TreeHarness::new();

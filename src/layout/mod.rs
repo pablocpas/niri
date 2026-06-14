@@ -390,7 +390,7 @@ pub struct Layout<W: LayoutElement> {
     /// The workspace id does not necessarily point to a valid workspace. If it doesn't, then it is
     /// simply ignored.
     last_active_workspace_id: HashMap<String, WorkspaceId>,
-    /// MRU focus stack with sway-like seat semantics (single seat runtime).
+    /// MRU focus stack with seat focus semantics (single seat runtime).
     seat_focus: SeatFocusStack<W::Id>,
     /// Ongoing interactive move.
     interactive_move: Option<InteractiveMoveState<W>>,
@@ -2745,26 +2745,34 @@ impl<W: LayoutElement> Layout<W> {
         self.move_container_right();
     }
 
-    pub fn move_container_to_first(&mut self) {
+    pub fn move_root_container_to_first(&mut self) {
         let Some(workspace) = self.active_workspace_mut() else {
             return;
         };
         workspace.move_container_to_first();
     }
 
-    pub fn move_column_to_first(&mut self) {
-        self.move_container_to_first();
+    pub fn move_container_to_first(&mut self) {
+        self.move_root_container_to_first();
     }
 
-    pub fn move_container_to_last(&mut self) {
+    pub fn move_column_to_first(&mut self) {
+        self.move_root_container_to_first();
+    }
+
+    pub fn move_root_container_to_last(&mut self) {
         let Some(workspace) = self.active_workspace_mut() else {
             return;
         };
         workspace.move_container_to_last();
     }
 
+    pub fn move_container_to_last(&mut self) {
+        self.move_root_container_to_last();
+    }
+
     pub fn move_column_to_last(&mut self) {
-        self.move_container_to_last();
+        self.move_root_container_to_last();
     }
 
     pub fn move_container_left_or_to_output(&mut self, output: &Output) -> bool {
@@ -2797,15 +2805,19 @@ impl<W: LayoutElement> Layout<W> {
         self.move_container_right_or_to_output(output)
     }
 
-    pub fn move_container_to_index(&mut self, index: usize) {
+    pub fn move_root_container_to_index(&mut self, index: usize) {
         let Some(workspace) = self.active_workspace_mut() else {
             return;
         };
         workspace.move_container_to_index(index);
     }
 
+    pub fn move_container_to_index(&mut self, index: usize) {
+        self.move_root_container_to_index(index);
+    }
+
     pub fn move_column_to_index(&mut self, index: usize) {
-        self.move_container_to_index(index);
+        self.move_root_container_to_index(index);
     }
 
     pub fn move_down(&mut self) {
@@ -2898,25 +2910,25 @@ impl<W: LayoutElement> Layout<W> {
         self.seat_focus_record_active_chain();
     }
 
-    pub fn focus_column_first(&mut self) {
+    pub fn focus_root_container_first(&mut self) {
         self.clear_sticky_focus();
         let Some(workspace) = self.active_workspace_mut() else {
             return;
         };
-        workspace.focus_column_first();
+        workspace.focus_root_container_first();
         self.seat_focus_record_active_chain();
     }
 
-    pub fn focus_column_last(&mut self) {
+    pub fn focus_root_container_last(&mut self) {
         self.clear_sticky_focus();
         let Some(workspace) = self.active_workspace_mut() else {
             return;
         };
-        workspace.focus_column_last();
+        workspace.focus_root_container_last();
         self.seat_focus_record_active_chain();
     }
 
-    pub fn focus_column_right_or_first(&mut self) {
+    pub fn focus_root_container_right_or_first(&mut self) {
         self.clear_sticky_focus();
         let Some(workspace) = self.active_workspace_mut() else {
             return;
@@ -2925,7 +2937,7 @@ impl<W: LayoutElement> Layout<W> {
         self.seat_focus_record_active_chain();
     }
 
-    pub fn focus_column_left_or_last(&mut self) {
+    pub fn focus_root_container_left_or_last(&mut self) {
         self.clear_sticky_focus();
         let Some(workspace) = self.active_workspace_mut() else {
             return;
@@ -2934,13 +2946,33 @@ impl<W: LayoutElement> Layout<W> {
         self.seat_focus_record_active_chain();
     }
 
-    pub fn focus_column(&mut self, index: usize) {
+    pub fn focus_root_container(&mut self, index: usize) {
         self.clear_sticky_focus();
         let Some(workspace) = self.active_workspace_mut() else {
             return;
         };
-        workspace.focus_column(index);
+        workspace.focus_root_container(index);
         self.seat_focus_record_active_chain();
+    }
+
+    pub fn focus_column_first(&mut self) {
+        self.focus_root_container_first();
+    }
+
+    pub fn focus_column_last(&mut self) {
+        self.focus_root_container_last();
+    }
+
+    pub fn focus_column_right_or_first(&mut self) {
+        self.focus_root_container_right_or_first();
+    }
+
+    pub fn focus_column_left_or_last(&mut self) {
+        self.focus_root_container_left_or_last();
+    }
+
+    pub fn focus_column(&mut self, index: usize) {
+        self.focus_root_container(index);
     }
 
     pub fn focus_window_up_or_output(&mut self, output: &Output) -> bool {
@@ -2971,7 +3003,7 @@ impl<W: LayoutElement> Layout<W> {
         true
     }
 
-    pub fn focus_column_left_or_output(&mut self, output: &Output) -> bool {
+    pub fn focus_container_left_or_output(&mut self, output: &Output) -> bool {
         self.clear_sticky_focus_for_output(output);
         if let Some(workspace) = self.active_workspace_mut() {
             if workspace.focus_left_no_wrap() {
@@ -2985,7 +3017,7 @@ impl<W: LayoutElement> Layout<W> {
         true
     }
 
-    pub fn focus_column_right_or_output(&mut self, output: &Output) -> bool {
+    pub fn focus_container_right_or_output(&mut self, output: &Output) -> bool {
         self.clear_sticky_focus_for_output(output);
         if let Some(workspace) = self.active_workspace_mut() {
             if workspace.focus_right_no_wrap() {
@@ -2997,6 +3029,14 @@ impl<W: LayoutElement> Layout<W> {
         self.focus_output_in_direction_internal(output, Direction::Right);
         self.seat_focus_record_active_chain();
         true
+    }
+
+    pub fn focus_column_left_or_output(&mut self, output: &Output) -> bool {
+        self.focus_container_left_or_output(output)
+    }
+
+    pub fn focus_column_right_or_output(&mut self, output: &Output) -> bool {
+        self.focus_container_right_or_output(output)
     }
 
     pub fn focus_window_in_column(&mut self, index: u8) {
@@ -4566,14 +4606,14 @@ impl<W: LayoutElement> Layout<W> {
 
     pub fn focus_floating(&mut self) {
         self.clear_sticky_focus();
-        if self.focus_mode_like_sway(true) {
+        if self.focus_mode(true) {
             self.seat_focus_record_active_chain();
         }
     }
 
     pub fn focus_tiling(&mut self) {
         self.clear_sticky_focus();
-        if self.focus_mode_like_sway(false) {
+        if self.focus_mode(false) {
             self.seat_focus_record_active_chain();
         }
     }
@@ -4582,16 +4622,16 @@ impl<W: LayoutElement> Layout<W> {
         self.clear_sticky_focus();
         let Some(target_floating) = self
             .active_workspace()
-            .map(|ws| ws.focus_mode_toggle_target_is_floating_like_sway())
+            .map(|ws| ws.focus_mode_toggle_targets_floating())
         else {
             return;
         };
-        if self.focus_mode_like_sway(target_floating) {
+        if self.focus_mode(target_floating) {
             self.seat_focus_record_active_chain();
         }
     }
 
-    fn focus_mode_like_sway(&mut self, floating: bool) -> bool {
+    fn focus_mode(&mut self, floating: bool) -> bool {
         if !floating
             && self.active_workspace().is_some_and(|ws| {
                 ws.floating_is_active()
@@ -4600,7 +4640,7 @@ impl<W: LayoutElement> Layout<W> {
                         .is_some_and(|window| window.is_pending_windowed_fullscreen())
             })
         {
-            // Match sway seat focus constraints: don't move focus from an active
+            // Match fullscreen focus constraints: don't move focus from an active
             // fullscreen floating container to tiling.
             return false;
         }
@@ -4632,8 +4672,7 @@ impl<W: LayoutElement> Layout<W> {
 
         if let Some(reference) = self.seat_focus.focus_inactive_tiling(workspace_id) {
             if self.active_workspace().is_some_and(|ws| {
-                ws.floating_is_active()
-                    && !ws.tiling_reference_focusable_like_sway(&reference, true)
+                ws.floating_is_active() && !ws.tiling_reference_focusable(&reference, true)
             }) {
                 return false;
             }
@@ -4893,7 +4932,7 @@ impl<W: LayoutElement> Layout<W> {
             let ws = &mut monitors[idx].workspaces[ws_idx];
             target_has_tiling = ws.has_tiling_windows();
             if !target_has_tiling {
-                ws.focus_workspace_node_like_sway();
+                ws.focus_workspace_node();
             }
             target_workspace_id = Some(ws.id());
             target_monitor_idx = Some(idx);

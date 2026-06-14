@@ -471,6 +471,14 @@ pub enum Action {
     FocusColumnLeft {},
     /// Focus the column to the right.
     FocusColumnRight {},
+    /// Focus the container to the left.
+    FocusContainerLeft {},
+    /// Focus the container below.
+    FocusContainerDown {},
+    /// Focus the container above.
+    FocusContainerUp {},
+    /// Focus the container to the right.
+    FocusContainerRight {},
     /// Focus the first column.
     FocusColumnFirst {},
     /// Focus the last column.
@@ -541,6 +549,10 @@ pub enum Action {
     },
     /// Move the focused container to the left.
     MoveContainerLeft {},
+    /// Move the focused container down.
+    MoveContainerDown {},
+    /// Move the focused container up.
+    MoveContainerUp {},
     /// Move the focused container to the right.
     MoveContainerRight {},
     /// Move the focused container to the start of the workspace.

@@ -1018,13 +1018,13 @@ impl State {
                 self.niri.queue_redraw_all();
             }
             Action::MoveColumnToFirst | Action::MoveContainerToFirst => {
-                self.niri.layout.move_container_to_first();
+                self.niri.layout.move_root_container_to_first();
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
             Action::MoveColumnToLast | Action::MoveContainerToLast => {
-                self.niri.layout.move_container_to_last();
+                self.niri.layout.move_root_container_to_last();
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.niri.queue_redraw_all();
@@ -1068,7 +1068,7 @@ impl State {
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
-            Action::MoveWindowDown => {
+            Action::MoveWindowDown | Action::MoveContainerDown => {
                 if self.niri.screenshot_ui.is_open() {
                     self.niri.screenshot_ui.move_down();
                 } else {
@@ -1079,7 +1079,7 @@ impl State {
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
-            Action::MoveWindowUp => {
+            Action::MoveWindowUp | Action::MoveContainerUp => {
                 if self.niri.screenshot_ui.is_open() {
                     self.niri.screenshot_ui.move_up();
                 } else {
@@ -1144,9 +1144,9 @@ impl State {
                     self.niri.queue_redraw_all();
                 }
             }
-            Action::FocusColumnLeft => {
+            Action::FocusColumnLeft | Action::FocusContainerLeft => {
                 if let Some(output) = self.niri.output_left() {
-                    if self.niri.layout.focus_column_left_or_output(&output)
+                    if self.niri.layout.focus_container_left_or_output(&output)
                         && !self.maybe_warp_cursor_to_focus_centered()
                     {
                         self.move_cursor_to_output(&output);
@@ -1174,9 +1174,9 @@ impl State {
                     self.niri.queue_redraw(&output);
                 }
             }
-            Action::FocusColumnRight => {
+            Action::FocusColumnRight | Action::FocusContainerRight => {
                 if let Some(output) = self.niri.output_right() {
-                    if self.niri.layout.focus_column_right_or_output(&output)
+                    if self.niri.layout.focus_container_right_or_output(&output)
                         && !self.maybe_warp_cursor_to_focus_centered()
                     {
                         self.move_cursor_to_output(&output);
@@ -1205,35 +1205,35 @@ impl State {
                 }
             }
             Action::FocusColumnFirst => {
-                self.niri.layout.focus_column_first();
+                self.niri.layout.focus_root_container_first();
                 self.maybe_warp_cursor_to_focus();
                 self.niri.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
             Action::FocusColumnLast => {
-                self.niri.layout.focus_column_last();
+                self.niri.layout.focus_root_container_last();
                 self.maybe_warp_cursor_to_focus();
                 self.niri.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
             Action::FocusColumnRightOrFirst => {
-                self.niri.layout.focus_column_right_or_first();
+                self.niri.layout.focus_root_container_right_or_first();
                 self.maybe_warp_cursor_to_focus();
                 self.niri.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
             Action::FocusColumnLeftOrLast => {
-                self.niri.layout.focus_column_left_or_last();
+                self.niri.layout.focus_root_container_left_or_last();
                 self.maybe_warp_cursor_to_focus();
                 self.niri.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
             Action::FocusColumn(index) => {
-                self.niri.layout.focus_column(index);
+                self.niri.layout.focus_root_container(index);
                 self.maybe_warp_cursor_to_focus();
                 self.niri.layer_shell_on_demand_focus = None;
                 // FIXME: granular
@@ -1277,7 +1277,7 @@ impl State {
             }
             Action::FocusColumnOrMonitorLeft => {
                 if let Some(output) = self.niri.output_left() {
-                    if self.niri.layout.focus_column_left_or_output(&output)
+                    if self.niri.layout.focus_container_left_or_output(&output)
                         && !self.maybe_warp_cursor_to_focus_centered()
                     {
                         self.move_cursor_to_output(&output);
@@ -1295,7 +1295,7 @@ impl State {
             }
             Action::FocusColumnOrMonitorRight => {
                 if let Some(output) = self.niri.output_right() {
-                    if self.niri.layout.focus_column_right_or_output(&output)
+                    if self.niri.layout.focus_container_right_or_output(&output)
                         && !self.maybe_warp_cursor_to_focus_centered()
                     {
                         self.move_cursor_to_output(&output);
@@ -1311,14 +1311,14 @@ impl State {
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
-            Action::FocusWindowDown => {
+            Action::FocusWindowDown | Action::FocusContainerDown => {
                 self.niri.layout.focus_down();
                 self.maybe_warp_cursor_to_focus();
                 self.niri.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.niri.queue_redraw_all();
             }
-            Action::FocusWindowUp => {
+            Action::FocusWindowUp | Action::FocusContainerUp => {
                 self.niri.layout.focus_up();
                 self.maybe_warp_cursor_to_focus();
                 self.niri.layer_shell_on_demand_focus = None;
@@ -1519,7 +1519,7 @@ impl State {
                 }
             }
             Action::MoveColumnToIndex(idx) | Action::MoveContainerToIndex(idx) => {
-                self.niri.layout.move_container_to_index(idx);
+                self.niri.layout.move_root_container_to_index(idx);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.niri.queue_redraw_all();
@@ -5020,6 +5020,8 @@ fn allowed_during_screenshot(action: &Action) -> bool {
             | Action::MoveContainerRight
             | Action::MoveColumnRightOrToMonitorRight
             | Action::MoveContainerRightOrToMonitorRight
+            | Action::MoveContainerUp
+            | Action::MoveContainerDown
             | Action::MoveWindowUp
             | Action::MoveWindowUpOrToWorkspaceUp
             | Action::MoveWindowDown

@@ -1191,7 +1191,7 @@ impl Op {
                     return;
                 };
 
-                layout.focus_column_left_or_output(&output);
+                layout.focus_container_left_or_output(&output);
             }
             Op::FocusColumnOrMonitorRight(id) => {
                 let name = format!("output{id}");
@@ -1199,7 +1199,7 @@ impl Op {
                     return;
                 };
 
-                layout.focus_column_right_or_output(&output);
+                layout.focus_container_right_or_output(&output);
             }
             Op::FocusWindowDown => layout.focus_down(),
             Op::FocusWindowUp => layout.focus_up(),
@@ -3249,7 +3249,7 @@ prop_compose! {
 // Focus parent/child navigation tests
 
 #[test]
-fn handler_context_routing_matrix_for_core_command_families() {
+fn command_target_routing_matrix_for_core_command_families() {
     struct ExpectedRoute {
         handler: &'static str,
         command: &'static str,
@@ -3368,9 +3368,9 @@ fn handler_context_routing_matrix_for_core_command_families() {
         let workspace = layout.active_workspace().expect("active workspace");
 
         assert_eq!(
-            workspace.debug_handler_context(),
+            workspace.debug_command_target(),
             expected.handler,
-            "case={name}: unexpected handler_context",
+            "case={name}: unexpected command_target",
         );
         assert_eq!(
             workspace.debug_command_context(),

@@ -13,7 +13,8 @@ use tiri_ipc::{ColumnDisplay, LayoutTreeNode, PositionChange, SizeChange, Window
 
 use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
 use super::container::{
-    ContainerTree, DetachedNode, Direction, InsertParentInfo, Layout, LeafLayoutInfo, TabBarInfo,
+    ContainerTree, DetachedNode, Direction, InsertParentInfo, Layout, LeafLayoutInfo, RootPolicy,
+    TabBarInfo,
 };
 use super::focus_ring::{
     render_container_selection, ContainerSelectionStyle, FocusRingEdges, FocusRingRenderElement,
@@ -959,6 +960,13 @@ impl<W: LayoutElement> FloatingSpace<W> {
         self.containers[idx].wrapper_selected
     }
 
+    pub(super) fn active_command_container_selected(&self) -> bool {
+        let Some(idx) = self.active_container_idx() else {
+            return false;
+        };
+        self.containers[idx].wrapper_selected || self.containers[idx].tree.selected_is_container()
+    }
+
     pub(super) fn active_command_container_path(&self) -> Option<Vec<usize>> {
         let idx = self.active_container_idx()?;
         if self.containers[idx].wrapper_selected {
@@ -1348,7 +1356,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
         subtree.for_each_tile_mut(&mut |tile| {
             Self::store_floating_size_for_restore(tile);
         });
-        // Sway's container_set_floating(false) does NOT collapse/normalize the tree.
+        // The reference container_set_floating(false) does NOT collapse/normalize the tree.
         // Insert directly using the inactive tiling reference.
 
         if let Some(active) = &self.active_window_id {
@@ -2149,7 +2157,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
                 container.tree.clear_selection();
                 return false;
             }
-            // Match sway: once the floating wrapper is selected, the next
+            // Model rule: once the floating wrapper is selected, the next
             // focus-parent step reaches workspace context while keeping the
             // floating command target available.
             return false;
@@ -2284,9 +2292,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             return;
         };
 
-        if self.containers[idx].tree.move_in_direction(direction) {
-            self.containers[idx].wrapper_selected = false;
-            self.containers[idx].tree.layout();
+        if self.move_tree_command_target(idx, direction) {
             return;
         }
 
@@ -2326,10 +2332,21 @@ impl<W: LayoutElement> FloatingSpace<W> {
             return;
         };
 
-        if self.containers[idx].tree.move_in_direction(direction) {
+        self.move_tree_command_target(idx, direction);
+    }
+
+    fn move_tree_command_target(&mut self, idx: usize, direction: Direction) -> bool {
+        let target = self.containers[idx]
+            .tree
+            .command_target(RootPolicy::MaterialContainer);
+        let moved = self.containers[idx]
+            .tree
+            .move_target_in_direction(direction, target);
+        if moved {
             self.containers[idx].wrapper_selected = false;
             self.containers[idx].tree.layout();
         }
+        moved
     }
 
     pub fn set_column_display(&mut self, display: ColumnDisplay) {
@@ -2361,41 +2378,52 @@ impl<W: LayoutElement> FloatingSpace<W> {
 
     fn split_for_active_selection(&mut self, idx: usize, layout: Layout) -> bool {
         if self.containers[idx].wrapper_selected {
-            return self.containers[idx]
-                .tree
-                .split_root_like_sway_floating(layout);
+            return self.containers[idx].tree.split_root_container(layout);
         }
 
+        let target = self.containers[idx]
+            .tree
+            .command_target(RootPolicy::MaterialContainer);
         self.containers[idx]
             .tree
-            .split_selected_or_focused_like_sway_floating(layout)
+            .split_target(layout, target, RootPolicy::MaterialContainer)
     }
 
     fn set_layout_for_active_selection(&mut self, idx: usize, layout: Layout) -> bool {
         if self.containers[idx].wrapper_selected {
-            // Match sway cmd_layout: top-level floating containers are not layout targets.
+            // Top-level floating containers are not layout targets.
             return false;
         }
 
         if self.containers[idx].tree.selected_is_container() {
             let path = self.containers[idx].tree.selected_path();
             if path.is_empty() {
-                // Match sway cmd_layout: root floating container has no parent target.
+                // Root floating container has no parent target.
                 return false;
             }
-            let parent_path = &path[..path.len() - 1];
-            if let Some(container) = self.containers[idx].tree.container_at_path_mut(parent_path) {
-                container.set_layout_explicit(layout);
-                return true;
-            }
+            let target = self.containers[idx]
+                .tree
+                .command_target(RootPolicy::MaterialContainer);
+            return self.containers[idx].tree.set_layout_for_target(
+                layout,
+                target,
+                RootPolicy::MaterialContainer,
+            );
         }
 
-        // Match sway: layout commands on a standalone floating leaf are no-op.
+        // Model rule: layout commands on a standalone floating leaf are no-op.
         if self.active_selection_layout(idx).is_none() || self.has_implicit_single_leaf_root(idx) {
             return false;
         }
 
-        self.containers[idx].tree.set_focused_layout(layout)
+        let target = self.containers[idx]
+            .tree
+            .command_target(RootPolicy::MaterialContainer);
+        self.containers[idx].tree.set_layout_for_target(
+            layout,
+            target,
+            RootPolicy::MaterialContainer,
+        )
     }
 
     fn toggle_split_for_active_selection(&mut self, idx: usize) -> bool {
@@ -2422,12 +2450,17 @@ impl<W: LayoutElement> FloatingSpace<W> {
             }
         }
 
-        // Match sway: layout commands on a standalone floating leaf are no-op.
+        // Model rule: layout commands on a standalone floating leaf are no-op.
         if self.active_selection_layout(idx).is_none() || self.has_implicit_single_leaf_root(idx) {
             return false;
         }
 
-        self.containers[idx].tree.toggle_split_layout()
+        let target = self.containers[idx]
+            .tree
+            .command_target(RootPolicy::MaterialContainer);
+        self.containers[idx]
+            .tree
+            .toggle_split_for_target(target, RootPolicy::MaterialContainer)
     }
 
     fn toggle_layout_all_for_active_selection(&mut self, idx: usize) -> bool {
@@ -2450,12 +2483,17 @@ impl<W: LayoutElement> FloatingSpace<W> {
             }
         }
 
-        // Match sway: layout commands on a standalone floating leaf are no-op.
+        // Model rule: layout commands on a standalone floating leaf are no-op.
         if self.active_selection_layout(idx).is_none() || self.has_implicit_single_leaf_root(idx) {
             return false;
         }
 
-        self.containers[idx].tree.toggle_layout_all()
+        let target = self.containers[idx]
+            .tree
+            .command_target(RootPolicy::MaterialContainer);
+        self.containers[idx]
+            .tree
+            .toggle_layout_all_for_target(target, RootPolicy::MaterialContainer)
     }
 
     pub fn split_horizontal(&mut self) {
@@ -3280,6 +3318,7 @@ impl<W: LayoutElement> FloatingSpace<W> {
             use crate::layout::SizingMode;
 
             container.data.verify_invariants();
+            container.tree.verify_invariants();
 
             for tile in container.tree.all_tiles() {
                 assert!(Rc::ptr_eq(&self.options, &tile.options));

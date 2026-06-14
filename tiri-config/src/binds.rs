@@ -179,6 +179,10 @@ pub enum Action {
     FocusColumnRight,
     #[knuffel(skip)]
     FocusColumnRightUnderMouse,
+    FocusContainerLeft,
+    FocusContainerDown,
+    FocusContainerUp,
+    FocusContainerRight,
     FocusColumnFirst,
     FocusColumnLast,
     FocusColumnRightOrFirst,
@@ -208,6 +212,8 @@ pub enum Action {
     MoveColumnRightOrToMonitorRight,
     MoveColumnToIndex(#[knuffel(argument)] usize),
     MoveContainerLeft,
+    MoveContainerDown,
+    MoveContainerUp,
     MoveContainerRight,
     MoveContainerToFirst,
     MoveContainerToLast,
@@ -510,6 +516,10 @@ impl From<tiri_ipc::Action> for Action {
             tiri_ipc::Action::FocusWindowPrevious {} => Self::FocusWindowPrevious,
             tiri_ipc::Action::FocusColumnLeft {} => Self::FocusColumnLeft,
             tiri_ipc::Action::FocusColumnRight {} => Self::FocusColumnRight,
+            tiri_ipc::Action::FocusContainerLeft {} => Self::FocusContainerLeft,
+            tiri_ipc::Action::FocusContainerDown {} => Self::FocusContainerDown,
+            tiri_ipc::Action::FocusContainerUp {} => Self::FocusContainerUp,
+            tiri_ipc::Action::FocusContainerRight {} => Self::FocusContainerRight,
             tiri_ipc::Action::FocusColumnFirst {} => Self::FocusColumnFirst,
             tiri_ipc::Action::FocusColumnLast {} => Self::FocusColumnLast,
             tiri_ipc::Action::FocusColumnRightOrFirst {} => Self::FocusColumnRightOrFirst,
@@ -534,6 +544,8 @@ impl From<tiri_ipc::Action> for Action {
             tiri_ipc::Action::MoveColumnLeft {} | tiri_ipc::Action::MoveContainerLeft {} => {
                 Self::MoveContainerLeft
             }
+            tiri_ipc::Action::MoveContainerDown {} => Self::MoveContainerDown,
+            tiri_ipc::Action::MoveContainerUp {} => Self::MoveContainerUp,
             tiri_ipc::Action::MoveColumnRight {} | tiri_ipc::Action::MoveContainerRight {} => {
                 Self::MoveContainerRight
             }

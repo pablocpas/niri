@@ -445,22 +445,22 @@ binds {
     Mod+Shift+Minus { move-window-to-scratchpad; }
     Mod+Minus { scratchpad-show; }
 
-    Mod+Left  { focus-column-left; }
-    Mod+Down  { focus-window-down; }
-    Mod+Up    { focus-window-up; }
-    Mod+Right { focus-column-right; }
-    Mod+H     { focus-column-left; }
-    Mod+J     { focus-window-down; }
-    Mod+K     { focus-window-up; }
-    Mod+L     { focus-column-right; }
+    Mod+Left  { focus-container-left; }
+    Mod+Down  { focus-container-down; }
+    Mod+Up    { focus-container-up; }
+    Mod+Right { focus-container-right; }
+    Mod+H     { focus-container-left; }
+    Mod+J     { focus-container-down; }
+    Mod+K     { focus-container-up; }
+    Mod+L     { focus-container-right; }
 
     Mod+Shift+Left  { move-container-left; }
-    Mod+Shift+Down  { move-window-down; }
-    Mod+Shift+Up    { move-window-up; }
+    Mod+Shift+Down  { move-container-down; }
+    Mod+Shift+Up    { move-container-up; }
     Mod+Shift+Right { move-container-right; }
     Mod+Shift+H     { move-container-left; }
-    Mod+Shift+J     { move-window-down; }
-    Mod+Shift+K     { move-window-up; }
+    Mod+Shift+J     { move-container-down; }
+    Mod+Shift+K     { move-container-up; }
     Mod+Shift+L     { move-container-right; }
 
     // Alternative commands that move across workspaces when reaching

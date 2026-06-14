@@ -442,22 +442,22 @@ binds {
     Mod+Shift+Minus { move-window-to-scratchpad; }
     Mod+Minus { scratchpad-show; }
 
-    Mod+Left  { focus-column-left; }
-    Mod+Down  { focus-window-down; }
-    Mod+Up    { focus-window-up; }
-    Mod+Right { focus-column-right; }
-    Mod+H     { focus-column-left; }
-    Mod+J     { focus-window-down; }
-    Mod+K     { focus-window-up; }
-    Mod+L     { focus-column-right; }
+    Mod+Left  { focus-container-left; }
+    Mod+Down  { focus-container-down; }
+    Mod+Up    { focus-container-up; }
+    Mod+Right { focus-container-right; }
+    Mod+H     { focus-container-left; }
+    Mod+J     { focus-container-down; }
+    Mod+K     { focus-container-up; }
+    Mod+L     { focus-container-right; }
 
     Mod+Shift+Left  { move-container-left; }
-    Mod+Shift+Down  { move-window-down; }
-    Mod+Shift+Up    { move-window-up; }
+    Mod+Shift+Down  { move-container-down; }
+    Mod+Shift+Up    { move-container-up; }
     Mod+Shift+Right { move-container-right; }
     Mod+Shift+H     { move-container-left; }
-    Mod+Shift+J     { move-window-down; }
-    Mod+Shift+K     { move-window-up; }
+    Mod+Shift+J     { move-container-down; }
+    Mod+Shift+K     { move-container-up; }
     Mod+Shift+L     { move-container-right; }
 
     // Alternative commands that move across workspaces when reaching
@@ -527,15 +527,15 @@ binds {
 // DISABLED (i3-conversion):     Mod+Ctrl+WheelScrollDown cooldown-ms=150 { move-container-to-workspace-down; }
 // DISABLED (i3-conversion):     Mod+Ctrl+WheelScrollUp   cooldown-ms=150 { move-container-to-workspace-up; }
 
-// DISABLED (i3-conversion):     Mod+WheelScrollRight      { focus-column-right; }
-// DISABLED (i3-conversion):     Mod+WheelScrollLeft       { focus-column-left; }
+// DISABLED (i3-conversion):     Mod+WheelScrollRight      { focus-container-right; }
+// DISABLED (i3-conversion):     Mod+WheelScrollLeft       { focus-container-left; }
 // DISABLED (i3-conversion):     Mod+Ctrl+WheelScrollRight { move-container-right; }
 // DISABLED (i3-conversion):     Mod+Ctrl+WheelScrollLeft  { move-container-left; }
 
     // Usually scrolling up and down with Shift in applications results in
     // horizontal scrolling; these binds replicate that.
-// DISABLED (i3-conversion):     Mod+Shift+WheelScrollDown      { focus-column-right; }
-// DISABLED (i3-conversion):     Mod+Shift+WheelScrollUp        { focus-column-left; }
+// DISABLED (i3-conversion):     Mod+Shift+WheelScrollDown      { focus-container-right; }
+// DISABLED (i3-conversion):     Mod+Shift+WheelScrollUp        { focus-container-left; }
 // DISABLED (i3-conversion):     Mod+Ctrl+Shift+WheelScrollDown { move-container-right; }
 // DISABLED (i3-conversion):     Mod+Ctrl+Shift+WheelScrollUp   { move-container-left; }
 
