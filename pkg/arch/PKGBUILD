@@ -46,8 +46,8 @@ source=(
   "${pkgname}-${pkgver}-vendored-dependencies.tar.xz::${url}/releases/download/${pkgname}-v${pkgver}/${pkgname}-${pkgver}-vendored-dependencies.tar.xz"
 )
 b2sums=(
-  'SKIP'
-  'SKIP'
+  'e8c2c2c5a0d6bb47d1a653b5eed61ac79d39eaa76427af84b8fa2ea98bd0bf3dc375df3a54c775bab641e035d44aa8de7b3f09451678888c64555762bb095511'
+  '318f39b2d5a0158e576c443f3b38149c1e59207a4dbe697c841b1e2e0784b5dc59e40b9613ab5023fcd09d8336ea69df25fa3b23861045fdc104fa7dea054f27'
 )
 
 prepare() {
