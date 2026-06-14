@@ -1,7 +1,7 @@
 # Maintainer: Pablo Pascual <pablocpascual@gmail.com>
 
 pkgname=tiri
-pkgver=0.1.2
+pkgver=0.1.3
 pkgrel=1
 pkgdesc='A tiling Wayland compositor derived from niri'
 arch=('x86_64')

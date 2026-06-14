@@ -1,5 +1,5 @@
 Name:           tiri
-Version:        0.1.2
+Version:        0.1.3
 Release:        1%{?dist}
 Summary:        A tiling Wayland compositor
 
@@ -78,6 +78,9 @@ install -Dpm0644 resources/tiri-shutdown.target %{buildroot}%{_userunitdir}/tiri
 %{_userunitdir}/tiri-shutdown.target
 
 %changelog
+* Sun Jun 14 2026 Pablo Pascual <pablocpascual@gmail.com> - 0.1.3-1
+- Release 0.1.3
+
 * Sun Jun 07 2026 Pablo Pascual <pablocpascual@gmail.com> - 0.1.2-1
 - Release 0.1.2
 
